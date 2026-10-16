@@ -1,0 +1,850 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 1 — Introduction to Operating Systems
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  six short videos.
+• Each video is designed to be between 15 and 20 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 1.1 — What is an Operating System?                            ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "What is an Operating System?" + course name]
+
+SPEAK:
+"Welcome to Week 1 of Operating Systems & Linux Practical. I'm Mahmoud
+Khalil, and over the next fifteen weeks we're going to build a very
+solid understanding of how computers work under the hood — starting
+today with the most fundamental question: what exactly is an operating
+system?
+
+This is the first of six short videos for this week. In this first
+video, I want to give you the conceptual foundation: what an operating
+system is, why it exists, and what jobs it does for you every single
+second that your computer is turned on."
+
+[PAUSE]
+
+[SLIDE 2 — A modern laptop with labeled components: CPU, RAM, SSD,
+screen, keyboard, network card]
+
+SPEAK:
+"Look at any computer — a laptop, a server, a smartphone or even a
+Raspberry Pi. Underneath the surface you have hardware. There's a CPU
+to execute instructions, memory to hold data, storage to keep files,
+and a bunch of devices to talk to the outside world.
+
+Now think about what happens when you double-click an icon to open a
+browser. The browser doesn't know how to talk to your SSD. It doesn't
+know what a network card is. It doesn't know how your keyboard sends
+signals. And frankly, it shouldn't need to know.
+
+Somebody has to sit between the applications and the hardware, hide all
+that complexity, and make sure that multiple programs can share the
+same machine without stepping on each other's toes. That 'somebody' is
+the operating system."
+
+[TRANSITION — slide changes to: "An OS is both a resource manager and
+an abstraction layer"]
+
+SPEAK:
+"So here's the definition I want you to write down: an operating system
+is the software that manages the hardware resources of a computer and
+provides a clean interface for applications to use those resources.
+
+Notice two words in that sentence: 'manages' and 'provides.' They
+correspond to the two classic roles of an operating system, and I want
+us to look at them one by one."
+
+[PAUSE]
+
+[SLIDE 3 — Two-column slide: "Resource Manager" | "Abstraction Layer"]
+
+SPEAK:
+"First role: the operating system is a resource manager. Every computer
+has only a limited amount of CPU, memory, storage, and I/O bandwidth.
+Multiple programs want a piece of the pie at the same time — your
+browser, your music player, your terminal, background updates. The OS
+decides who gets what and when. It schedules the CPU between processes,
+allocates memory pages, controls access to the disk, and arbitrates
+network traffic.
+
+Without this management, one badly behaved program could hog the entire
+machine, and nothing else would ever run."
+
+[PAUSE]
+
+SPEAK:
+"Second role: the operating system is an abstraction layer. Remember I
+said the browser doesn't know how to talk to your SSD? The OS gives it
+something friendlier to work with. Instead of raw disk blocks, the
+browser sees files and folders. Instead of raw network packets, it sees
+network sockets. Instead of CPU registers and memory addresses, it
+sees processes and variables.
+
+This abstraction is not just convenience. It is the reason why we can
+write portable software — a Python script you write today will run on a
+laptop, a server, and a Raspberry Pi without change, because each of
+them has an OS that presents the same abstract interface."
+
+[TRANSITION]
+
+[SLIDE 4 — Short historical timeline: 1940s plugboards → 1960s
+time-sharing → 1970s Unix → 1990s Linux → today]
+
+SPEAK:
+"Just a quick historical note before we move on. In the very early days
+of computing, in the 1940s and 50s, there was no operating system.
+Programmers loaded their code with punch cards and plugboards, and
+physically rewired the machine between runs. This was painfully slow.
+
+The 1960s introduced time-sharing systems like CTSS and Multics, which
+allowed several users to share a single mainframe interactively. Then,
+in 1969, a small team at Bell Labs created Unix — and that single
+design decision shaped decades of computing. Linux, macOS, and even
+indirectly Windows, all carry the DNA of Unix.
+
+Today we have operating systems for everything: tiny ones inside
+smartwatches, full-featured ones on servers, and distributed ones
+running across thousands of datacenter machines. But the fundamental
+job is the same as it was sixty years ago."
+
+[PAUSE]
+
+[SLIDE 5 — Summary: two roles + definition]
+
+SPEAK:
+"Let me finish this first video with a clean summary. When someone asks
+you 'what is an operating system?', I want you to answer with two
+things:
+
+One — the OS is a resource manager. It decides who gets CPU time,
+memory, storage, and devices.
+
+Two — the OS is an abstraction layer. It hides hardware complexity and
+gives applications a friendly interface.
+
+Everything else we'll learn this semester — processes, threads,
+scheduling, memory management, DNS, HTTP — all builds on these two
+ideas.
+
+In the next video, we'll look at something that is easy to take for
+granted but actually central to how protection works: the distinction
+between user mode and kernel mode. See you there."
+
+[END OF VIDEO 1.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 1.2 — User Mode vs Kernel Mode                                ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "User Mode vs Kernel Mode"]
+
+SPEAK:
+"Welcome back. In the previous video we saw that the OS is the software
+sitting between applications and hardware. But here's a question I want
+you to think about for a moment: what stops a badly written program
+from accidentally — or deliberately — corrupting the entire system?
+
+Imagine if every Python script you ran could directly overwrite the
+data of every other program on the machine, or send arbitrary commands
+to the disk, or crash the CPU. That would be a disaster. Yet no modern
+system works that way. And the reason is the subject of this video:
+the dual-mode model."
+
+[PAUSE]
+
+[SLIDE 2 — Two big boxes: "User Mode" (restricted) vs "Kernel Mode"
+(full privileges)]
+
+SPEAK:
+"Modern CPUs provide at least two privilege levels. One is restricted,
+and the other is unrestricted. We call them user mode and kernel mode.
+Some textbooks use the term 'supervisor mode' for kernel mode, but in
+this course we'll stick with kernel mode.
+
+When the CPU is in user mode, it will refuse to execute certain
+instructions. Things like modifying page tables, disabling interrupts,
+or talking directly to hardware are blocked. If user code tries to run
+any of these so-called privileged instructions, the CPU immediately
+raises a signal — a trap — and hands control to the kernel."
+
+[PAUSE]
+
+SPEAK:
+"When the CPU is in kernel mode, on the other hand, there are no
+restrictions. Any instruction can execute. The OS kernel code runs
+here, and this is where the actual device drivers, memory management,
+and scheduling logic live.
+
+How does the CPU know which mode it's in? There's a special bit in the
+processor called the mode bit, sometimes also called the Current
+Privilege Level. When it's set to one, you're in user mode. When it's
+cleared to zero, you're in kernel mode."
+
+[TRANSITION — slide changes to the diagram of user/kernel transition]
+
+SPEAK:
+"Now an important clarification. User mode does not mean 'a user is
+using the computer.' Even the root user — the superuser in Linux —
+runs in user mode. Root has more permissions at the level of file
+access and system administration, but it still cannot execute
+privileged CPU instructions directly. Only the kernel itself runs in
+kernel mode.
+
+This is a subtle but very important idea. The privileges of a user
+account, and the privileges of CPU mode, are two completely separate
+languages."
+
+[PAUSE]
+
+[SLIDE 3 — Comparison table: User Mode vs Kernel Mode]
+
+SPEAK:
+"Let's put the two modes side by side, because you'll see this table
+again on the midterm.
+
+In user mode, we run applications, libraries, and your own code. The
+privilege level is restricted — ring 3 on x86 CPUs. Only non-privileged
+instructions are allowed. Hardware access must be requested through
+system calls. And if something goes wrong, only the application
+crashes — the rest of the system keeps running.
+
+In kernel mode, we run only kernel code. The privilege level is ring 0.
+Every instruction is permitted. Direct hardware access is available.
+And — this is the sharp edge — a bug in kernel code can crash the
+entire machine. This is called a kernel panic."
+
+[PAUSE]
+
+SPEAK:
+"Before we finish this video, let me address a question I get very
+often from students. Someone will say: 'but I'm the administrator on my
+own laptop, I can do anything.' And yes, that's true at the level of
+the OS's permission system. But you still cannot, from a shell prompt,
+directly write to a memory-mapped CPU register in kernel space. You
+still cannot execute the privileged instruction that disables
+interrupts. That's not a limitation of your account — it's a
+fundamental boundary enforced by the CPU hardware itself."
+
+[SLIDE 4 — Summary]
+
+SPEAK:
+"So, three ideas to take away.
+
+One: the CPU has at least two privilege modes — user and kernel.
+
+Two: user-mode code is restricted; kernel-mode code is not.
+
+Three: the only legitimate way for an application to enter kernel mode
+is through a controlled trap, which we'll look at in the next video —
+system calls and interrupts.
+
+See you in video 1.3."
+
+[END OF VIDEO 1.2]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 1.3 — System Calls, Interrupts, and Traps                     ║
+║  Target duration: ~20 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "System Calls, Interrupts, and Traps"]
+
+SPEAK:
+"Welcome back. In the last video we learned that applications run in
+user mode and cannot touch hardware directly. So how does a program
+read a file, send data over the network, or create a new process?
+The answer is: it asks the kernel. Politely. Through a controlled
+mechanism. That mechanism is the subject of this video.
+
+There are three related but distinct concepts we need to untangle:
+system calls, interrupts, and traps. They are often confused — even in
+some textbooks — so let's be precise."
+
+[PAUSE]
+
+[SLIDE 2 — Three items on screen: System Call, Interrupt, Trap]
+
+SPEAK:
+"Let's define each one.
+
+A system call is a request made by an application, asking the kernel
+to perform a service on its behalf. For example: 'read these bytes
+from that file,' or 'send this data to that network socket,' or 'create
+a new process for me.' The application initiates the request — so a
+system call is synchronous with the program's own flow.
+
+An interrupt is a signal from a piece of hardware — a disk, a keyboard,
+a network card, or the timer. The hardware says to the CPU: 'stop
+what you're doing, I need your attention.' Interrupts are asynchronous
+— they can happen at literally any moment.
+
+A trap or an exception is triggered by the CPU itself, usually
+because the running instruction did something problematic. Division
+by zero is a classic example. A page fault is another — the memory you
+wanted isn't loaded yet, so the CPU traps into the kernel."
+
+[PAUSE]
+
+SPEAK:
+"Notice the pattern. All three eventually transfer control to kernel
+mode. But they trigger it from very different places — the application,
+the hardware, or the CPU's own error detection."
+
+[TRANSITION — slide changes to a numbered list with arrows]
+
+SPEAK:
+"Let's walk through what actually happens during a system call, step
+by step. I want you to really understand this sequence, because it
+comes up repeatedly — not only in this course, but in every systems
+course and job interview you'll ever have.
+
+Step one: the application prepares the arguments and puts the
+system call number in a specific CPU register. On x86-64 Linux, that
+register is called rax. Each system call has a unique number — for
+example, read is 0, write is 1, open is 2.
+
+Step two: the application executes a special instruction. On x86-64
+this is the syscall instruction. On 32-bit systems it used to be
+int 0x80. This instruction is the boundary.
+
+Step three: the CPU switches to kernel mode and jumps to a fixed
+address in the kernel — the syscall entry point.
+
+Step four: the kernel reads the syscall number from rax, looks it up
+in the syscall table, and calls the corresponding handler.
+
+Step five: the handler does the actual work — maybe talking to a
+device driver, maybe allocating memory, maybe creating a process.
+
+Step six: the kernel prepares the return value, executes the
+return-from-trap instruction, and the CPU switches back to user mode.
+
+Step seven: the application continues from where it left off, now
+holding the result."
+
+[PAUSE]
+
+[SLIDE 3 — Code snippet with common syscalls]
+
+SPEAK:
+"Here are some of the most common system calls you'll encounter. Don't
+memorize them — you'll pick them up naturally as we go. But glance at
+the list: read, write, open, close, fork, execve, waitpid, mmap, socket.
+
+Some of these names probably look familiar — read and write, for
+example, are Python built-in concepts, and fork is a well-known Unix
+concept. That's no accident. The Python functions you use every day,
+like open, ultimately rely on these very syscalls. When you call
+file = open('data.txt') in Python, the interpreter eventually calls
+the open system call underneath, adding layers of abstraction along
+the way."
+
+[PAUSE]
+
+[SLIDE 4 — Note on terminology]
+
+SPEAK:
+"One last thing before we finish. I mentioned earlier that the word
+'trap' is used somewhat inconsistently in the literature. In some
+books, a trap is any software-triggered kernel entry — including
+system calls. In other books, a trap is specifically an exception. In
+Linux kernel documentation, the second meaning is more common. In
+this course, we'll use the broader meaning: a trap is any
+software-triggered transfer to kernel mode.
+
+The point is: don't get too attached to the labels. What matters is
+that you understand the mechanism — user code wants something the
+kernel can provide, and there's a controlled, well-defined way to ask
+for it. Everything else — the exact terminology — varies from book to
+book."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"So, to summarize.
+
+System calls — the application asks the kernel to do something.
+Synchronous, initiated by the program.
+
+Interrupts — hardware signals that need attention. Asynchronous,
+triggered by devices.
+
+Traps and exceptions — synchronized with an executing instruction,
+triggered by the CPU when something unusual happens.
+
+All three transfer control to kernel mode. All three are essential to
+how a modern OS actually functions.
+
+In the next video we'll take a step back and look at how the kernel
+itself is organized — the different kernel architectures."
+
+[END OF VIDEO 1.3]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 1.4 — Kernel Architectures                                    ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Kernel Architectures"]
+
+SPEAK:
+"Welcome to the fourth video of Week 1. So far we've seen what an
+operating system is, how it separates user mode from kernel mode, and
+how applications ask it for services. Now it's time to look inside the
+kernel itself.
+
+The question we're asking in this video is simple: how is the kernel
+organized internally? There is no single right answer. Different
+operating systems choose different architectures, and each choice has
+real consequences for performance, safety, and maintainability."
+
+[PAUSE]
+
+[SLIDE 2 — Three boxes: Monolithic, Microkernel, Hybrid]
+
+SPEAK:
+"We can loosely organize modern kernels into three families:
+monolithic, microkernel, and hybrid.
+
+Let's start with the monolithic kernel — the architecture used by
+Linux and traditional Unix systems."
+
+[PAUSE]
+
+[SLIDE 3 — A single large box labeled "Kernel" with sub-boxes for
+drivers, filesystem, network, memory management all inside]
+
+SPEAK:
+"In a monolithic design, everything runs inside one big kernel address
+space. That means the scheduler, the memory manager, the file systems,
+the network stack, the device drivers — all of them are part of the
+same program, running in kernel mode, sharing the same memory.
+
+The advantage is speed. When your network driver needs to talk to the
+memory manager, it's just a function call — no context switch, no
+message passing. This is why monolithic kernels have historically
+been the fastest.
+
+The disadvantage is fragility. Because everything is together, one
+buggy driver can take down the whole system. That's what people mean
+when they say 'the kernel panicked.'"
+
+[PAUSE]
+
+[SLIDE 4 — Transition to Microkernel: many boxes in user space
+surrounding a small kernel box]
+
+SPEAK:
+"Now, microkernel architectures take the opposite approach. The kernel
+itself is kept as small as humanly possible. Only the truly essential
+services — basic scheduling, memory management, and inter-process
+communication — live in kernel mode. Everything else — file systems,
+drivers, network stacks — is moved into separate user-space processes
+called servers.
+
+The advantage here is robustness. If your disk driver crashes, only
+that driver restarts. The rest of the system doesn't even notice. This
+kind of isolation is very valuable in critical systems — aerospace,
+medical devices, industrial control.
+
+The cost is performance. When the file system server needs to read a
+disk block, it can't just call a function — it has to send a message
+to the driver server, which involves context switches and data
+copying. Historically, this overhead made microkernels slower.
+
+Well-known microkernels include Minix, QNX, L4, and seL4."
+
+[PAUSE]
+
+[SLIDE 5 — Hybrid: a kernel box with a partial boundary, some
+services in, some out]
+
+SPEAK:
+"In practice, almost no real operating system is a pure example of
+either category. Windows NT and macOS both use what we call a hybrid
+kernel. The kernel is monolithic in structure — mostly for performance
+— but has some microkernel-inspired features, mainly around modularity
+of drivers and security boundaries.
+
+So when you read about 'Windows is monolithic' or 'macOS is
+microkernel-based,' take those claims with a grain of salt. Real-world
+operating systems are usually a pragmatic mixture."
+
+[TRANSITION]
+
+[SLIDE 6 — Focus on Linux: "Monolithic with modular support"]
+
+SPEAK:
+"Let me focus for a moment on Linux specifically, since it's what we'll
+work with throughout this course.
+
+Linux is a monolithic kernel. But it has an important feature called
+loadable kernel modules, or LKMs. What that means is: even though the
+kernel is one big program, you can compile additional drivers or file
+systems as modules that get loaded and unloaded at runtime.
+
+For example, imagine you plug in a USB device the kernel has never
+seen. Linux can load the appropriate driver module on the fly — no
+reboot, no recompilation.
+
+This gives Linux many of the practical benefits of a modular design
+without the performance costs of a pure microkernel. That's why you'll
+sometimes see Linux described as 'monolithic with modular support.'
+Both descriptions are correct — they just emphasize different aspects."
+
+[PAUSE]
+
+[SLIDE 7 — Summary table]
+
+SPEAK:
+"Let's put it all together in a table. Monolithic: fast, all-in-one,
+used by Linux and Unix. Microkernel: safer, more modular, used by
+Minix and QNX. Hybrid: a practical middle ground, used by Windows NT
+and macOS.
+
+As a systems engineer, you'll interact with Linux almost every day.
+Understanding that it's monolithic — with modular support — helps you
+reason about its strengths and its failure modes.
+
+That's the end of our theory for Week 1. In the next two videos, we
+switch to the practical side and get our hands dirty with a real Linux
+system. See you there."
+
+[END OF VIDEO 1.4]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 1.5 — Setting Up Your Ubuntu Server VM                        ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Setting Up Your Ubuntu Server VM"]
+
+SPEAK:
+"Welcome to the practical side of Week 1. From this point on, we're
+going to spend a lot of time inside a real Linux system. Before we can
+do anything, we need to set up our workbench.
+
+Throughout the semester, we'll use a virtual machine running Ubuntu
+Server. A virtual machine is essentially a computer inside your
+computer — a completely isolated environment that you can break,
+restore, and rebuild without harming your main system. This is the
+right way to learn systems administration."
+
+[PAUSE]
+
+[SLIDE 2 — Overview checklist: VirtualBox, Ubuntu Server ISO, VM
+configuration]
+
+SPEAK:
+"Here's what we need. First, a virtualization platform. I'll use
+VirtualBox because it's free and cross-platform, but VMware and other
+tools work just as well. Second, the Ubuntu Server installation image,
+which you can download from ubuntu.com. Third — that's it. No other
+software."
+
+[SCREENCAST — switch to screen recording of the setup]
+
+SPEAK:
+"Let me walk you through the process step by step. I'll do it while you
+watch, and I'd encourage you to pause the video and repeat each step
+on your own machine as we go."
+
+[PAUSE]
+
+[SCREENCAST — VirtualBox main window]
+
+SPEAK:
+"First, install VirtualBox. Just download the installer for your
+operating system — Windows, macOS, or Linux — and run it. Accept the
+default options. When it finishes, launch VirtualBox. You should see an
+empty window with a 'New' button."
+
+[PAUSE]
+
+[SCREENCAST — clicking 'New' button]
+
+SPEAK:
+"Now, click 'New' to create a new virtual machine. We need to make a
+few important choices here, so let me explain each one.
+
+Give it a clear name. I'll call mine 'os-lab' — this will also be the
+hostname of the machine.
+
+For the type, choose Linux. For the version, choose Ubuntu (64-bit).
+
+Now memory. I recommend at least 4 gigabytes of RAM. If your host
+machine has less than 16 gigabytes, you can go with 2 gigabytes. But
+4 will make everything smoother, especially in later weeks when we run
+real services.
+
+For the disk, create a virtual hard disk of 25 gigabytes. This is
+plenty for the course. Choose VDI format and dynamically allocated to
+save space on your host machine."
+
+[TRANSITION]
+
+[SCREENCAST — VM settings window, network tab]
+
+SPEAK:
+"Before we start the VM, let's adjust one more setting. Open the VM
+settings, go to the Network tab.
+
+By default, VirtualBox uses something called NAT, which gives your VM
+internet access but keeps it isolated from your host. That's fine for
+today. But in the coming weeks, when we set up DNS and HTTP services,
+you'll want a second adapter. Go ahead and add a Host-Only adapter now
+— we'll use it later. If you want, you can skip this for now and add it
+in Week 10."
+
+[PAUSE]
+
+[SCREENCAST — booting the VM with the Ubuntu Server ISO]
+
+SPEAK:
+"Now attach the Ubuntu Server ISO to the VM and start it. You'll see
+the Ubuntu installer begin.
+
+The installer will ask you a series of questions. Let me highlight the
+most important ones.
+
+Language and keyboard: choose what's natural for you.
+
+Network: you should see one or two Ethernet interfaces. Take note of
+the IP address — that's how you'll reach the machine later.
+
+Hostname: enter 'os-lab' — or anything meaningful.
+
+Storage: use the entire disk. Don't worry — this is a virtual disk, not
+your real one.
+
+User creation: this is important. Create a non-root user account with
+a strong password. I'll use 'student' as the username. Remember this
+password — you'll type it many times.
+
+OpenSSH: enable it. We'll use SSH in later weeks to connect to this VM
+from your host machine.
+
+Snaps: skip for now.
+
+And let it install."
+
+[PAUSE]
+
+[SCREENCAST — install completes, reboot]
+
+SPEAK:
+"Once the installation finishes, reboot. Eject the ISO when prompted.
+The system should boot into a login screen — but since this is a
+server, we don't have a graphical interface. We log in directly at the
+text console.
+
+Log in with the user you created. If everything worked, you'll see a
+command prompt with your hostname and username, ending in a dollar
+sign. That's our workbench. This is where we'll spend the rest of the
+semester."
+
+[TRANSITION]
+
+[SCREENCAST — running commands: sudo apt update, sudo apt upgrade]
+
+SPEAK:
+"Let's do one more important thing before we wrap up. Run 'sudo apt
+update' to refresh the package list. Then 'sudo apt upgrade -y' to
+apply any available updates.
+
+This might take a few minutes — that's normal. When it finishes, we
+have a fully patched system.
+
+And finally — this is a tip I want you to remember. Take a snapshot.
+In VirtualBox, go to Machine, then Take Snapshot. Name it something
+like 'fresh install.' If you ever break the system in later labs, you
+can just restore this snapshot and start again in seconds. This is one
+of the great advantages of learning with a VM."
+
+[SLIDE — Summary]
+
+SPEAK:
+"To summarize what you should have after this video: a working VirtualBox
+installation, an Ubuntu Server VM with a non-root user, OpenSSH
+enabled, and a snapshot of the clean state.
+
+If any of this didn't work, please ask on the course forum — we can
+debug it together.
+
+In the next and final video of Week 1, we'll start running commands
+inside our new system."
+
+[END OF VIDEO 1.5]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 1.6 — Your First Linux Commands                               ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Your First Linux Commands"]
+
+SPEAK:
+"Welcome to the last video of Week 1. We've set up our Ubuntu Server
+VM, and it's time to start using it. In this video, I'll introduce the
+commands I want you to know before next week. We'll keep the pace
+gentle — these are the fundamentals, and mastering them now will save
+you countless hours later."
+
+[SCREENCAST — terminal prompt]
+
+SPEAK:
+"I'm logged into my VM. Let's start with the most important command of
+them all: man.
+
+M-A-N stands for 'manual.' Linux ships with built-in documentation for
+nearly every command. If you forget how something works, man is your
+first stop. Let me try: man ls."
+
+[SCREENCAST — man page for ls]
+
+SPEAK:
+"The output is structured. NAME gives you a one-line description.
+SYNOPSIS shows the usage pattern. DESCRIPTION explains the behavior in
+detail. And OPTIONS lists all the flags.
+
+You can navigate the page: space to scroll down, 'q' to quit. Slash
+'/' to search, and 'n' to jump to the next match.
+
+This might seem old-fashioned, but trust me — getting comfortable with
+man pages is one of the biggest productivity gains you can make."
+
+[PAUSE]
+
+[SCREENCAST — running ls and its variations]
+
+SPEAK:
+"Alright, let's look at 'ls' — that's L-S, for 'list.' By itself, it
+lists the files in the current directory.
+
+Let me try 'ls -l' — the -l flag stands for long listing. Now we see
+permissions, owner, group, size, and modification time. That's much
+more information.
+
+And 'ls -la' — the -a adds hidden files. In Linux, any file whose name
+starts with a dot is considered hidden. There are quite a few of them
+in the home directory, mostly configuration files."
+
+[PAUSE]
+
+[SCREENCAST — pwd, cd commands]
+
+SPEAK:
+"Two more basic commands. 'pwd' — P-W-D — prints the current working
+directory. It tells you where you are in the file system tree.
+
+And 'cd' — change directory. 'cd /etc' takes me to the /etc directory,
+where most system configuration lives. 'cd ..' goes up one level. And
+'cd' with no arguments takes me back to my home directory.
+
+Let me demonstrate: 'pwd' — I'm in /home/student. 'cd /etc' — now I'm
+in the system configuration directory. 'cd ..' — I'm now in /. And
+'cd' alone — I'm back home."
+
+[TRANSITION]
+
+[SCREENCAST — uname, whoami, hostname, uptime]
+
+SPEAK:
+"The next commands give us information about the system itself.
+
+'uname -a' prints detailed information about the kernel: its name, host,
+kernel version, build date, architecture. On my system it shows that
+I'm running Linux, x86_64 architecture, on kernel 6.8. This is
+information you'll need to know for our homework this week.
+
+'whoami' — as the name suggests, it tells you who you are logged in as.
+
+'hostname' — prints the name of the machine. Which in our case should
+be 'os-lab.'
+
+'uptime' — shows how long the system has been running, how many users
+are logged in, and the load average — a useful summary of system
+pressure."
+
+[PAUSE]
+
+[SCREENCAST — df -h, free -h]
+
+SPEAK:
+"Two commands that are especially important going forward.
+
+'df -h' — disk free. Shows all mounted file systems, their total size,
+how much is used, and how much is available. The -h flag means
+'human-readable' — capacities appear as megabytes or gigabytes rather
+than millions of bytes.
+
+'free -h' — the same idea, but for memory. It shows total RAM, used
+RAM, available RAM, and swap usage. We'll come back to this one in
+Week 7 when we study memory management."
+
+[TRANSITION]
+
+[SLIDE — Summary of commands]
+
+SPEAK:
+"Let me list the commands we've covered today.
+
+man — read documentation.
+ls — list files.
+pwd — where am I?
+cd — change directory.
+uname -a — kernel and system info.
+whoami — current user.
+hostname — machine name.
+uptime — how long since boot.
+df -h — disk usage.
+free -h — memory usage.
+
+That's ten commands. Write them down, practice them, and if you forget
+one, remember that man is always there."
+
+[PAUSE]
+
+[CLOSING SLIDE — "Week 1 — End"]
+
+SPEAK:
+"This wraps up Week 1 of the course. We covered the conceptual
+foundation of operating systems, dual-mode operation, system calls and
+interrupts, kernel architectures, and finally set up our lab VM and
+ran our first commands.
+
+Before next week, please complete the written homework assignment —
+which you'll find on the course page along with this lecture's text.
+You can also review the reference readings from OSTEP and
+Silberschatz.
+
+See you in Week 2, where we'll dive deep into processes — what they
+really are, how they're created, and how they're managed by the kernel."
+
+[END OF VIDEO 1.6 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 1
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~110 minutes of raw footage
+After editing and trimming: ~90–100 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

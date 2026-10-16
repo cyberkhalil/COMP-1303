@@ -1,0 +1,1594 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 14: Integrated Services Lab — DNS + HTTP + MariaDB</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 14</span>
+            <span class="violet"><i class="fas fa-diagram-project"></i> Phase 2 · Project Lab</span>
+            <span><i class="fas fa-flask"></i> Integrated Services</span>
+        </div>
+
+        <h1>Integrated Services Lab: DNS + HTTP + MariaDB</h1>
+        <p class="lecture-sub">
+            The capstone practical week — based on the <em>UNIX and Linux System Administration Handbook</em>,
+            the official <em>BIND 9</em>, <em>Nginx</em>, and <em>MariaDB</em> documentation, and the material
+            from every previous week of Phase 2.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#architecture">14.1 · The Full Stack</a>
+            <a href="#planning">14.2 · Planning</a>
+            <a href="#dns-layer">14.3 · DNS Layer</a>
+            <a href="#http-layer">14.4 · HTTP Layer</a>
+            <a href="#db-layer">14.5 · Database Layer</a>
+            <a href="#wiring">14.6 · Wiring It Together</a>
+            <a href="#testing">14.7 · End-to-End Testing</a>
+            <a href="#diagnosing">14.8 · Diagnosing Failures</a>
+            <a href="#lab-build">14.9 · Lab: Building the Stack</a>
+            <a href="#lab-verify">14.10 · Lab: Verification &amp; Docs</a>
+            <a href="#homework">Homework / Deliverables</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 14.1 THE FULL STACK ARCHITECTURE                             -->
+        <!-- ============================================================ -->
+        <h2 id="architecture"><i class="fas fa-layer-group"></i> 14.1 · The Full Stack Architecture</h2>
+
+        <p>
+            For four weeks, we have been building services one at a time. In Week 10, we built a DHCP server and
+            learned how addresses are assigned. In Week 11, we built a DNS server that resolves names for our own
+            internal domain. In Week 12, we deployed Nginx to serve HTTP and reverse-proxy requests to a Python
+            backend. And last week, in Week 13, we installed MariaDB, created a database with users and privileges,
+            and connected it to that same backend.
+        </p>
+
+        <p>
+            Each service works in isolation. But real systems do not live in isolation. A real service — the kind
+            that powers a website, an audit system, an inventory tracker, a library catalogue — is composed of
+            many of these pieces, working together, chosen and wired around a real business need.
+        </p>
+
+        <p>
+            This week is the <strong>integration week</strong>. We are going to stop thinking about DNS, HTTP,
+            and MariaDB as separate services, and start thinking about them as layers of one coherent application.
+            And we are going to build that application end to end.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The core idea behind this week:</strong> in a real system, no service stands alone. DNS tells
+            clients <em>where</em> to connect. HTTP tells clients <em>how</em> to exchange data. The database
+            remembers <em>what happens</em>. Each layer is useful on its own, but the integration is where real
+            value is created.
+        </div>
+
+        <h3>The three-tier application — one more time</h3>
+
+        <p>
+            Every serious web service in the world is built as a layered stack. Different companies use different
+            tools, and they may have dozens of components rather than three. But at the highest level, they all
+            share the same shape: <em>a client-facing layer, an application layer, and a persistence layer</em>.
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 480" xmlns="http://www.w3.org/2000/svg"
+                aria-label="Three-tier application architecture">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The three-tier application we are going to build</text>
+
+                <!-- Client -->
+                <rect x="290" y="50" width="240" height="60" rx="8" fill="rgba(59, 130, 246, 0.16)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="410" y="75" font-family="Inter" font-size="13" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">Client VM</text>
+                <text x="410" y="95" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">browser · curl · dig</text>
+
+                <!-- Arrow down -->
+                <line x1="410" y1="110" x2="410" y2="150" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arrL14)" />
+                <text x="440" y="135" font-family="Inter" font-size="11" fill="#a7f3d0"
+                    text-anchor="start">1. resolve name</text>
+
+                <!-- DNS -->
+                <rect x="240" y="150" width="340" height="70" rx="8" fill="rgba(16, 185, 129, 0.16)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="410" y="178" font-family="Inter" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">DNS — BIND9</text>
+                <text x="410" y="198" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">lab.local zone · authoritative</text>
+                <text x="410" y="213" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">returns A record for app.lab.local → 192.168.56.1</text>
+
+                <!-- Arrow down -->
+                <line x1="410" y1="220" x2="410" y2="260" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arrL14)" />
+                <text x="440" y="245" font-family="Inter" font-size="11" fill="#a7f3d0"
+                    text-anchor="start">2. HTTP request</text>
+
+                <!-- Nginx -->
+                <rect x="240" y="260" width="340" height="70" rx="8" fill="rgba(245, 158, 11, 0.16)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="410" y="288" font-family="Inter" font-size="13" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">HTTP — Nginx</text>
+                <text x="410" y="308" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">reverse proxy · static files · TLS termination</text>
+                <text x="410" y="323" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">proxies /api/* to backend on 127.0.0.1:5000</text>
+
+                <!-- Arrow down -->
+                <line x1="410" y1="330" x2="410" y2="370" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arrL14)" />
+                <text x="440" y="355" font-family="Inter" font-size="11" fill="#a7f3d0"
+                    text-anchor="start">3. SQL query</text>
+
+                <!-- Database -->
+                <rect x="240" y="370" width="340" height="90" rx="8" fill="rgba(139, 92, 246, 0.16)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="410" y="398" font-family="Inter" font-size="13" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">MariaDB — persistence</text>
+                <text x="410" y="418" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">database · tables · users · privileges</text>
+                <text x="410" y="438" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">listening on local Unix socket only</text>
+
+                <!-- Flask backend side note -->
+                <rect x="630" y="260" width="170" height="70" rx="8" fill="rgba(236, 72, 153, 0.14)"
+                    stroke="#ec4899" stroke-width="1.5" stroke-dasharray="5,3" />
+                <text x="715" y="285" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">Flask backend</text>
+                <text x="715" y="303" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">127.0.0.1:5000</text>
+                <text x="715" y="320" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">Sits between Nginx &amp; DB</text>
+
+                <line x1="580" y1="295" x2="630" y2="295" stroke="#94a3b8" stroke-width="1.5"
+                    stroke-dasharray="4,3" />
+                <line x1="715" y1="330" x2="580" y2="405" stroke="#94a3b8" stroke-width="1.5"
+                    stroke-dasharray="4,3" />
+
+                <defs>
+                    <marker id="arrL14" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">Every real web service has this shape — a client-facing DNS layer, an HTTP layer that serves and proxies, and a persistence layer that stores the data. Everything else is a detail on top.</div>
+        </div>
+
+        <p>
+            Three tiers. Each one has a single, clear responsibility. Each one can be understood, tested, and
+            debugged independently. And together they make something much more useful than any one of them alone.
+        </p>
+
+        <h3>Why integration is not just "add one more service"</h3>
+
+        <p>
+            When we built each service in isolation, we could test it in isolation. Start BIND9, run
+            <code>dig</code>, look at the output. Start Nginx, run <code>curl</code>, look at the response.
+            Start MariaDB, connect, run SQL.
+        </p>
+
+        <p>
+            Integration changes that. When three services are running at once, a failure in any one of them
+            produces a symptom that might point at any of the others. That is the essential challenge of
+            operations — and it is exactly what this week's lab is going to teach.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The main skill this week:</strong> when the full stack fails, knowing which service is
+            actually responsible. That skill is what separates an engineer who can "install a service" from
+            one who can "run a service."
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.2 PLANNING THE ENVIRONMENT                                -->
+        <!-- ============================================================ -->
+        <h2 id="planning"><i class="fas fa-clipboard-list"></i> 14.2 · Planning the Integrated Environment</h2>
+
+        <p>
+            Before touching a single configuration file, we plan. This is not busy work — it is the difference
+            between a lab that takes an hour and one that takes a week. Every serious infrastructure project
+            starts with a short written plan that answers a handful of specific questions.
+        </p>
+
+        <h3>The five questions to answer first</h3>
+
+        <ol>
+            <li><strong>What is the domain name we are using internally?</strong> We have been using
+                <code>lab.local</code>. That is a convention — the <code>.local</code> TLD is reserved for
+                mDNS (multicast DNS), so using it in private DNS zones is safe and it will never conflict with
+                a real domain.</li>
+            <li><strong>What is each machine's address and role?</strong> We have one or two VMs. Each has an
+                IP address. Each has one or more roles. We need to write this down.</li>
+            <li><strong>What hostnames do we need?</strong> The application has a name. The mail host has a
+                name. The name servers have names. All of these must resolve in DNS.</li>
+            <li><strong>What TCP ports are involved?</strong> DNS is 53. HTTP is 80. HTTPS is 443. The backend
+                is on 5000. MariaDB is on 3306 but should not be reachable from the network. Being explicit
+                about ports prevents confusion during debugging.</li>
+            <li><strong>Where do logs go?</strong> Nginx access and error logs. MariaDB error logs. BIND9
+                journal entries. The Flask application's own output. Being explicit about this is what lets
+                you debug at 2 AM.</li>
+        </ol>
+
+        <h3>Our lab layout</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Component</th>
+                    <th style="width: 25%;">Where</th>
+                    <th style="width: 20%;">Port</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>DNS (BIND9)</strong></td>
+                    <td>Server VM · 192.168.56.1</td>
+                    <td>53/udp, 53/tcp</td>
+                    <td>Authoritative for <code>lab.local</code>, forwards everything else</td>
+                </tr>
+                <tr>
+                    <td><strong>HTTP (Nginx)</strong></td>
+                    <td>Server VM · 192.168.56.1</td>
+                    <td>80/tcp</td>
+                    <td>Reverse proxy for <code>app.lab.local</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Backend (Flask)</strong></td>
+                    <td>Server VM · 127.0.0.1</td>
+                    <td>5000/tcp (loopback only)</td>
+                    <td>Only reachable from Nginx via loopback</td>
+                </tr>
+                <tr>
+                    <td><strong>Database (MariaDB)</strong></td>
+                    <td>Server VM · 127.0.0.1</td>
+                    <td>3306/tcp (loopback) or Unix socket</td>
+                    <td>Not reachable from the network</td>
+                </tr>
+                <tr>
+                    <td><strong>Client</strong></td>
+                    <td>Client VM · DHCP from server</td>
+                    <td>—</td>
+                    <td>Uses server as DNS resolver; tests the full stack</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The single-VM vs multi-VM decision.</strong> For this lab, everything can run on one VM — DNS,
+            Nginx, backend, and MariaDB — with a client VM connecting to it. That keeps the setup manageable and
+            keeps the debugging on one machine. If you have enough memory, you can alternatively split the database
+            onto a second VM, which is closer to a real production layout. The choice is yours. The critical thing
+            is: <em>write down what you chose, and stick to it while debugging</em>.
+        </div>
+
+        <h3>What we will NOT do in this lab</h3>
+
+        <p>
+            There is a temptation, when building an integrated stack, to pile on extra features: TLS, rate
+            limiting, load balancing across multiple backends, replication. Resist that temptation. The point
+            of the integrated lab is to build <em>one</em> correct stack, and prove it works end to end. Every
+            feature you add is another surface where something can break, and every break makes the integration
+            harder to debug.
+        </p>
+
+        <p>
+            So in this lab we will not:
+        </p>
+
+        <ul>
+            <li>Configure HTTPS with real certificates. We will use plain HTTP on port 80. TLS is a Week
+                12 topic, and we already know how to add it later.</li>
+            <li>Implement load balancing across multiple backends. One backend is enough to demonstrate the
+                pattern.</li>
+            <li>Set up DNSSEC, zone transfers, or secondary name servers. One authoritative server is enough.</li>
+            <li>Configure database replication.</li>
+        </ul>
+
+        <p>
+            Each of these is a real feature that production systems use. But each deserves its own focused
+            learning week. Our goal here is integration — pulling the pieces we already know into a system that
+            works. Add complexity only after correctness.
+        </p>
+
+        <!-- SVG: lab layout -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg"
+                aria-label="The lab network layout">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The lab network — one server, one client, one isolated subnet</text>
+
+                <!-- Client VM -->
+                <rect x="50" y="80" width="220" height="140" rx="10" fill="rgba(59, 130, 246, 0.14)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="160" y="108" font-family="Inter" font-size="13" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">Client VM</text>
+                <text x="160" y="130" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">eth0: 192.168.56.101</text>
+                <text x="160" y="150" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">Uses server as DNS</text>
+                <text x="160" y="170" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">Tests app.lab.local</text>
+                <text x="160" y="195" font-family="Inter" font-size="10" fill="#6ee7b7"
+                    text-anchor="middle">No knowledge of internal layout</text>
+
+                <!-- Network line -->
+                <line x1="270" y1="150" x2="470" y2="150" stroke="#475569" stroke-width="2"
+                    stroke-dasharray="6,4" />
+                <text x="370" y="140" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">host-only network 192.168.56.0/24</text>
+
+                <!-- Server VM block -->
+                <rect x="470" y="50" width="300" height="260" rx="10" fill="rgba(16, 185, 129, 0.10)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="620" y="78" font-family="Inter" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">Server VM — 192.168.56.1</text>
+
+                <!-- DNS service -->
+                <rect x="490" y="95" width="260" height="42" rx="6" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="620" y="122" font-family="Inter" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">BIND9 · authoritative lab.local</text>
+
+                <!-- Nginx -->
+                <rect x="490" y="145" width="260" height="42" rx="6" fill="rgba(245, 158, 11, 0.18)"
+                    stroke="#f59e0b" stroke-width="1.5" />
+                <text x="620" y="172" font-family="Inter" font-size="12" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">Nginx · port 80 · reverse proxy</text>
+
+                <!-- Flask -->
+                <rect x="490" y="195" width="260" height="42" rx="6" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="620" y="222" font-family="Inter" font-size="12" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">Flask · 127.0.0.1:5000</text>
+
+                <!-- MariaDB -->
+                <rect x="490" y="245" width="260" height="42" rx="6" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="1.5" />
+                <text x="620" y="272" font-family="Inter" font-size="12" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">MariaDB · Unix socket</text>
+            </svg>
+            <div class="svg-caption">One server VM provides all four services. The client VM talks to the server only through the network — it never sees the internal proxy or database.</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.3 THE DNS LAYER                                           -->
+        <!-- ============================================================ -->
+        <h2 id="dns-layer"><i class="fas fa-globe"></i> 14.3 · The DNS Layer — Service Discovery</h2>
+
+        <p>
+            DNS is the first layer the client touches. Before any HTTP request is made, the client needs to
+            translate a name — <code>app.lab.local</code> — into an IP address — <code>192.168.56.1</code>.
+            If that translation fails, nothing else in the stack can help.
+        </p>
+
+        <h3>What the zone needs</h3>
+
+        <p>
+            In the Week 11 lab, we built a minimal <code>lab.local</code> zone. For the integrated lab, we
+            need it to serve a few specific records:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Record</th>
+                    <th style="width: 20%;">Type</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>lab.local</code></td>
+                    <td>SOA</td>
+                    <td>Zone apex, with current serial and reasonable timers</td>
+                </tr>
+                <tr>
+                    <td><code>lab.local</code></td>
+                    <td>NS</td>
+                    <td><code>ns1.lab.local.</code></td>
+                </tr>
+                <tr>
+                    <td><code>ns1</code></td>
+                    <td>A</td>
+                    <td><code>192.168.56.1</code></td>
+                </tr>
+                <tr>
+                    <td><code>app</code></td>
+                    <td>A</td>
+                    <td><code>192.168.56.1</code></td>
+                </tr>
+                <tr>
+                    <td><code>db</code></td>
+                    <td>A</td>
+                    <td><code>192.168.56.1</code></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Notice that both <code>app.lab.local</code> and <code>db.lab.local</code> point at the same address
+            — <code>192.168.56.1</code> — because in our lab everything lives on one VM. In a real layout with
+            separate servers, they would point at different addresses. But the client does not need to know
+            — the client just uses names.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The architectural win of DNS:</strong> the client never needs to know the IP address of
+            the application. It only needs a name. If you decide to move the application to a different server
+            tomorrow, you change one record in the zone and update the serial. The client needs no changes at
+            all. This is what "service discovery" means, and it is why DNS is such an important layer of the
+            stack.
+        </div>
+
+        <h3>What DNS gives us in this lab</h3>
+
+        <ul>
+            <li><strong>Stable names for services.</strong> The client uses <code>app.lab.local</code>; the
+                application server can move or change without the client noticing.</li>
+            <li><strong>A place to test DNS resolution.</strong> We can run <code>dig</code> from the client
+                and confirm the record is correct before debugging HTTP or the database.</li>
+            <li><strong>A dependency the other layers rely on.</strong> Nginx's virtual host uses
+                <code>server_name app.lab.local</code>. So does the client's HTTP request. If the DNS
+                resolution and the server_name do not agree, Nginx will serve the wrong virtual host or
+                reject the request.</li>
+        </ul>
+
+        <h3>The DNS integration checklist</h3>
+
+        <ol>
+            <li><strong>Is BIND9 running?</strong> <code>systemctl status named</code>.</li>
+            <li><strong>Does the zone file parse?</strong> <code>named-checkzone lab.local /etc/bind/db.lab.local</code>.</li>
+            <li><strong>Is the zone loaded?</strong> <code>journalctl -u named -n 20</code> — look for
+                "zone lab.local/IN: loaded serial ...".</li>
+            <li><strong>Does the record resolve?</strong> <code>dig @127.0.0.1 app.lab.local A</code> from
+                the server.</li>
+            <li><strong>Does it resolve from the client?</strong> <code>dig app.lab.local A</code> from the
+                client — this confirms that the client is pointed at our server as its resolver, and that
+                the resolver actually answers authoritatively for the zone.</li>
+        </ol>
+
+        <p>
+            Run these five checks every time you make a DNS change. They take thirty seconds, and they tell
+            you exactly where a problem lives.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The #1 DNS integration mistake:</strong> the client is still pointed at a public resolver
+            — like 8.8.8.8 — instead of our own BIND9. In that case, <code>app.lab.local</code> will resolve
+            to nothing, and the client will fail on step 1 of the stack. Always verify with
+            <code>cat /etc/resolv.conf</code> on the client that the first nameserver line is
+            <code>192.168.56.1</code>, not a public IP.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.4 THE HTTP LAYER                                          -->
+        <!-- ============================================================ -->
+        <h2 id="http-layer"><i class="fas fa-server"></i> 14.4 · The HTTP Layer — Nginx and the Backend</h2>
+
+        <p>
+            DNS tells the client where the application lives. HTTP is how the client actually talks to it.
+            In our stack, Nginx listens on port 80, accepts the client's request, and either serves a static
+            file directly or forwards the request to the Flask backend.
+        </p>
+
+        <h3>The Nginx virtual host</h3>
+
+        <p>
+            The virtual host configuration is the exact pattern from Week 12, with the specifics adjusted for
+            our lab:
+        </p>
+
+        <pre><code>server {
+    listen 80;
+    server_name app.lab.local;
+
+    # Static files served directly by Nginx
+    location /static/ {
+        root /var/www/app.lab.local;
+        expires 7d;
+        access_log off;
+    }
+
+    # Everything else is proxied to the Flask backend
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    30s;
+    }
+}</code></pre>
+
+        <p>
+            Let me draw attention to the connection between this file and the DNS layer. The
+            <code>server_name app.lab.local</code> directive must match <em>exactly</em> the name the client
+            uses in its HTTP request. If DNS resolves <code>app.lab.local</code> but the request goes to a
+            different server_name — perhaps because of a typo, or because the client is using
+            <code>app.local</code> instead — Nginx will fall through to its default server, and the client
+            will get the wrong response.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The two-layer handshake that surprises beginners:</strong> Nginx has no way to know that
+            the client intends <code>app.lab.local</code> unless the client actually sends that in the HTTP
+            <code>Host</code> header. This is what makes <code>curl http://192.168.56.1/</code> behave
+            differently from <code>curl http://app.lab.local/</code> — the first sends a Host header with
+            an IP address, the second sends a Host header with the name. When you test the stack, always
+            use the name, not the IP. Otherwise you are not testing the integration.
+        </div>
+
+        <h3>The Flask backend — what it exposes</h3>
+
+        <p>
+            The backend is a small application that talks to MariaDB and returns JSON. For the integrated
+            lab, the essential endpoints are:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Route</th>
+                    <th style="width: 15%;">Method</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>/</code></td>
+                    <td>GET</td>
+                    <td>A friendly HTML page confirming the service is up</td>
+                </tr>
+                <tr>
+                    <td><code>/health</code></td>
+                    <td>GET</td>
+                    <td>A short status check that also verifies DB connectivity</td>
+                </tr>
+                <tr>
+                    <td><code>/api/customers</code></td>
+                    <td>GET</td>
+                    <td>Returns a JSON array of all customers</td>
+                </tr>
+                <tr>
+                    <td><code>/api/customers/&lt;id&gt;</code></td>
+                    <td>GET</td>
+                    <td>Returns a single customer's JSON, or 404</td>
+                </tr>
+                <tr>
+                    <td><code>/api/customers</code></td>
+                    <td>POST</td>
+                    <td>Creates a new customer from a JSON body; returns 201 or 409</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Every one of these endpoints goes through the full stack: client → DNS → Nginx → Flask →
+            MariaDB → Flask → Nginx → client. The <code>/health</code> endpoint is the fastest way to
+            verify that all the layers are working — if it returns OK, you know the connection from Flask
+            to MariaDB is alive.
+        </p>
+
+        <h3>The HTTP integration checklist</h3>
+
+        <ol>
+            <li><strong>Is Nginx running?</strong> <code>systemctl status nginx</code>.</li>
+            <li><strong>Does the config parse?</strong> <code>sudo nginx -t</code>.</li>
+            <li><strong>Is the virtual host enabled?</strong> <code>ls -l /etc/nginx/sites-enabled/</code>
+                — you should see a symlink to <code>app.lab.local</code>.</li>
+            <li><strong>Does Nginx respond locally?</strong> <code>curl -H "Host: app.lab.local" http://localhost/</code>
+                on the server.</li>
+            <li><strong>Does it respond from the client by name?</strong>
+                <code>curl http://app.lab.local/</code> from the client VM.</li>
+            <li><strong>Is the backend reachable?</strong> <code>curl http://127.0.0.1:5000/health</code>
+                from the server — this tests the backend directly, bypassing Nginx.</li>
+        </ol>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The #1 HTTP integration mistake:</strong> the backend is running, Nginx is running, but
+            <code>curl</code> from the client returns a 502 Bad Gateway. That is almost always because Nginx
+            cannot reach the backend — usually because the backend is not running, is on a different port,
+            or is bound to a different interface. Check with
+            <code>sudo ss -tlnp | grep 5000</code> on the server.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.5 THE DATABASE LAYER                                      -->
+        <!-- ============================================================ -->
+        <h2 id="db-layer"><i class="fas fa-database"></i> 14.5 · The Database Layer — MariaDB</h2>
+
+        <p>
+            The database is the layer the client never sees, and that is exactly why it matters. The client
+            asks for a customer. The application answers. The database remembers. If the database is not
+            durable, the memory of the customer is lost the moment the application restarts.
+        </p>
+
+        <h3>The database schema</h3>
+
+        <p>
+            For the integrated lab, we use the same schema we built in Week 13 — a small set of tables that
+            demonstrate real relationships and real use of SQL:
+        </p>
+
+        <pre><code>CREATE DATABASE app_db
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+USE app_db;
+
+CREATE TABLE customers (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE orders (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id  INT NOT NULL,
+    total        DECIMAL(10,2) NOT NULL,
+    placed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;</code></pre>
+
+        <h3>The application user</h3>
+
+        <p>
+            The application connects with a specific user, restricted by host and privilege:
+        </p>
+
+        <pre><code>CREATE USER 'app'@'localhost' IDENTIFIED BY 'a-strong-password';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON app_db.*
+    TO 'app'@'localhost';
+
+FLUSH PRIVILEGES;</code></pre>
+
+        <p>
+            Four privileges. Nothing more. The application cannot drop tables, cannot create users, cannot
+            read or write outside its own database. This is the principle of least privilege in action, and
+            it is what limits the damage if the application is ever compromised.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Why not just use root?</strong> Because if the application runs as root, and an attacker
+            finds a way to exploit the application, they instantly have full control of the database. Every
+            table, every user, every other database on the same server. Least privilege is not paranoia — it
+            is proportionate risk management.
+        </div>
+
+        <h3>The database integration checklist</h3>
+
+        <ol>
+            <li><strong>Is MariaDB running?</strong> <code>systemctl status mariadb</code>.</li>
+            <li><strong>Does the app user exist with the right grant?</strong>
+                <code>SHOW GRANTS FOR 'app'@'localhost';</code></li>
+            <li><strong>Is the database reachable from the backend?</strong> Run
+                <code>mysql -u app -p app_db -e 'SELECT 1;'</code> on the server.</li>
+            <li><strong>Do the tables exist?</strong> <code>SHOW TABLES;</code> inside the <code>app_db</code>
+                database.</li>
+            <li><strong>Does the health endpoint see the DB?</strong>
+                <code>curl http://127.0.0.1:5000/health</code> should return OK.</li>
+        </ol>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The #1 database integration mistake:</strong> the database is running, but the application
+            cannot reach it — because the credentials are wrong, because the user does not have a grant on
+            the right database, or because the host in the user's <code>@host</code> part does not match
+            where the app actually connects from. Check with <code>SHOW GRANTS</code> and remember: if the
+            app connects via the Unix socket, <code>localhost</code> is correct; if it connects via TCP to
+            <code>127.0.0.1</code>, it needs a user granted on <code>127.0.0.1</code> as well.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.6 WIRING IT TOGETHER                                      -->
+        <!-- ============================================================ -->
+        <h2 id="wiring"><i class="fas fa-plug"></i> 14.6 · Wiring the Three Together</h2>
+
+        <p>
+            We have each layer in isolation. Now let us look at what actually connects them. This is the part
+            most tutorials skip, and it is the part that matters most for operations.
+        </p>
+
+        <h3>The five connections between the layers</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">From</th>
+                    <th style="width: 25%;">To</th>
+                    <th>What flows</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Client</strong></td>
+                    <td><strong>DNS (BIND9)</strong></td>
+                    <td>DNS queries for <code>app.lab.local</code> · UDP port 53</td>
+                </tr>
+                <tr>
+                    <td><strong>Client</strong></td>
+                    <td><strong>Nginx</strong></td>
+                    <td>HTTP requests · TCP port 80 · with <code>Host: app.lab.local</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Nginx</strong></td>
+                    <td><strong>Flask</strong></td>
+                    <td>HTTP requests with proxy headers · TCP port 5000 · loopback only</td>
+                </tr>
+                <tr>
+                    <td><strong>Flask</strong></td>
+                    <td><strong>MariaDB</strong></td>
+                    <td>SQL queries · Unix socket (or TCP 3306 on loopback)</td>
+                </tr>
+                <tr>
+                    <td><strong>All layers</strong></td>
+                    <td><strong>Logs</strong></td>
+                    <td>journal, files under /var/log, application stdout</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Every single one of these connections is a place where integration can break. And notice something
+            important: <strong>the client only knows about two of them</strong> — the DNS query and the HTTP
+            request. The client has no idea that Nginx proxy-passes to Flask, or that Flask talks to MariaDB.
+            That invisibility is by design: it means the internal architecture can change without the client
+            ever needing to know.
+        </p>
+
+        <h3>The configuration files involved</h3>
+
+        <p>
+            Here is every file we touch, and which layer of the stack each one belongs to:
+        </p>
+
+        <pre><code>/etc/bind/named.conf.options          — DNS resolver options, forwarders
+/etc/bind/named.conf.local            — zone declarations
+/etc/bind/db.lab.local                — forward zone file
+
+/etc/nginx/sites-available/app.lab.local  — virtual host & reverse proxy
+/etc/nginx/sites-enabled/app.lab.local    — symlink (activation)
+
+/opt/myapp/app.py                     — Flask application
+
+MariaDB internal schema: app_db, customers, orders, app user</code></pre>
+
+        <p>
+            Each of these files is small. Each of them can be read end to end in under a minute. That is
+            the point. A well-designed stack is not a maze of code — it is a small number of files, each
+            doing one job, in a place where an operator can find it.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>A mental model that will save you time:</strong> when you have to change something in
+            this stack, always start from the file that owns the thing you want to change. Want to serve
+            a different domain? Zone file for the hostname, Nginx for the server_name. Want to move the
+            backend port? Flask for the port, Nginx for the proxy_pass. Want to add a column? SQL. Never
+            guess — the ownership is always clear when you look at the file.
+        </div>
+
+        <h3>The startup order</h3>
+
+        <p>
+            When you bring up the full stack, order matters. If Nginx starts before the backend, it will
+            fail to proxy the first requests. If the application starts before MariaDB, it will fail to
+            connect on the first query.
+        </p>
+
+        <p>
+            The correct order of activation:
+        </p>
+
+        <ol>
+            <li><strong>MariaDB</strong> — enable and start. Verify with
+                <code>systemctl status mariadb</code>.</li>
+            <li><strong>DNS (BIND9)</strong> — enable and start. Verify with
+                <code>systemctl status named</code>.</li>
+            <li><strong>Flask backend</strong> — start it. Verify with
+                <code>curl http://127.0.0.1:5000/health</code>.</li>
+            <li><strong>Nginx</strong> — enable and start. Verify with
+                <code>curl -H "Host: app.lab.local" http://localhost/</code>.</li>
+        </ol>
+
+        <p>
+            Reverse the order to cleanly take the system down. This order minimizes the noise in the logs
+            during startup, and it makes it obvious which layer a startup problem belongs to.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Automation hint:</strong> in a real deployment, you would enforce this order with
+            systemd dependencies — a unit file for the Flask app with <code>After=mariadb.service</code>
+            and <code>After=named.service</code>. For the lab, you can do it manually. But remember that
+            ordering exists, because the alternative is a class of mysterious startup failures.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.7 END-TO-END TESTING                                      -->
+        <!-- ============================================================ -->
+        <h2 id="testing"><i class="fas fa-flask"></i> 14.7 · End-to-End Testing</h2>
+
+        <p>
+            An integrated stack is not proven by any single test. It is proven by a <em>sequence</em> of tests,
+            each confirming one layer, and a final test that confirms the whole chain. This section gives
+            you that sequence.
+        </p>
+
+        <h3>Layer-by-layer verification</h3>
+
+        <p>
+            Run these on the client VM. Each one isolates one layer.
+        </p>
+
+        <h4>Layer 1 — Name resolution</h4>
+
+        <pre><code>dig app.lab.local A
+
+# Expected: a NOERROR response with an A record for 192.168.56.1
+# and the "aa" flag (authoritative answer).</code></pre>
+
+        <p>
+            If this fails, the problem is DNS. Check <code>cat /etc/resolv.conf</code> on the client,
+            and check BIND9 on the server.
+        </p>
+
+        <h4>Layer 2 — HTTP transport</h4>
+
+        <pre><code>curl -v http://app.lab.local/
+
+# Expected: HTTP/1.1 200 OK, plus HTML from the backend, plus
+# a small set of response headers from Nginx.</code></pre>
+
+        <p>
+            If this fails, the problem is HTTP or the reverse proxy. Check Nginx and the backend on the
+            server.
+        </p>
+
+        <h4>Layer 3 — Backend without Nginx</h4>
+
+        <p>
+            Run this on the server itself:
+        </p>
+
+        <pre><code>curl http://127.0.0.1:5000/health
+
+# Expected: "OK" — the backend is alive and can reach MariaDB.</code></pre>
+
+        <p>
+            If this fails but the previous step succeeded, the problem is inside the backend or its
+            connection to the database.
+        </p>
+
+        <h4>Layer 4 — Database directly</h4>
+
+        <p>
+            On the server:
+        </p>
+
+        <pre><code>mysql -u app -p app_db -e "SELECT COUNT(*) FROM customers;"
+
+# Expected: a number >= 0.</code></pre>
+
+        <p>
+            If this fails, the problem is database access — privileges, credentials, or the database
+            not being reachable.
+        </p>
+
+        <h3>The full round-trip test</h3>
+
+        <p>
+            Once each layer works in isolation, do the full integration test. This is what your deliverable
+            is really about.
+        </p>
+
+        <pre><code># From the client VM:
+
+# 1. Verify DNS resolution
+dig app.lab.local A
+
+# 2. Create a customer through the whole stack
+curl -X POST http://app.lab.local/api/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Layla","email":"layla@lab.local"}'
+
+# Expected: 201 Created, with the new customer JSON.
+
+# 3. Read it back through the whole stack
+curl http://app.lab.local/api/customers
+
+# Expected: JSON array including Layla.
+
+# 4. Verify directly in the database
+# (on the server)
+mysql -u app -p app_db -e "SELECT * FROM customers WHERE email='layla@lab.local';"
+
+# Expected: Layla's row.</code></pre>
+
+        <p>
+            The key insight in step 4: even though you created the customer via the client through the full
+            stack, the data is really there in the database. Persistence is not an abstraction — it is a
+            fact about where the bytes are.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>This is the "money test" of the week:</strong> you create data from a client that knows
+            nothing about the internal architecture, and then you find that data sitting in a database on a
+            different layer of the stack. That is what a real service does. That is what you built.
+        </div>
+
+        <h3>Failure injection — the most educational tests</h3>
+
+        <p>
+            A working stack is good. A stack you can debug is better. The way to learn to debug is to break
+            things on purpose. Here are five experiments, each of which fails one layer and creates a
+            recognisable symptom:
+        </p>
+
+        <div class="two-cols">
+            <div class="col pink">
+                <h4><i class="fas fa-scissors"></i> 1. Stop MariaDB</h4>
+                <pre style="margin: 0.5rem 0 0; font-size: 0.78rem;"><code>systemctl stop mariadb
+curl http://app.lab.local/api/customers</code></pre>
+                <p style="font-size: 0.85rem; margin: 0.5rem 0 0;">
+                    The client sees a 500-level error. Nginx logs at 500. The backend logs show a DB
+                    connection error. This teaches you that a 500 in the client log always means <em>some</em>
+                    internal layer failed, not necessarily the one you are looking at.
+                </p>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-scissors"></i> 2. Stop the Flask backend</h4>
+                <pre style="margin: 0.5rem 0 0; font-size: 0.78rem;"><code>pkill -f app.py
+curl http://app.lab.local/</code></pre>
+                <p style="font-size: 0.85rem; margin: 0.5rem 0 0;">
+                    The client sees 502 Bad Gateway — the classic "Nginx could not reach the backend"
+                    status. The Nginx error log names the exact problem: connection refused. Learning to
+                    distinguish 502 from 500 in the client log is the difference between blaming
+                    the wrong layer and fixing the right one.
+                </p>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-scissors"></i> 3. Break DNS</h4>
+                <pre style="margin: 0.5rem 0 0; font-size: 0.78rem;"><code># On the client, temporarily use a bad resolver
+echo "nameserver 192.0.2.1" | sudo tee /etc/resolv.conf
+curl http://app.lab.local/</code></pre>
+                <p style="font-size: 0.85rem; margin: 0.5rem 0 0;">
+                    The client cannot even resolve the name — the error is "Could not resolve host." Nothing
+                    on the server is wrong. This teaches you that when the failure is name resolution, no
+                    amount of looking at Nginx logs will help.
+                </p>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-scissors"></i> 4. Break the Nginx config</h4>
+                <pre style="margin: 0.5rem 0 0; font-size: 0.78rem;"><code># Introduce a typo in the server_name,
+# then reload and test</code></pre>
+                <p style="font-size: 0.85rem; margin: 0.5rem 0 0;">
+                    The client gets the default Nginx page instead of the app. The DNS resolution works, the
+                    backend works, but the virtual host selector no longer matches. This teaches the
+                    difference between "the service is running" and "the service is answering this
+                    particular request."
+                </p>
+            </div>
+        </div>
+
+        <p>
+            After each of these experiments, undo the change and confirm the stack works again. That cycle
+            — break, observe, diagnose, fix, verify — is the loop that every operations engineer runs
+            for a living.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 14.8 DIAGNOSING FAILURES                                     -->
+        <!-- ============================================================ -->
+        <h2 id="diagnosing"><i class="fas fa-stethoscope"></i> 14.8 · Diagnosing Failures Across Layers</h2>
+
+        <p>
+            The hardest part of operations is not building the stack. It is diagnosing it when something
+            goes wrong. This section gives you a structured methodology that works on any three-tier stack,
+            not just the one we built.
+        </p>
+
+        <h3>The bottom-up diagnostic walk</h3>
+
+        <p>
+            When a request fails, walk the stack from the bottom up. At each layer, ask the same three
+            questions: is the service running, is it reachable, is it configured for this request?
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Layer</th>
+                    <th style="width: 25%;">Is it running?</th>
+                    <th style="width: 25%;">Is it reachable?</th>
+                    <th>Is it configured right?</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>DNS</strong></td>
+                    <td><code>systemctl status named</code></td>
+                    <td><code>dig @127.0.0.1 app.lab.local</code></td>
+                    <td>Zone file has the right A record; serial is up to date</td>
+                </tr>
+                <tr>
+                    <td><strong>Nginx</strong></td>
+                    <td><code>systemctl status nginx</code></td>
+                    <td><code>curl -H "Host: app.lab.local" http://localhost/</code></td>
+                    <td>server_name matches; proxy_pass points at the right port</td>
+                </tr>
+                <tr>
+                    <td><strong>Backend</strong></td>
+                    <td><code>ps aux | grep app.py</code></td>
+                    <td><code>curl http://127.0.0.1:5000/health</code></td>
+                    <td>Connection string points at the right DB; user credentials are correct</td>
+                </tr>
+                <tr>
+                    <td><strong>MariaDB</strong></td>
+                    <td><code>systemctl status mariadb</code></td>
+                    <td><code>mysql -u app -p app_db -e 'SELECT 1;'</code></td>
+                    <td>User has the right grant; database and tables exist</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Diagnose in this order. When you find the first layer that fails its check, that layer is the
+            problem — or something even lower down. Fix it, then re-run the client test. Do not try to
+            solve multiple layers at once.
+        </p>
+
+        <h3>Where the logs live</h3>
+
+        <p>
+            Every layer of our stack produces its own logs, and every log answers a specific question:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Log</th>
+                    <th>Question it answers</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>journalctl -u named</code></td>
+                    <td>Did BIND9 load the zone? Did it reject any queries?</td>
+                </tr>
+                <tr>
+                    <td><code>/var/log/nginx/access.log</code></td>
+                    <td>Did the client's request arrive at Nginx? What was the status code?</td>
+                </tr>
+                <tr>
+                    <td><code>/var/log/nginx/error.log</code></td>
+                    <td>Why did Nginx fail to serve the request — bad config, unreachable backend, or a
+                        client-side problem?</td>
+                </tr>
+                <tr>
+                    <td>Backend stdout / journal</td>
+                    <td>Did Flask receive the request? Did it fail? What was the exception?</td>
+                </tr>
+                <tr>
+                    <td><code>journalctl -u mariadb</code></td>
+                    <td>Did MariaDB refuse a connection? Was there an SQL error?</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The single most useful debugging habit:</strong> before you change anything, read the logs
+            in order. Start with the log of the highest layer that logged an error, and work down. Nine times
+            out of ten, the first error message in the highest layer's log contains exactly the pointer to
+            the layer below that is broken.
+        </div>
+
+        <h3>Symptom-to-layer cheat sheet</h3>
+
+        <p>
+            A quick reference for the most common failure symptoms:
+        </p>
+
+        <ul>
+            <li><strong>"Could not resolve host"</strong> → DNS layer. Check <code>/etc/resolv.conf</code>
+                on the client, then BIND9 on the server.</li>
+            <li><strong>"Connection refused" on port 80</strong> → Nginx is not listening, or is listening
+                on a different interface. <code>ss -tlnp | grep :80</code>.</li>
+            <li><strong>502 Bad Gateway</strong> → the backend is unreachable from Nginx.
+                <code>ss -tlnp | grep :5000</code> on the server.</li>
+            <li><strong>500 Internal Server Error</strong> → the application itself failed. Read the
+                backend's log — SQL error, bad request, unhandled exception.</li>
+            <li><strong>504 Gateway Timeout</strong> → the backend is running but is too slow to respond
+                within the proxy's read timeout.</li>
+            <li><strong>Wrong page (default Nginx page)</strong> → the virtual host did not match the
+                request's Host header. Check <code>server_name</code> in Nginx.</li>
+            <li><strong>Data disappears after restart</strong> → the database is not the one you think it
+                is — probably you are running SQLite or an in-memory store instead of MariaDB.</li>
+        </ul>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Bookmark this cheat sheet.</strong> Every one of these symptoms is something you will
+            see again on a real production system — not because the systems are identical, but because the
+            <em>patterns</em> are. "502 means the layer immediately above me could not reach me" is a truth
+            that generalizes to every reverse proxy on the planet.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.9 LAB: BUILDING THE STACK                                 -->
+        <!-- ============================================================ -->
+        <h2 id="lab-build"><i class="fas fa-laptop-code"></i> 14.9 · Deep Lab — Building the Integrated Stack</h2>
+
+        <p>
+            Time to build. Everything below assumes you have completed Weeks 10–13. If any layer is not
+            already working in isolation, fix it first. Integration of broken pieces only multiplies
+            confusion.
+        </p>
+
+        <h3>Step 1 — Confirm the prerequisites</h3>
+
+        <p>
+            On your server VM, verify that all four services are installed and functional in isolation:
+        </p>
+
+        <pre><code>systemctl status mariadb
+systemctl status named
+systemctl status nginx
+
+# And confirm the backend is running:
+curl http://127.0.0.1:5000/health</code></pre>
+
+        <p>
+            If any service is not running, or does not respond to its isolation test, fix that before
+            proceeding. Integration of broken layers just produces broken integration.
+        </p>
+
+        <h3>Step 2 — Configure the DNS zone</h3>
+
+        <p>
+            Edit the forward zone on your BIND9 server and make sure you have records for our application:
+        </p>
+
+        <pre><code>sudo nano /etc/bind/db.lab.local</code></pre>
+
+        <p>Ensure these records are present:</p>
+
+        <pre><code>ns1     IN  A   192.168.56.1
+app     IN  A   192.168.56.1
+db      IN  A   192.168.56.1</code></pre>
+
+        <p>
+            Increment the serial. Validate and reload:
+        </p>
+
+        <pre><code>sudo named-checkzone lab.local /etc/bind/db.lab.local
+sudo systemctl reload named
+sudo journalctl -u named -n 10   # confirm the new serial is loaded</code></pre>
+
+        <h3>Step 3 — Configure the Nginx virtual host</h3>
+
+        <pre><code>sudo nano /etc/nginx/sites-available/app.lab.local</code></pre>
+
+        <p>Use this configuration, adjusting the backend port if yours differs:</p>
+
+        <pre><code>server {
+    listen 80;
+    server_name app.lab.local;
+
+    location /static/ {
+        root /var/www/app.lab.local;
+        expires 7d;
+        access_log off;
+    }
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        proxy_connect_timeout 5s;
+        proxy_read_timeout    30s;
+    }
+}</code></pre>
+
+        <p>Enable the site and reload:</p>
+
+        <pre><code>sudo ln -s /etc/nginx/sites-available/app.lab.local \
+           /etc/nginx/sites-enabled/
+
+# Remove the default site if it is still enabled, to remove ambiguity
+sudo rm -f /etc/nginx/sites-enabled/default
+
+sudo nginx -t
+sudo systemctl reload nginx</code></pre>
+
+        <h3>Step 4 — Verify the backend and its DB connection</h3>
+
+        <p>
+            Make sure the Flask application exists and is running. From Week 13, you should have
+            <code>/opt/myapp/app.py</code>. Start it if it is not running:
+        </p>
+
+        <pre><code>python3 /opt/myapp/app.py &
+
+# And verify:
+curl http://127.0.0.1:5000/health
+curl http://127.0.0.1:5000/api/customers</code></pre>
+
+        <h3>Step 5 — Local integration check</h3>
+
+        <p>
+            Before involving the client VM, verify the stack works locally:
+        </p>
+
+        <pre><code># Direct to Nginx with the Host header:
+curl -H "Host: app.lab.local" http://localhost/api/customers
+
+# Expected: the JSON array from the database, proxied through Nginx.</code></pre>
+
+        <p>
+            If this works, the DNS/Nginx/Flask/MariaDB chain is correct on the server side. If it does not,
+            debug each layer with the isolation commands from section 14.8.
+        </p>
+
+        <h3>Step 6 — Point the client at the server for DNS</h3>
+
+        <p>
+            On the client VM, verify that it is using our server as its DNS resolver:
+        </p>
+
+        <pre><code>cat /etc/resolv.conf
+
+# Expected: first "nameserver" line is 192.168.56.1</code></pre>
+
+        <p>
+            If it is not, edit <code>/etc/netplan/*.yaml</code> or <code>/etc/resolv.conf</code> on the
+            client to use our server first. Apply and re-check.
+        </p>
+
+        <h3>Step 7 — Full test from the client</h3>
+
+        <pre><code># From the client VM:
+dig app.lab.local A
+# Should return 192.168.56.1 and the "aa" flag.
+
+curl http://app.lab.local/api/customers
+# Should return the JSON array.
+
+curl -X POST http://app.lab.local/api/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Integration Test","email":"itest@lab.local"}'
+# Should return 201 Created.
+
+curl http://app.lab.local/api/customers
+# The new customer should be in the response.</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>When this works, you have built a three-tier web application.</strong> Take a moment to
+            recognize what happened: a client that knows nothing about your internal architecture resolved
+            a name, made an HTTP request, had that request routed by a reverse proxy to a backend
+            application, which queried a database, and the result came back to the client. Every layer was
+            a service you configured. That is not a lab exercise — that is the pattern of production
+            software.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 14.10 LAB: VERIFICATION AND DOCUMENTATION                    -->
+        <!-- ============================================================ -->
+        <h2 id="lab-verify"><i class="fas fa-file-signature"></i> 14.10 · Deep Lab — Verification &amp; Documentation</h2>
+
+        <p>
+            The build is not the deliverable. The <em>proof</em> is. Every serious infrastructure change
+            ends with documentation: what was done, whether it works, and how you know. This section walks
+            you through producing that evidence.
+        </p>
+
+        <h3>What to capture</h3>
+
+        <p>
+            For each layer, produce a short piece of evidence. This is what you will submit.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Layer</th>
+                    <th>Evidence to capture</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>DNS</strong></td>
+                    <td>Output of <code>dig app.lab.local</code> from the client, showing the A record and the
+                        <code>aa</code> flag.</td>
+                </tr>
+                <tr>
+                    <td><strong>HTTP transport</strong></td>
+                    <td>Output of <code>curl -v http://app.lab.local/</code> from the client, showing the
+                        request and the HTTP/1.1 200 OK response.</td>
+                </tr>
+                <tr>
+                    <td><strong>Nginx access log</strong></td>
+                    <td>The last few lines of <code>/var/log/nginx/access.log</code> showing the request
+                        arriving and its status code.</td>
+                </tr>
+                <tr>
+                    <td><strong>Database</strong></td>
+                    <td>Output of <code>mysql -u app -p app_db -e "SELECT * FROM customers;"</code> showing
+                        the customer created from the client.</td>
+                </tr>
+                <tr>
+                    <td><strong>Health check</strong></td>
+                    <td>Output of <code>curl http://app.lab.local/health</code> returning OK.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Producing a service inventory</h3>
+
+        <p>
+            Every real deployment is described by a service inventory. Write one for your stack. It is short
+            — one row per service — and it is the single most useful document when someone else has to
+            operate the system.
+        </p>
+
+        <pre><code>SERVICE INVENTORY — Integrated Stack
+═══════════════════════════════════════════════════════════
+
+Host              Role          Port          Status
+───────────────────────────────────────────────────────────
+192.168.56.1      DNS (BIND9)   53/udp,tcp    systemd: named
+192.168.56.1      HTTP (Nginx)  80/tcp        systemd: nginx
+127.0.0.1         Backend       5000/tcp      process: /opt/myapp/app.py
+(local socket)    MariaDB       3306/socket   systemd: mariadb
+
+Log locations:
+  named       → journalctl -u named
+  nginx       → /var/log/nginx/access.log, error.log
+  backend     → stdout (foreground) or journal if wrapped in systemd
+  mariadb     → journalctl -u mariadb
+
+Key configuration files:
+  /etc/bind/named.conf.options
+  /etc/bind/named.conf.local
+  /etc/bind/db.lab.local
+  /etc/nginx/sites-available/app.lab.local
+  /opt/myapp/app.py
+
+Credentials:
+  MariaDB user: app@localhost (password stored out-of-band)
+
+Backup:
+  mysqldump to /var/backups/mariadb/ daily at 02:30
+  Retain 14 days</code></pre>
+
+        <p>
+            This inventory is not a formality. It is the difference between a system that two engineers
+            can jointly own and a system that only one person can touch.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Real-world habit:</strong> commit the service inventory to version control alongside the
+            configuration files. When you change a port, a path, or a policy, update the inventory at the
+            same time. Documentation that lives separately from the code it describes drifts; documentation
+            that is versioned alongside the code stays accurate because it has to.
+        </div>
+
+        <h3>Writing a short technical report</h3>
+
+        <p>
+            Your final report should answer four questions, in order:
+        </p>
+
+        <ol>
+            <li><strong>What was built?</strong> The architecture, the components, the network layout. A
+                short paragraph and the stack diagram.</li>
+            <li><strong>How does it work?</strong> The flow of a request through the stack, from client
+                to DNS to Nginx to backend to database and back. Include one concrete example — "a POST
+                to /api/customers goes..." — with the actual commands.</li>
+            <li><strong>How do you prove it works?</strong> The evidence — the command outputs from the
+                verification section. Each one captioned with what it demonstrates.</li>
+            <li><strong>How would you debug it if it broke?</strong> The diagnostic methodology — the
+                bottom-up walk, the logs at each layer, the symptom-to-layer cheat sheet. This shows that
+                you not only built the system but understand how to operate it.</li>
+        </ol>
+
+        <p>
+            The report should be short. Two to four pages is plenty. The point is not to impress with length
+            — it is to prove that you understand what you built.
+        </p>
+
+        <h3>The demonstration script</h3>
+
+        <p>
+            If you are producing a walkthrough video (Week 15 deliverable), prepare a script. Ten commands,
+            in order, each one showing one layer or one integration point. Roughly:
+        </p>
+
+        <ol>
+            <li>Show the service inventory.</li>
+            <li>Show the DNS zone file.</li>
+            <li><code>dig app.lab.local</code> from the client.</li>
+            <li>Show the Nginx virtual host config.</li>
+            <li><code>curl http://app.lab.local/api/customers</code> from the client.</li>
+            <li>Show the Nginx access log receive the request.</li>
+            <li>Show the Flask backend source.</li>
+            <li>Show the MariaDB schema (<code>SHOW TABLES; DESCRIBE customers;</code>).</li>
+            <li><code>curl -X POST http://app.lab.local/api/customers ...</code> to insert.</li>
+            <li>Verify the new row in the database directly with SQL.</li>
+        </ol>
+
+        <p>
+            Ten commands, ten minutes, and a complete demonstration that every layer of the stack is
+            working — and that they work <em>together</em>.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What you have at the end of this week:</strong> not just a working stack, but the
+            evidence that it works and a documented methodology for keeping it that way. That combination —
+            working system, evidence, and methodology — is the exact package that a professional engineer
+            delivers when asked to "build a service."
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK / DELIVERABLES                                      -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Final Deliverables for This Week</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 14 — Integrated Services Lab</h3>
+            <p>
+                This week is a project week, not a homework week. The deliverable is a working integrated
+                stack and the documentation that proves it works. Read the requirements carefully — the
+                documentation is as important as the build.
+            </p>
+
+            <h4>Part I — The Working Stack (50 points)</h4>
+            <ol>
+                <li>Install, configure, and start BIND9 with a <code>lab.local</code> zone that resolves
+                    <code>app.lab.local</code> to your server's address.</li>
+                <li>Install, configure, and start Nginx with a virtual host for <code>app.lab.local</code>
+                    that reverse-proxies to the Flask backend.</li>
+                <li>Install and start MariaDB with a database <code>app_db</code>, the tables from
+                    section 14.5, and a user <code>app@localhost</code> with least privilege.</li>
+                <li>Run the Flask backend on <code>127.0.0.1:5000</code> and confirm it can read and write
+                    to MariaDB.</li>
+                <li>From the client VM, successfully complete the full round trip:</li>
+            </ol>
+            <pre style="margin-left: 1.5rem;"><code>dig app.lab.local A
+curl http://app.lab.local/api/customers
+curl -X POST http://app.lab.local/api/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Your Name","email":"you@lab.local"}'
+curl http://app.lab.local/api/customers</code></pre>
+
+            <h4>Part II — Documentation (30 points)</h4>
+            <ol>
+                <li>Write a <strong>service inventory</strong> in the format of section 14.10. Include every
+                    service, its address, its port, its port status, its log file, and its configuration
+                    file.</li>
+                <li>Write a short <strong>technical report</strong> (2–4 pages) with the four required
+                    sections: what was built, how it works, how you prove it works, and how you would debug
+                    it.</li>
+                <li>Include the <strong>stack diagram</strong> — either redraw the SVG from section 14.1 in
+                    your own tool, or provide an equivalent diagram of your layout.</li>
+            </ol>
+
+            <h4>Part III — Evidence &amp; Failure Analysis (20 points)</h4>
+            <ol>
+                <li>For each of the four main layers, capture the specific piece of evidence from
+                    section 14.10. Paste the exact command and its output.</li>
+                <li>Perform <strong>three</strong> of the failure-injection experiments from section 14.7.
+                    For each one, capture: the command you ran to break the layer, the error the client
+                    saw, and the specific log entry on the server that identified the failing layer.</li>
+                <li>Write a short paragraph — around 150 words — on which layer of the stack you find
+                    hardest to diagnose, and why. This is a reflection, not a technical requirement, but
+                    it is the section that teaches the most.</li>
+            </ol>
+
+            <h4>Submission</h4>
+            <p style="margin-top: 1rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload a single PDF to the course platform containing:
+                the technical report, the service inventory, and all evidence. If you produced a
+                walkthrough video, include a link.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 14 Summary</h3>
+            <ul>
+                <li><strong>Integration is a discipline.</strong> DNS, HTTP, and MariaDB in isolation are
+                    three services. Wired together, they are a three-tier application — and that is what
+                    production software looks like.</li>
+                <li><strong>Every layer has a clear role.</strong> DNS resolves names to addresses. HTTP
+                    transports requests and dispatches to the backend. MariaDB stores the data durably.
+                    Each layer can be tested in isolation, and each layer answers a specific question.</li>
+                <li><strong>Plan before you build.</strong> Five questions — domain, addresses, hostnames,
+                    ports, log locations — and a written layout. This is what makes the lab tractable and
+                    what makes the system maintainable afterward.</li>
+                <li><strong>Wiring is small and specific.</strong> Five connections between layers, each one
+                    editable in a single line of a single config file. When something breaks, the file that
+                    owns the broken connection is almost always obvious.</li>
+                <li><strong>Test layer by layer, then end to end.</strong> Isolate each layer with one
+                    command. Then run the full round-trip test. If layer isolation fails, integration is
+                    hopeless — fix the layer first.</li>
+                <li><strong>Diagnose from the bottom up.</strong> Running? Reachable? Configured for this
+                    specific request? Three questions, at each layer, in order. Stop at the first failure,
+                    fix it, re-test.</li>
+                <li><strong>Know the symptom-to-layer map.</strong> "Could not resolve host" is DNS. 502 is
+                    the backend being unreachable. 500 is the backend itself. Wrong page is a virtual host
+                    mismatch.</li>
+                <li><strong>Documentation is a deliverable.</strong> A service inventory, a technical report,
+                    and evidence. Together, they turn a working system into an <em>owned</em> system.</li>
+                <li><strong>This is the pattern.</strong> Every serious web service in the world has the
+                    shape you just built. The tool names differ — HAProxy instead of Nginx, PostgreSQL
+                    instead of MariaDB, Kubernetes instead of systemd — but the layers, the connections,
+                    and the diagnostic methodology are the same.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on the <strong>UNIX and Linux System Administration Handbook</strong>, the
+                <strong>BIND 9 Administrator Reference Manual</strong>, the <strong>Nginx documentation</strong>,
+                and the <strong>MariaDB documentation</strong> | Instructor:
+                <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

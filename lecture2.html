@@ -1,0 +1,830 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 2: Processes &amp; Process Management</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 2</span>
+            <span class="green"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-clock"></i> Theory + Touch Lab</span>
+        </div>
+
+        <h1>Processes &amp; Process Management</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> — Chapter 4 (Processes) &amp;
+            <em>Operating System Concepts</em> — Silberschatz, Chapter 3.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#what-is-process">2.1 · What is a Process?</a>
+            <a href="#states-pcb">2.2 · States &amp; the PCB</a>
+            <a href="#context-switch">2.3 · Context Switching</a>
+            <a href="#fork-exec-wait">2.4 · fork, exec, wait</a>
+            <a href="#ipc">2.5 · IPC Basics</a>
+            <a href="#lab-fork">2.6 · Lab: fork() &amp; Trees</a>
+            <a href="#lab-ps-top">2.7 · Lab: ps &amp; top</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 2.1 WHAT IS A PROCESS?                                       -->
+        <!-- ============================================================ -->
+        <h2 id="what-is-process"><i class="fas fa-play-circle"></i> 2.1 · What is a Process?</h2>
+
+        <p>
+            In Week 1 we learned that an operating system manages resources and abstracts hardware. Nowhere is this
+            more obvious than in the concept of a <strong>process</strong> — which is, put simply, <em>a program in
+            execution</em>.
+        </p>
+
+        <p>
+            When you compile a C file, you get an executable file sitting on disk. That's just bytes — no execution,
+            no CPU activity, nothing happening. When you run it, the OS loads it into memory, gives it a CPU context,
+            and lets it execute. That running instance is a process. If you run the same executable twice, you get
+            <strong>two independent processes</strong>.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Program vs Process:</strong> A <em>program</em> is a passive entity — a file on disk. A
+            <em>process</em> is an active entity — a program in memory with a program counter, registers, stack, and
+            a set of allocated resources.
+        </div>
+
+        <h3>What lives inside a process</h3>
+
+        <p>
+            Every process has its own <strong>virtual address space</strong>, which is typically divided into four
+            regions:
+        </p>
+
+        <div class="two-cols">
+            <div class="col">
+                <h4><i class="fas fa-code"></i> Code (Text) Segment</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    The compiled machine instructions of the program. Usually read-only, and often shared between
+                    processes that run the same binary (for instance, five instances of <code>bash</code> can share the
+                    same code pages).
+                </p>
+            </div>
+            <div class="col">
+                <h4><i class="fas fa-database"></i> Data Segment</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Contains global and static variables. This region is writable and grows in a fixed direction.
+                </p>
+            </div>
+            <div class="col">
+                <h4><i class="fas fa-layer-group"></i> Heap</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Dynamically allocated memory — what you get from <code>malloc()</code> in C, or from <code>new</code>
+                    in higher-level languages. The heap grows upward (usually towards higher addresses).
+                </p>
+            </div>
+            <div class="col">
+                <h4><i class="fas fa-layer-group"></i> Stack</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Function call frames: local variables, parameters, return addresses. The stack grows downward
+                    (towards lower addresses) in most architectures.
+                </p>
+            </div>
+        </div>
+
+        <!-- SVG: Process address space -->
+        <div class="svg-container">
+            <svg viewBox="0 0 500 400" xmlns="http://www.w3.org/2000/svg" aria-label="Process address space layout">
+                <rect x="50" y="20" width="400" height="60" rx="8" fill="rgba(139, 92, 246, 0.15)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="250" y="45" font-family="Inter" font-size="14" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">Stack</text>
+                <text x="250" y="65" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    grows downward ↓
+                </text>
+
+                <rect x="50" y="100" width="400" height="60" rx="8" fill="rgba(0, 0, 0, 0.15)"
+                    stroke="#475569" stroke-width="1" stroke-dasharray="6,4" />
+                <text x="250" y="135" font-family="Inter" font-size="12" fill="#94a3b8" text-anchor="middle"
+                    font-style="italic">unmapped region</text>
+
+                <rect x="50" y="180" width="400" height="60" rx="8" fill="rgba(139, 92, 246, 0.15)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="250" y="205" font-family="Inter" font-size="14" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">Heap</text>
+                <text x="250" y="225" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    grows upward ↑
+                </text>
+
+                <rect x="50" y="260" width="400" height="60" rx="8" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="250" y="285" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Data Segment</text>
+                <text x="250" y="305" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    global &amp; static variables
+                </text>
+
+                <rect x="50" y="340" width="400" height="60" rx="8" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="250" y="365" font-family="Inter" font-size="14" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Code (Text) Segment</text>
+                <text x="250" y="385" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    compiled machine instructions (read-only)
+                </text>
+            </svg>
+            <div class="svg-caption">Typical layout of a process's virtual address space — from top (high addresses: stack) to bottom (low addresses: code).</div>
+        </div>
+
+        <h3>Why do processes matter?</h3>
+
+        <p>
+            Processes are the OS's fundamental unit of <strong>isolation and protection</strong>. Two processes cannot
+            accidentally read or write each other's memory — the virtual memory subsystem enforces this boundary in
+            hardware via the MMU (Memory Management Unit). If process A tries to write to process B's address space,
+            the CPU raises a page fault and the kernel terminates A. This is why one buggy program does not destroy
+            your entire system.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 2.2 PROCESS STATES AND THE PCB                               -->
+        <!-- ============================================================ -->
+        <h2 id="states-pcb"><i class="fas fa-diagram-project"></i> 2.2 · Process States and the PCB</h2>
+
+        <p>
+            At any given moment, a process is in one of a small number of states. The exact labels vary slightly
+            between textbooks, but the classic five-state model used by Silberschatz is the most widely adopted:
+        </p>
+
+        <!-- SVG: Five-state diagram -->
+        <div class="svg-container">
+            <svg viewBox="0 0 800 300" xmlns="http://www.w3.org/2000/svg" aria-label="Five-state process diagram">
+                <defs>
+                    <marker id="arrowHead" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#7dd3fc" />
+                    </marker>
+                </defs>
+
+                <circle cx="120" cy="150" r="55" fill="rgba(16, 185, 129, 0.15)" stroke="#10b981" stroke-width="2" />
+                <text x="120" y="145" font-family="Inter" font-size="14" fill="#34d399" text-anchor="middle" font-weight="700">New</text>
+                <text x="120" y="165" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">being created</text>
+
+                <circle cx="290" cy="150" r="55" fill="rgba(59, 130, 246, 0.15)" stroke="#3b82f6" stroke-width="2" />
+                <text x="290" y="145" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle" font-weight="700">Ready</text>
+                <text x="290" y="165" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">waiting for CPU</text>
+
+                <circle cx="470" cy="150" r="55" fill="rgba(245, 158, 11, 0.15)" stroke="#f59e0b" stroke-width="2" />
+                <text x="470" y="145" font-family="Inter" font-size="14" fill="#fbbf24" text-anchor="middle" font-weight="700">Running</text>
+                <text x="470" y="165" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">on the CPU</text>
+
+                <circle cx="650" cy="150" r="55" fill="rgba(236, 72, 153, 0.15)" stroke="#ec4899" stroke-width="2" />
+                <text x="650" y="145" font-family="Inter" font-size="14" fill="#f472b6" text-anchor="middle" font-weight="700">Waiting</text>
+                <text x="650" y="165" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">for I/O or event</text>
+
+                <circle cx="470" cy="265" r="45" fill="rgba(100, 116, 139, 0.18)" stroke="#64748b" stroke-width="2" />
+                <text x="470" y="260" font-family="Inter" font-size="13" fill="#cbd5e1" text-anchor="middle" font-weight="700">Terminated</text>
+                <text x="470" y="275" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">finished</text>
+
+                <line x1="175" y1="150" x2="235" y2="150" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrowHead)" />
+                <text x="205" y="140" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">admit</text>
+
+                <line x1="345" y1="150" x2="415" y2="150" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrowHead)" />
+                <text x="380" y="140" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">dispatch</text>
+
+                <line x1="415" y1="170" x2="345" y2="170" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrowHead)" />
+                <text x="380" y="195" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">preempt / time slice ends</text>
+
+                <line x1="525" y1="150" x2="595" y2="150" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrowHead)" />
+                <text x="560" y="140" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">I/O request</text>
+
+                <line x1="605" y1="185" x2="525" y2="185" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrowHead)" />
+                <text x="565" y="210" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">I/O complete</text>
+
+                <line x1="470" y1="205" x2="470" y2="220" stroke="#7dd3fc" stroke-width="2" marker-end="url(#arrowHead)" />
+                <text x="500" y="215" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="start">exit</text>
+            </svg>
+            <div class="svg-caption">The five-state process model: New → Ready → Running → Waiting → Terminated, with transitions driven by the kernel and by I/O events.</div>
+        </div>
+
+        <h3>The five states, defined</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">State</th>
+                    <th>Meaning</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>New</strong></td>
+                    <td>The process is being created. The OS is allocating resources (address space, PCB), but the
+                        process is not yet ready to run.</td>
+                </tr>
+                <tr>
+                    <td><strong>Ready</strong></td>
+                    <td>The process has everything it needs to run and is waiting in the ready queue for the CPU
+                        scheduler to pick it.</td>
+                </tr>
+                <tr>
+                    <td><strong>Running</strong></td>
+                    <td>The process is currently executing on the CPU. On a single-core system, only one process is
+                        running at any instant.</td>
+                </tr>
+                <tr>
+                    <td><strong>Waiting</strong></td>
+                    <td>The process is blocked, waiting for an event (I/O completion, a signal, a child process). Even if
+                        the CPU were free, this process could not run.</td>
+                </tr>
+                <tr>
+                    <td><strong>Terminated</strong></td>
+                    <td>The process has finished execution. It is now ready to be reaped by its parent.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>The Process Control Block (PCB)</h3>
+
+        <p>
+            How does the kernel keep track of all this? Every process has a data structure called the
+            <strong>Process Control Block (PCB)</strong> — called <code>task_struct</code> in Linux. The PCB is the
+            kernel's "identity card" for a process and contains everything the OS needs to manage it:
+        </p>
+
+        <ul>
+            <li><strong>Process ID (PID):</strong> A unique integer identifying the process.</li>
+            <li><strong>Parent PID (PPID):</strong> Identifies the parent process that created this one.</li>
+            <li><strong>Process state:</strong> One of New, Ready, Running, Waiting, or Terminated.</li>
+            <li><strong>Program Counter (PC):</strong> The address of the next instruction to execute.</li>
+            <li><strong>CPU registers:</strong> The full register set — needed to restore the process later.</li>
+            <li><strong>Memory management information:</strong> Pointers to page tables, base and limit registers,
+                memory maps.</li>
+            <li><strong>I/O status:</strong> Open file descriptors, pending I/O requests, devices in use.</li>
+            <li><strong>Accounting information:</strong> CPU time consumed, wall-clock time, priority, scheduling
+                parameters.</li>
+        </ul>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Simply put:</strong> if the OS ever needs to pause a process and come back to it later, the PCB
+            contains <em>everything</em> required to resume that process as if it had never been interrupted.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 2.3 CONTEXT SWITCHING                                        -->
+        <!-- ============================================================ -->
+        <h2 id="context-switch"><i class="fas fa-exchange-alt"></i> 2.3 · Context Switching</h2>
+
+        <p>
+            Modern computers look like they run many programs simultaneously, but on a single CPU core, only one
+            instruction stream executes at any given nanosecond. What actually happens is that the CPU rapidly
+            switches between processes: this is <strong>context switching</strong>.
+        </p>
+
+        <p>
+            A context switch is the act of saving the state of the currently running process and loading the state of
+            the next one. The kernel must:
+        </p>
+
+        <ol>
+            <li>Save the CPU registers of the running process into its PCB.</li>
+            <li>Update the process's state (from <strong>Running</strong> to <strong>Ready</strong> or
+                <strong>Waiting</strong>).</li>
+            <li>Select the next process to run (using the scheduler).</li>
+            <li>Load the saved CPU registers of the next process from its PCB.</li>
+            <li>Switch the memory map — update the MMU to point to the next process's page tables.</li>
+            <li>Resume execution of the next process.</li>
+        </ol>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Context switches are not free.</strong> A typical context switch on Linux takes on the order of
+            <em>1–10 microseconds</em> — mostly because of the memory-map switch, which invalidates the TLB (a
+            cache that maps virtual to physical addresses). If a system switches too frequently, the overhead
+            dominates and performance collapses. This is called <em>context-switch thrashing</em>.
+        </div>
+
+        <h3>Context switch vs mode switch</h3>
+
+        <p>
+            A subtle but important distinction: <strong>entering the kernel via a system call is not the same as a
+            context switch</strong>. When a process makes a syscall, the CPU switches from user mode to kernel mode, but
+            the process remains the same — same PID, same address space. No context switch occurs.
+        </p>
+
+        <p>
+            A context switch happens only when the kernel decides to run a different process. Syscalls cause context
+            switches only if they block (e.g., <code>read</code> on a slow disk) or if the scheduler decides it's time
+            to preempt.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 2.4 fork(), exec(), and wait()                               -->
+        <!-- ============================================================ -->
+        <h2 id="fork-exec-wait"><i class="fas fa-code-branch"></i> 2.4 · fork(), exec(), and wait()</h2>
+
+        <p>
+            On Unix-like systems, all process creation flows through a single syscall: <strong><code>fork()</code></strong>.
+            Other operations are built on top of it. Let's look at the key ones.
+        </p>
+
+        <h3>fork() — the only way to create a process</h3>
+
+        <p>
+            <code>fork()</code> creates a copy of the calling process. The kernel duplicates the entire address space,
+            creates a new PCB, and returns <strong>twice</strong>: once in the parent, once in the child.
+        </p>
+
+        <p>
+            In the <strong>parent</strong>, <code>fork()</code> returns the PID of the newly created child process.
+            In the <strong>child</strong>, it returns 0. This is how each side knows which one it is.
+        </p>
+
+        <pre><code>#include &lt;stdio.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/types.h&gt;
+
+int main(void) {
+    pid_t pid = fork();
+
+    if (pid &lt; 0) {
+        perror("fork failed");
+        return 1;
+    } else if (pid == 0) {
+        printf("Child process:  PID = %d, PPID = %d\n", getpid(), getppid());
+    } else {
+        printf("Parent process: PID = %d, child PID = %d\n", getpid(), pid);
+    }
+    return 0;
+}</code></pre>
+
+        <div class="info-note">
+            <i class="fas fa-info-circle"></i>
+            <strong>Modern optimization:</strong> A full memory copy on <code>fork()</code> would be very expensive.
+            Linux uses <strong>copy-on-write (COW)</strong>: the child shares the parent's pages until one of them
+            writes to a page. Only then is that page physically copied. This makes <code>fork()</code> fast and
+            memory-cheap when the child immediately calls <code>exec</code>.
+        </div>
+
+        <h3>exec family — replacing the current program</h3>
+
+        <p>
+            <code>exec()</code> replaces the calling process's code, data, heap, and stack with a new program. It does
+            not create a new process — it becomes a different program, same PID. There is no "return" from a
+            successful <code>exec</code>.
+        </p>
+
+        <p>
+            The name <code>execve()</code> refers to the underlying syscall; <code>execl</code>,
+            <code>execv</code>, <code>execvp</code>, etc., are C library wrappers that differ in how arguments are
+            passed.
+        </p>
+
+        <h3>wait() and waitpid() — waiting for children</h3>
+
+        <p>
+            A parent process typically wants to know when its child has finished. <code>wait()</code> blocks until
+            any child terminates; <code>waitpid()</code> waits for a specific child.
+        </p>
+
+        <p>
+            When a child terminates, the kernel does not immediately free its PCB — because the parent needs to be able
+            to read the exit status. In this intermediate state, the child is called a <strong>zombie</strong>. Once the
+            parent calls <code>wait()</code>, the kernel reaps the zombie and frees the resources.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The zombie problem:</strong> If a parent terminates without reaping its children, they get
+            re-parented to <code>init</code> (PID 1), which reaps them automatically. But if a parent is alive and
+            never calls <code>wait()</code>, zombies accumulate and can exhaust the process table. This is why
+            <code>wait()</code> is not optional in well-behaved code.
+        </div>
+
+        <h3>The classic Unix pattern: fork + exec</h3>
+
+        <p>
+            When you type <code>ls</code> into a bash shell, the shell does not execute <code>ls</code> in itself.
+            Instead, it:
+        </p>
+
+        <ol>
+            <li>Forks a child process.</li>
+            <li>The child calls <code>execvp("ls", args)</code> — replacing itself with <code>ls</code>.</li>
+            <li>The parent (the shell) waits for the child to finish using <code>waitpid()</code>.</li>
+            <li>Once the child finishes, control returns to the shell, which prints the next prompt.</li>
+        </ol>
+
+        <p>
+            Every command you have ever run in a Linux shell went through this pattern. Understanding it is a major
+            milestone in learning systems programming.
+        </p>
+
+        <!-- SVG: fork + exec flow -->
+        <div class="svg-container">
+            <svg viewBox="0 0 700 320" xmlns="http://www.w3.org/2000/svg" aria-label="fork and exec flow">
+                <rect x="30" y="30" width="200" height="60" rx="8" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="130" y="55" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle" font-weight="700">Parent — shell</text>
+                <text x="130" y="74" font-family="Courier New" font-size="11" fill="#94a3b8" text-anchor="middle">PID = 4711</text>
+
+                <rect x="470" y="30" width="200" height="60" rx="8" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="570" y="55" font-family="Inter" font-size="13" fill="#34d399" text-anchor="middle" font-weight="700">Child</text>
+                <text x="570" y="74" font-family="Courier New" font-size="11" fill="#94a3b8" text-anchor="middle">PID = 4712</text>
+
+                <line x1="230" y1="60" x2="465" y2="60" stroke="#7dd3fc" stroke-width="2" stroke-dasharray="5,3" />
+                <text x="350" y="50" font-family="Inter" font-size="11" fill="#a78bfa" text-anchor="middle" font-weight="700">fork()</text>
+
+                <rect x="470" y="130" width="200" height="60" rx="8" fill="rgba(139, 92, 246, 0.15)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="570" y="155" font-family="Courier New" font-size="12" fill="#c4b5fd" text-anchor="middle" font-weight="700">/bin/ls</text>
+                <text x="570" y="174" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">same PID = 4712</text>
+
+                <line x1="570" y1="90" x2="570" y2="125" stroke="#8b5cf6" stroke-width="2" marker-end="url(#a1)" />
+                <defs>
+                    <marker id="a1" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#8b5cf6" />
+                    </marker>
+                    <marker id="a2" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#f59e0b" />
+                    </marker>
+                </defs>
+                <text x="600" y="115" font-family="Inter" font-size="11" fill="#c4b5fd" text-anchor="start" font-weight="700">execvp("ls", ...)</text>
+
+                <rect x="30" y="220" width="200" height="60" rx="8" fill="rgba(245, 158, 11, 0.15)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="130" y="245" font-family="Courier New" font-size="12" fill="#fbbf24" text-anchor="middle" font-weight="700">waitpid()</text>
+                <text x="130" y="264" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">blocks until child exits</text>
+
+                <line x1="130" y1="90" x2="130" y2="215" stroke="#f59e0b" stroke-width="2" marker-end="url(#a2)" />
+                <text x="160" y="160" font-family="Inter" font-size="11" fill="#fbbf24" text-anchor="start" font-weight="700">parent waits</text>
+            </svg>
+            <div class="svg-caption">The classic Unix pattern: parent forks a child, child calls exec to become a new program, parent waits for the child to finish.</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 2.5 IPC BASICS                                               -->
+        <!-- ============================================================ -->
+        <h2 id="ipc"><i class="fas fa-comments"></i> 2.5 · Inter-Process Communication (IPC) Basics</h2>
+
+        <p>
+            Processes are isolated from each other by design — that is how the OS keeps them from corrupting one
+            another. But they still need to communicate. The OS provides several mechanisms, each with its own
+            trade-offs.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Mechanism</th>
+                    <th style="width: 30%;">How it works</th>
+                    <th>Strengths &amp; weaknesses</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Pipes</strong></td>
+                    <td>Unidirectional byte stream between two related processes (usually parent → child).</td>
+                    <td>Very simple, tiny buffer. Unidirectional only; requires shared ancestry.</td>
+                </tr>
+                <tr>
+                    <td><strong>Named pipes (FIFOs)</strong></td>
+                    <td>Same as pipes, but accessible via the file system — any two processes can use them.</td>
+                    <td>More flexible than anonymous pipes. Still unidirectional.</td>
+                </tr>
+                <tr>
+                    <td><strong>Shared memory</strong></td>
+                    <td>Both processes map the same physical memory pages into their address space.</td>
+                    <td>Fastest method — no kernel involvement after setup. But synchronization is the programmer's
+                        responsibility.</td>
+                </tr>
+                <tr>
+                    <td><strong>Message queues</strong></td>
+                    <td>Kernel-managed queues; processes send and receive structured messages.</td>
+                    <td>Cleaner semantics than pipes. Slower than shared memory.</td>
+                </tr>
+                <tr>
+                    <td><strong>Sockets</strong></td>
+                    <td>Endpoint-based communication — works for both local and network connections.</td>
+                    <td>Most general and portable. More overhead for local communication.</td>
+                </tr>
+                <tr>
+                    <td><strong>Signals</strong></td>
+                    <td>Asynchronous notifications — a process is interrupted to handle a signal.</td>
+                    <td>Very lightweight, but carries little data. Ideal for events like Ctrl+C (SIGINT).</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Rule of thumb:</strong> for two related processes that just need to pass bytes — pipes. For high
+            throughput and short messages — shared memory. For cross-machine communication — sockets. For events —
+            signals.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 2.6 LAB: FORK AND PROCESS TREES                              -->
+        <!-- ============================================================ -->
+        <h2 id="lab-fork"><i class="fas fa-code"></i> 2.6 · Touch Lab — fork() and Process Trees</h2>
+
+        <p>
+            Let's write, compile, and run our first real systems program. The goal is to see in practice what the
+            theory has been describing.
+        </p>
+
+        <h3>Step 1 — Create the source file</h3>
+
+        <pre><code>$ nano forktree.c</code></pre>
+
+        <p>Paste the following code:</p>
+
+        <pre><code>#include &lt;stdio.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/types.h&gt;
+#include &lt;sys/wait.h&gt;
+
+int main(void) {
+    pid_t pid = fork();
+
+    if (pid &lt; 0) {
+        perror("fork");
+        return 1;
+    } else if (pid == 0) {
+        /* Child */
+        printf("[CHILD ]  PID = %d, my parent PPID = %d\n", getpid(), getppid());
+    } else {
+        /* Parent */
+        printf("[PARENT]  PID = %d, I just created child %d\n", getpid(), pid);
+        wait(NULL);
+        printf("[PARENT]  child %d has just terminated\n", pid);
+    }
+    return 0;
+}</code></pre>
+
+        <h3>Step 2 — Compile</h3>
+
+        <pre><code>$ gcc -Wall -o forktree forktree.c
+$ ls -l forktree
+-rwxr-xr-x 1 student student 16512 ... forktree</code></pre>
+
+        <h3>Step 3 — Run it</h3>
+
+        <pre><code>$ ./forktree
+[PARENT]  PID = 4711, I just created child 4712
+[CHILD ]  PID = 4712, my parent PPID = 4711
+[PARENT]  child 4712 has just terminated</code></pre>
+
+        <p>
+            Note that the order of the first two lines is <strong>not deterministic</strong> — the scheduler decides
+            who runs first after the fork. Try running the program several times to see for yourself.
+        </p>
+
+        <h3>Step 4 — Observe the process tree</h3>
+
+        <p>
+            In another terminal, run this while the first program is running (to slow down the child, you can modify
+            the code to sleep for a few seconds):
+        </p>
+
+        <pre><code>$ pstree -p &lt;your_user&gt;
+bash(4500)─┬─forktree(4711)───forktree(4712)
+            └─pstree(4720)</code></pre>
+
+        <p>
+            You should see the parent process and the child fork, both with distinct PIDs, and the parent-child
+            relationship preserved.
+        </p>
+
+        <h3>Step 5 — Inspect /proc</h3>
+
+        <p>
+            While the child is still alive, you can inspect its live kernel-facing state:
+        </p>
+
+        <pre><code>$ cat /proc/4712/status
+Name:	forktree
+State:	S (sleeping)
+Pid:	4712
+PPid:	4711
+Uid:	1000	1000	1000	1000
+VmSize:	   2580 kB
+...
+
+$ ls -l /proc/4712/fd
+total 0
+lrwx------ 1 student student 64 ... 0 -> /dev/pts/0
+lrwx------ 1 student student 64 ... 1 -> /dev/pts/0
+lrwx------ 1 student student 64 ... 2 -> /dev/pts/0</code></pre>
+
+        <p>
+            The <code>/proc/&lt;pid&gt;</code> directory is a virtual file system exposed by the kernel. Every file
+            inside it is generated on the fly and reflects the current state of the process — its memory maps, open
+            file descriptors, CPU affinity, scheduling policy, and much more.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Fun fact:</strong> <code>/proc</code> is not a real file system — nothing is stored on disk. It
+            is a window into the kernel's in-memory data structures. Every read from a file in <code>/proc</code> is
+            really a function call inside the kernel.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 2.7 LAB: PS AND TOP                                          -->
+        <!-- ============================================================ -->
+        <h2 id="lab-ps-top"><i class="fas fa-terminal"></i> 2.7 · Touch Lab — Monitoring Processes with ps and top</h2>
+
+        <p>
+            In the previous lab, we looked at processes from inside our own program. Now let's look at them from the
+            "outside" — using the tools every Linux administrator uses daily.
+        </p>
+
+        <h3>ps — take a snapshot of running processes</h3>
+
+        <p>
+            <code>ps</code> shows a picture of the current process table. The bare command shows only the processes
+            attached to your terminal. To see everything, use flags.
+        </p>
+
+        <pre><code>$ ps                              # your shell session only
+$ ps aux                           # all processes, BSD-style
+$ ps -ef                           # all processes, UNIX-style
+$ ps -eo pid,ppid,stat,cmd         # custom columns</code></pre>
+
+        <p>
+            Common columns in <code>ps aux</code> output:
+        </p>
+
+        <ul>
+            <li><strong>USER</strong> — who owns the process.</li>
+            <li><strong>PID</strong> — the process ID.</li>
+            <li><strong>%CPU</strong> — CPU usage since the process started.</li>
+            <li><strong>%MEM</strong> — resident memory usage as a percentage.</li>
+            <li><strong>STAT</strong> — process state code (R = running, S = sleeping, D = uninterruptible sleep,
+                Z = zombie, T = stopped).</li>
+            <li><strong>TIME</strong> — total CPU time consumed.</li>
+            <li><strong>COMMAND</strong> — the command line that started the process.</li>
+        </ul>
+
+        <h3>top — a live view of the system</h3>
+
+        <p>
+            <code>top</code> is like <code>ps</code> but refreshes every few seconds and sorts by CPU usage. It also
+            shows system-wide metrics like load average and memory usage at the top. For a more modern and colorful
+            version, install <code>htop</code>:
+        </p>
+
+        <pre><code>$ sudo apt install htop
+$ htop</code></pre>
+
+        <h3>Background jobs, fg, and bg</h3>
+
+        <p>
+            Your shell can manage multiple processes through <em>job control</em>. Display the current jobs, background
+            a running one, or bring it back to the foreground with these commands:
+        </p>
+
+        <pre><code>$ sleep 300 &amp;         # start sleep in the background
+[1] 4810
+$ jobs                # list jobs of the current shell
+[1]+ Running    sleep 300 &amp;
+
+$ sleep 500           # now press Ctrl+Z to suspend it
+^Z
+[2]+ Stopped    sleep 500
+
+$ bg %2               # resume job 2 in the background
+$ fg %1               # bring job 1 to the foreground
+$ kill 4810           # send SIGTERM to a process by PID</code></pre>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Signals matter:</strong> <code>kill</code> does not mean "destroy" — it means "send a signal."
+            The default signal is SIGTERM (15), which politely asks the process to terminate. SIGKILL (9) is
+            uncatchable and forces immediate termination — use it only as a last resort, since the process gets no
+            chance to clean up.
+        </div>
+
+        <h3>Practice exercise</h3>
+
+        <ol>
+            <li>Open a terminal and run <code>sleep 1000 &amp;</code> three times.</li>
+            <li>Run <code>jobs</code> and note the job numbers.</li>
+            <li>Run <code>ps -eo pid,ppid,stat,cmd | grep sleep</code> and identify all three sleeps.</li>
+            <li>Use <code>fg %1</code> to bring the first one back, then Ctrl+C to kill it.</li>
+            <li>Use <code>kill</code> to terminate the two remaining background jobs.</li>
+        </ol>
+
+        <p>
+            When you can do this without hesitation, you have mastered the basic vocabulary of Linux process
+            control — and you will use it every single day for the rest of this course.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 2 — Written Assignment</h3>
+            <p>
+                Submit your responses as a PDF. This assignment contributes to your <strong>labs &amp;
+                assignments</strong> grade.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the difference between a <strong>program</strong> and a <strong>process</strong>. Give a
+                    concrete example where you run the same program twice as two independent processes.</li>
+                <li>Draw the five-state diagram of a process and label every transition, indicating
+                    what event triggers each one.</li>
+                <li>What is the <strong>PCB</strong>? List at least five categories of data it must contain, and
+                    explain why each is needed to resume a process after a context switch.</li>
+                <li>Explain the difference between a <strong>mode switch</strong> (user ↔ kernel) and a
+                    <strong>context switch</strong> (process ↔ process). Why does the first not always imply the
+                    second?</li>
+                <li>Define a <strong>zombie process</strong>. Why does a zombie exist? How is it finally removed?</li>
+            </ol>
+
+            <h4>Part II — Applied Questions (40 points)</h4>
+            <ol>
+                <li>Write a C program that creates three children with three successive <code>fork()</code> calls.
+                    Print the parent's PID and each child's PID along with their individual PPIDs. Save the output
+                    and include it in your submission.</li>
+                <li>Using <code>ps -eo pid,ppid,stat,cmd --sort=ppid | head -30</code>, identify the root process of
+                    your process tree. Explain how the process tree reflects the fork family pattern.</li>
+                <li>Run <code>ps aux --sort=-%mem | head -10</code> and describe what the top consumers are on your
+                    system. Which of them are kernel threads?</li>
+                <li>Compare the outputs of <code>ps aux</code> and <code>top</code>. Identify three pieces of
+                    information that <code>top</code> provides but <code>ps</code> does not.</li>
+            </ol>
+
+            <h4>Part III — Reflection (30 points)</h4>
+            <ol>
+                <li>In your own words (4–6 sentences), describe what a process really is — not just the textbook
+                    definition, but what it means in terms of memory, CPU, and protection.</li>
+                <li>Which IPC mechanism would you choose for the following scenarios, and why?
+                    <ul>
+                        <li>Two processes streaming large amounts of data between them on the same machine.</li>
+                        <li>A small notification that the user pressed Ctrl+C.</li>
+                        <li>Communication between two services running on different hosts.</li>
+                    </ul>
+                </li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 2 Summary</h3>
+            <ul>
+                <li><strong>Process:</strong> an active program in memory, with its own address space and PCB.</li>
+                <li><strong>Process states:</strong> New, Ready, Running, Waiting, Terminated — with transitions
+                    driven by syscalls, I/O events, and the scheduler.</li>
+                <li><strong>PCB:</strong> the kernel's per-process record containing PID, PPID, registers, memory
+                    maps, open files, and scheduling information.</li>
+                <li><strong>Context switch:</strong> saving and restoring a process's full state. Expensive because
+                    of the memory-map switch and TLB invalidation.</li>
+                <li><strong>fork / exec / wait:</strong> the classic Unix trio for creating, replacing, and reaping
+                    processes.</li>
+                <li><strong>IPC:</strong> pipes, FIFOs, shared memory, message queues, sockets, and signals — each
+                    serving different needs.</li>
+                <li><strong>Tools:</strong> <code>ps</code>, <code>top</code>, <code>htop</code>, <code>jobs</code>,
+                    <code>kill</code>, and <code>/proc/&lt;pid&gt;</code> put process management into your hands.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

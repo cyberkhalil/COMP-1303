@@ -1,0 +1,1168 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 3 — Threads & Multithreading
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  seven short videos.
+• Each video is designed to be between 15 and 20 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.1 — What is a Thread?                                       ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Threads & Multithreading" + course name]
+
+SPEAK:
+"Welcome to Week 3 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week we met the process — an isolated running program with its
+own memory, its own file descriptors, and its own PCB. We saw how
+powerful that isolation is: it prevents one program from destroying
+another. But we also saw the price: processes are heavy. Communicating
+between them requires IPC, and creating one is not cheap.
+
+Today I want to introduce you to the solution modern software uses
+for high-performance concurrency: the thread."
+
+[PAUSE]
+
+[SLIDE 2 — Two contrasting boxes: "Process — isolated execution
+environment" vs "Thread — unit of execution inside a process"]
+
+SPEAK:
+"Here's the one-line definition I want you to write down: a thread is
+a unit of CPU execution that lives inside a process.
+
+That is it. Not more, not less. A thread exists only inside a process.
+It cannot exist on its own. And a process can have one thread, two
+threads, or a thousand threads — all running concurrently, all sharing
+the same memory.
+
+So a thread is not a smaller process. It is a second, third, or
+thousandth execution pointer inside the same process."
+
+[PAUSE]
+
+[SLIDE 3 — The process we saw in Week 2, with a single stack]
+
+SPEAK:
+"Let's go back to what we learned in Week 2 about how a process is
+laid out in memory.
+
+Every process has a virtual address space. It contains four regions:
+the code or text segment, the data segment for globals, the heap for
+dynamic allocations, and the stack for function call frames.
+
+When a process runs, it has a program counter pointing at the next
+instruction. It has a set of CPU registers holding intermediate
+values. It has a stack pointer telling where the current stack frame
+is.
+
+Now — here's the key question. If we want to run two functions at the
+same time, what do we actually need to duplicate, and what can we
+share?"
+
+[PAUSE]
+
+[SLIDE 4 — Multi-threaded process: three stacks, shared code / data /
+heap]
+
+SPEAK:
+"So here is the beautiful answer.
+
+If two functions are part of the same program — they call the same
+utility functions, they read the same global variables, they open the
+same files — then it makes no sense to give each one a copy of the
+code, a copy of the heap, and a copy of the file descriptor table.
+That would just waste memory and require them to communicate by IPC.
+
+What each running function actually needs to be independent is
+three things: a <em>program counter</em>, a <em>set of registers</em>,
+and a <em>stack</em>. Everything else can be shared.
+
+That is exactly what a thread gives you. Each thread gets its own
+private PC, registers, and stack. Everything else — code, data, heap,
+file descriptors, working directory — is shared between all threads of
+the process.
+
+This is why we call a thread a lightweight process. It gets the
+minimum it takes to be an independent execution flow, and it shares
+everything else."
+
+[PAUSE]
+
+[SLIDE 5 — Comparison table: Shared vs Private]
+
+SPEAK:
+"Let me put the shared-and-private split into a table, because this
+is the diagram you will see again on the midterm.
+
+Shared between all threads of a process: the virtual address space —
+including code, data, and heap. The open file descriptors and sockets.
+The current working directory. All global and static variables.
+Signal handlers. And the user and group identity.
+
+Private to each thread: the program counter. All the CPU registers,
+including the stack pointer and flags. The stack itself. A unique
+thread ID, and a pthread_t handle. And two subtle things that often
+surprise students: the errno variable, and the signal mask — meaning
+which signals are currently blocked for this thread.
+
+Here is the way to remember it: if it makes sense for two running
+functions to share it, it is shared. If it must be preserved
+separately for each execution, it is private."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize this first video.
+
+A thread is the smallest unit of CPU execution that the kernel can
+schedule, and it always lives inside a process.
+
+A multi-threaded process shares code, data, heap, and file descriptors
+between all its threads — but each thread has its own program counter,
+registers, and stack.
+
+This design makes threads both extremely powerful and, as we will see
+soon, extremely dangerous. In the next video, we will look at how
+these threads are actually implemented at the OS level — the classic
+thread models."
+
+[END OF VIDEO 3.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.2 — Thread Models: 1:1, N:1, and M:N                        ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Thread Models — 1:1, N:1, M:N"]
+
+SPEAK:
+"Welcome back. In the last video we defined what a thread is. Now
+let's look at how they are actually implemented in operating systems.
+
+Because here is the thing: not all threads are equally real. Some
+threads are managed entirely by a user-space library, without the
+kernel knowing they exist. Others are backed by real kernel-level
+scheduling entities. And some are a hybrid.
+
+This distinction produces three classic <em>thread models</em>, and
+understanding them explains a lot about the performance and behavior
+of different languages and platforms."
+
+[PAUSE]
+
+[SLIDE 2 — Diagram of the three models]
+
+SPEAK:
+"The three models are: one-to-one, many-to-one, and many-to-many.
+
+Let me start with the simplest one. One-to-one — every user thread is
+backed by exactly one kernel thread.
+
+In this model, when your program creates a thread, the kernel
+actually creates a new schedulable entity that the CPU can dispatch
+on any core. If you have four threads and four cores, all four run
+truly in parallel. If one thread makes a blocking syscall — reading
+from a slow disk, for example — only that thread blocks. The others
+continue running.
+
+This is the model used by Linux, Windows, and macOS.
+
+The downside is cost. Every thread consumes kernel resources: a
+task_struct, a kernel stack, and its own scheduling slot. If you
+create ten thousand threads, you quickly hit system limits — because
+the kernel has to manage every single one of them."
+
+[PAUSE]
+
+[SLIDE 3 — N:1 model detail]
+
+SPEAK:
+"Now, many-to-one. In this model, many user-level threads are
+multiplexed on top of a single kernel thread.
+
+The user-level thread library — not the kernel — decides which user
+thread to run. The kernel sees only one execution context, even though
+from the program's point of view there are hundreds of threads.
+
+This makes thread creation extremely cheap. Creating a green thread
+is just allocating a small stack and adding an entry to a queue.
+Switching between them is also cheap — no system call, no kernel
+involvement at all.
+
+But the model has two serious problems.
+
+First: no parallelism. Even on a sixteen-core machine, all your user
+threads run on one core, because the kernel only sees one thread. You
+never get true parallel execution.
+
+Second: a single blocking syscall freezes everything. If one user
+thread calls read on a slow file, the kernel blocks the single
+underlying kernel thread — and every user thread stops. This is why
+early Java green threads were so painful in practice."
+
+[PAUSE]
+
+[SLIDE 4 — M:N model detail]
+
+SPEAK:
+"Many-to-many tries to get the best of both worlds.
+
+You have many user-level threads, but they are mapped onto a smaller
+pool of kernel threads — some number between one and the number of
+cores. The runtime is free to move user threads between kernel threads
+when one blocks.
+
+This gives you cheap thread creation, true parallelism, and no
+freezing on blocking calls. Sounds perfect, right?
+
+The problem is complexity. The runtime has to be extremely careful
+about scheduling, stack management, and interaction with the kernel.
+Implementations are notoriously difficult to get right. Many systems
+that tried M:N eventually moved back to simpler models.
+
+Modern examples that work well include Go's goroutines and Erlang's
+processes. But Go, for example, essentially uses what looks like an
+M:N model that behaves a lot like 1:1 under the hood."
+
+[PAUSE]
+
+[SLIDE 5 — Highlight: "Linux uses 1:1 — threads are tasks"]
+
+SPEAK:
+"Let me focus on Linux specifically, because that is what we will work
+with throughout the course.
+
+Linux uses the one-to-one model. Every pthread you create ends up as a
+real kernel-scheduled task. But here's the clever part: the Linux
+kernel does not actually distinguish between processes and threads at
+the lowest level.
+
+Both are represented by the same data structure — called
+task_struct. The kernel just does not care what user space calls them.
+Both are tasks.
+
+What makes one task a process and another a thread is a set of flags
+passed to the clone system call. When you call fork, the kernel clones
+with no sharing: new address space, new file descriptor table. When
+the pthread library creates a thread, it calls clone with flags like
+CLONE_VM and CLONE_FILES — telling the kernel to share the address
+space and the file descriptors between the parent and the new task.
+
+That is it. A thread is just a task that shares resources with another
+task. It is a beautifully simple design, and it is why tools like
+ps -eLf show threads as light-weight processes with their own LWP
+numbers."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"So, three models.
+
+One-to-one — every user thread is a kernel thread. True parallelism,
+but resource-heavy. Used by Linux, Windows, macOS.
+
+Many-to-one — many user threads on one kernel thread. Cheapest to
+create, but no parallelism and blocking calls freeze everything. Used
+by early Java green threads.
+
+Many-to-many — a hybrid. Best theoretical behavior, most complex to
+implement. Used by Go, Erlang, and older Solaris.
+
+In Linux, threads and processes use the same kernel data structure.
+The difference is entirely determined by clone flags — which resources
+get shared.
+
+In the next video, we will look at why threads exist in the first
+place — the benefits and the very real costs."
+
+[END OF VIDEO 3.2]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.3 — Benefits & Overheads of Threads                         ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Benefits & Overheads of Threads"]
+
+SPEAK:
+"Welcome to the third video of Week 3. We have defined threads and
+seen how they are implemented. Now I want to ask the practical
+question: why would you use threads? And what will they cost you?
+
+Because threads are not a free lunch. They solve certain problems
+beautifully and create new ones of their own. Understanding both sides
+is the mark of a serious systems programmer."
+
+[PAUSE]
+
+[SLIDE 2 — Benefits side]
+
+SPEAK:
+"Let's start with the benefits. There are four main ones.
+
+First: <em>responsiveness</em>. Imagine a GUI application that also
+needs to do a long computation — maybe processing a large file.
+Without threading, the user interface freezes while the computation
+runs. The user clicks a button, nothing happens, they click again and
+think the app is broken.
+
+With threads, we can dedicate one thread to the user interface, and
+another thread to the computation. The UI stays responsive while the
+background work proceeds. This is the most common reason threads are
+used in desktop and mobile software.
+
+Second: <em>resource sharing</em>. Threads of the same process share
+memory by default. Passing data between two threads is just assigning
+a variable. No serialization, no IPC, no syscalls — just a memory
+write. This is a thousand times faster than passing a message over a
+pipe.
+
+Third: <em>economy</em>. Creating a thread is much cheaper than
+creating a process. On a typical Linux system, forking a process
+takes tens of microseconds; creating a thread takes a few
+microseconds. Context switching between threads is also cheaper —
+because they share the same address space, the CPU does not need to
+flush the TLB."
+
+[PAUSE]
+
+[SLIDE 3 — Fourth benefit: scalability]
+
+SPEAK:
+"Fourth, and especially important on modern hardware: <em>scalability</em>.
+
+In the year 2000, most CPUs had a single core, and running faster
+meant higher clock speeds. Today, that is over. The clock speed
+plateaued around four or five gigahertz. To get more performance,
+manufacturers put more cores on the chip.
+
+If your program has only one thread, it can only run on one core.
+Adding a second thread that does useful work in parallel can nearly
+double your throughput — and that is the fundamental reason that
+multi-threading has become essential rather than optional.
+
+A program designed for one core, on a sixteen-core machine, uses six
+percent of the hardware. A well-designed multi-threaded program can
+use all of it."
+
+[TRANSITION]
+
+[SLIDE 4 — Overheads side]
+
+SPEAK:
+"Now, the dark side of the moon. What does threading cost?
+
+The first cost is <em>race conditions</em>. When two threads access
+the same data without synchronization, results become unpredictable.
+A program that runs perfectly on your laptop might crash on the
+professor's server — because the timing changed.
+
+The second cost is <em>deadlocks</em>. If thread A holds lock 1 and
+wants lock 2, and thread B holds lock 2 and wants lock 1, neither will
+ever proceed. The system freezes. We will study this in Week 6.
+
+The third cost is <em>debugging complexity</em>. A bug in a
+single-threaded program happens at the same point every time you run
+it. A bug in a multi-threaded program might happen one time in ten
+thousand — and disappear when you run it under a debugger, because
+the debugger changes timing. These are the worst kind of bugs in
+software engineering."
+
+[PAUSE]
+
+[SLIDE 5 — Loss of isolation]
+
+SPEAK:
+"And the fourth cost, which is often underestimated: <em>loss of
+isolation</em>.
+
+Remember, processes are isolated. If one process crashes, others
+survive. That is why your browser crashing does not take down your
+whole desktop.
+
+Threads do not have that protection. They all share one address space.
+If one thread dereferences a bad pointer, the entire process receives
+SIGSEGV — and every other thread dies with it. If one thread calls
+exit, the whole process terminates immediately, and no other thread
+gets a chance to clean up.
+
+So threads buy you cooperation at the price of robustness. That is
+the fundamental trade-off."
+
+[SLIDE 6 — Design guidance]
+
+SPEAK:
+"So how do you choose? Here is the design principle I want you to
+remember.
+
+Use <em>processes</em> when you need isolation, robustness, or
+security boundaries between components. Use <em>threads</em> when you
+need performance, shared state, and true parallelism.
+
+And in practice, serious modern systems use both. Chrome, for
+example, uses one process per tab — for isolation — and each process
+uses multiple threads for rendering, network I/O, and JavaScript
+execution. Firefox, Edge, and Safari all do something similar. That
+combination — process-based isolation with thread-based performance —
+is the dominant pattern of the last fifteen years."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Benefits: responsiveness, resource sharing, economy, scalability.
+
+Costs: race conditions, deadlocks, debugging complexity, loss of
+isolation.
+
+The right choice depends on what you value — safety or performance.
+Modern designs combine both process isolation and thread parallelism.
+
+In the next video, we will look at the most important of those
+downsides in detail: race conditions and their simplest example, the
+lost update."
+
+[END OF VIDEO 3.3]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.4 — Race Conditions — A First Look                          ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Race Conditions — A First Look"]
+
+SPEAK:
+"Welcome to the fourth video of Week 3. So far we have seen what
+threads are, how they are implemented, and why we use them. Now let's
+look at the feature of threads that makes them dangerous: shared
+memory access without synchronization.
+
+This is the subject of <em>race conditions</em>, and it is going to
+occupy our attention for the next two weeks. Weeks 4 and 6 are almost
+entirely about managing this risk."
+
+[PAUSE]
+
+[SLIDE 2 — The counter example]
+
+SPEAK:
+"Let me start with the simplest, most famous example. You have two
+threads. Each one increments a shared counter — let's say one hundred
+thousand times. So the expected final value is two hundred thousand.
+
+Here is the code. We have a global variable called counter. Each
+worker thread runs a loop that increments it one hundred thousand
+times. In main, we create two of these threads, wait for both to
+finish, and print the result.
+
+You would expect the printed value to be exactly two hundred thousand.
+
+Let me tell you what actually happens. You run the program. It prints
+something like one hundred eighty seven thousand, four hundred and
+thirty one. You run it again. Different number: one hundred sixty four
+thousand, nine hundred and twenty nine. You run it ten times, you get
+ten different values. None of them are correct."
+
+[PAUSE]
+
+[SLIDE 3 — Why? The counter++ is not atomic]
+
+SPEAK:
+"So why does this happen? The answer is that counter++ looks atomic —
+like a single operation — but at the CPU level, it is not. It is three
+separate steps.
+
+Step one: LOAD the current value of counter from memory into a CPU
+register.
+
+Step two: INCREMENT the value in the register.
+
+Step three: STORE the register's value back to memory.
+
+Now imagine two threads running these three steps without any
+coordination. Here is a trace where an increment gets lost.
+
+Thread A loads counter into its register. The value is zero.
+
+Thread B loads counter into its register. The value is still zero —
+because A has not stored anything back yet.
+
+Now Thread A increments its register to one.
+
+Thread B also increments its register to one.
+
+Now Thread A stores its register to counter. counter becomes one.
+
+Now Thread B stores its register to counter. counter becomes one —
+again.
+
+So two increments happened. But the counter went from zero to one.
+One increment was <em>lost</em>. That is why the final value is
+smaller than expected."
+
+[SLIDE 4 — Non-determinism]
+
+SPEAK:
+"The reason the result varies from run to run is that the exact
+interleaving of the two threads depends on thousands of subtle
+factors. Which core runs which thread. When the scheduler preempts.
+How the CPU's memory hierarchy caches values. Even the temperature of
+the chip can matter.
+
+The result is <em>non-deterministic</em> — meaning the same program,
+run on the same machine, can produce different results on different
+runs.
+
+This is a fundamentally new kind of bug. In a single-threaded program,
+every bug is reproducible. You run the program, it crashes at line
+57. You fix line 57, it works. In a multi-threaded program, the same
+bug might appear one run in ten thousand, and never appear when you
+are actually looking at it. This is why we say that concurrency bugs
+are the hardest class of bugs in software engineering."
+
+[PAUSE]
+
+[SLIDE 5 — Critical section and mutual exclusion]
+
+SPEAK:
+"To talk about this more precisely, we need two terms.
+
+The <em>critical section</em> is the piece of code that accesses
+shared data — the counter++ in our example. More generally, any code
+that reads or writes memory that other threads can also touch.
+
+<em>Mutual exclusion</em> is the rule that, at most, one thread can be
+inside the critical section at any given time. If Thread A is
+incrementing the counter, Thread B must wait — and vice versa.
+
+When we respect mutual exclusion, no interleaving can happen, and no
+data gets lost.
+
+The mechanism that enforces mutual exclusion is called a
+<em>lock</em>, or a <em>mutex</em> — short for mutual exclusion. You
+take the lock before entering the critical section, and release it
+after leaving. If a second thread tries to take the lock while the
+first one holds it, the second thread will wait."
+
+[PAUSE]
+
+[SLIDE 6 — Preview of Week 4]
+
+SPEAK:
+"The full treatment of locks and synchronization primitives is next
+week — Week 4. We will see how to implement a lock, how to use
+mutexes and semaphores, and how to solve classic problems like the
+Producer-Consumer problem.
+
+For today, I want you to just internalize the concept. Whenever you
+see a variable that two threads might access simultaneously, and at
+least one of them writes to it, you should immediately think: this is
+a critical section. It needs a lock.
+
+That reflex — recognizing critical sections on sight — is one of the
+most valuable skills you can build in this course."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+A race condition is a bug that appears when two threads access shared
+data without synchronization, and the outcome depends on timing.
+
+The classic example is two threads incrementing a shared counter.
+Because counter++ is really load-increment-store, interleaved
+executions can lose updates.
+
+The result is non-deterministic: the same program produces different
+answers on different runs.
+
+The solution involves identifying critical sections and enforcing
+mutual exclusion with locks. We will study that in detail next week."
+
+[END OF VIDEO 3.4]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.5 — The pthread API                                          ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The POSIX Threads (pthread) API"]
+
+SPEAK:
+"Welcome to the fifth video of Week 3. Now it's time to actually get
+our hands on the tools. In this video, I want to introduce you to the
+POSIX threads API — pthreads for short.
+
+This is the standard way to write multi-threaded programs on Linux,
+macOS, and every other Unix-like system. It is part of the C standard
+library — well, technically of a companion library — and it is what
+almost all real-world Linux multi-threaded software is built on top of."
+
+[PAUSE]
+
+[SLIDE 2 — pthread_create signature]
+
+SPEAK:
+"The first and most important function is pthread_create. Let me show
+you its signature.
+
+pthread_create takes four arguments.
+
+The first is a pointer to a pthread_t. This is where the function
+will store a handle to the new thread — you will need this handle
+later if you want to join the thread.
+
+The second is a pointer to thread attributes. This is advanced
+territory — for now, always pass NULL, which means use the default
+attributes.
+
+The third is the function the new thread will run. It has a specific
+signature: it takes a void pointer and returns a void pointer.
+
+The fourth is the argument you want to pass to that function. If your
+thread function needs several values, you pass a pointer to a struct
+and read them inside.
+
+It returns zero on success, or a non-zero error code on failure. This
+is a slightly unusual convention — unlike most C library functions,
+pthread functions return the error code directly instead of setting
+errno."
+
+[PAUSE]
+
+[SLIDE 3 — pthread_join]
+
+SPEAK:
+"The second essential function is pthread_join.
+
+pthread_join takes two arguments. The first is a thread handle,
+obtained from pthread_create. The second is a pointer to where the
+thread's return value should be stored — pass NULL if you don't care.
+
+What pthread_join does is block the calling thread until the given
+thread terminates. Then it reaps the terminated thread's resources —
+freeing its stack, its task_struct, and everything else.
+
+Think of this as the thread equivalent of wait for a process. Without
+it, threads that have finished still have their resources hanging
+around. This is the thread version of a zombie process."
+
+[SLIDE 4 — Warning: always join or detach]
+
+SPEAK:
+"This leads to a rule that is easy to forget: every thread you create
+must either be joined, or detached.
+
+If you join a thread, you are saying: I want to know when this thread
+finishes, and I will wait for it.
+
+If you detach a thread — using pthread_detach — you are saying: this
+thread runs independently, and when it terminates, its resources
+should be freed automatically, no need to wait.
+
+If you do neither, the thread becomes a zombie. Its resources are
+never reclaimed until the process terminates. In a long-running server
+that creates threads frequently, this will eventually exhaust your
+memory and your process table."
+
+[PAUSE]
+
+[SLIDE 5 — Other functions]
+
+SPEAK:
+"There are a few more functions you should know.
+
+pthread_self returns the handle of the calling thread. You can use
+this to identify the current thread in logs.
+
+pthread_exit terminates the calling thread — but only the calling
+thread, not the entire process. This is different from calling exit,
+which would kill everything.
+
+pthread_detach marks a thread as detached — meaning its resources
+will be freed automatically when it terminates.
+
+And pthread_equal compares two thread handles. You should use this
+rather than == because pthread_t is an opaque type — on some platforms
+it might not be comparable with the simple equality operator.
+
+That is the core of the API. Everything else — mutexes, condition
+variables, barriers — builds on top of these basics."
+
+[SLIDE 6 — Compiling with pthreads]
+
+SPEAK:
+"One more thing before we move on. When you compile a program that
+uses pthreads, you must tell the compiler to link against the pthread
+library. Do that by adding the flag -pthread to your gcc command.
+
+This flag does two things. It defines a macro called _REENTRANT, which
+makes certain library functions thread-safe by using reentrant
+versions. And it links against libpthread.
+
+If you forget this flag, your program might still compile — but fail
+at runtime with strange linker errors like "undefined reference to
+pthread_create". So always remember the flag."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+pthread_create creates a new thread that starts running at a given
+function.
+
+pthread_join waits for a thread to finish and reaps its resources.
+Every thread must be either joined or detached.
+
+pthread_self, pthread_exit, pthread_detach, and pthread_equal are the
+other essential functions in the API.
+
+And always compile your pthread programs with the -pthread flag.
+
+In the next video, we are going to put all this together and write our
+first real multi-threaded program."
+
+[END OF VIDEO 3.5]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.6 — Touch Lab: Your First pthread Program                   ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Your First pthread Program"]
+
+SPEAK:
+"Welcome to the practical side of Week 3. In this video we are going
+to write, compile, and run our first multi-threaded program in C.
+
+The goal is simple: create four threads, have each print its own
+thread ID and the process ID, and observe the fundamental difference
+between a process and a thread.
+
+Make sure your Ubuntu VM is running and logged in. Let's get started."
+
+[SCREENCAST — terminal prompt]
+
+SPEAK:
+"First, let's create our source file.
+
+Run: nano threads.c"
+
+[SCREENCAST — nano opens a new file]
+
+SPEAK:
+"Now paste in this program. I want you to read it carefully as I
+explain it.
+
+At the top, we include four headers. stdio.h for printf, pthread.h
+for the pthread functions, unistd.h for getpid and sleep, and
+sys/types.h for pid_t.
+
+Then we define the function that each thread will run — called
+worker. It takes a void pointer as argument, which we cast to a long
+integer to use as the thread's number. Inside, it prints the thread
+number, the process ID using getpid, and the thread ID using
+pthread_self.
+
+Notice the key insight: every thread calls the same getpid, so they
+all report the same PID. But each one has a different pthread_self
+value, because they are different threads of the same process.
+
+Then in main, we create an array of four pthread_t handles. We print
+the main thread's own identity, then loop four times calling
+pthread_create. Finally, we loop again calling pthread_join to wait
+for each thread to finish.
+
+Save the file with Ctrl+O, Enter, then Ctrl+X to exit."
+
+[SCREENCAST — compile]
+
+SPEAK:
+"Now compile. This is where the -pthread flag matters:
+
+gcc -Wall -pthread -o threads threads.c
+
+If there are no errors, you will see no output. Good. Let's run it."
+
+[SCREENCAST — run the program]
+
+SPEAK:
+"Run the program:
+
+./threads
+
+You should see output similar to this. Notice how all five lines —
+the main thread and the four workers — share the same PID. That is
+the process ID. But each line shows a different thread ID, a large
+number in the hundreds of trillions. Those are the thread handles, and
+they are all different.
+
+Now run it again.
+
+./threads
+
+Notice the order of the four worker lines is different this time. Last
+run, thread zero printed first. This run, thread two printed first.
+That is because after pthread_create returns, the scheduler decides
+when each thread actually reaches the CPU first — and that decision is
+not deterministic."
+
+[PAUSE]
+
+[SCREENCAST — pipe to sort]
+
+SPEAK:
+"If you want stable output for comparison, you can sort it:
+
+./threads | sort
+
+That makes the order deterministic. Good for testing, but remember
+this is cheating — the real program runs concurrently."
+
+[SCREENCAST — modify to add sleep]
+
+SPEAK:
+"Let's now modify the program to make it more useful for observing. I
+will add a sleep call of thirty seconds at the end of the worker
+function, so the threads stay alive long enough for us to inspect them.
+
+Reopen the file with nano threads.c, add the sleep line inside worker,
+save, and recompile.
+
+gcc -Wall -pthread -o threads threads.c
+
+Now run it in the background:
+
+./threads &
+
+The shell gives us a job number and a process ID. The program will
+keep running for thirty seconds. That is our window to inspect it."
+
+[PAUSE]
+
+[SCREENCAST — ps -L]
+
+SPEAK:
+"In another terminal, or after getting the prompt back in the same
+one, run this command:
+
+ps -L -p <the PID>
+
+The -L flag tells ps to show threads. The -p PID restricts it to our
+process.
+
+You should see five rows. Each row shares the same PID — that is the
+process ID. But each row has a different value in the LWP column.
+LWP stands for Light Weight Process — it is the thread ID as seen by
+the kernel.
+
+Also notice the NLWP column. It shows five, meaning there are five
+threads in this process. That is one main thread plus our four
+workers."
+
+[SCREENCAST — /proc/task]
+
+SPEAK:
+"Now let's look at the same information through the /proc file system.
+
+ls /proc/<PID>/task
+
+You should see five directory names — one for each thread. Those
+numbers are the thread IDs.
+
+Now let's inspect one of them:
+
+cat /proc/<PID>/task/<TID>/status
+
+You will see familiar fields like Name, State, Pid. But there is one
+new field: Tgid. That stands for Thread Group ID. It is the PID of the
+process that owns all these threads.
+
+Every thread in the same process shares the same Tgid but has a
+different Pid. This is the kernel's way of describing threads as
+tasks that belong to the same group."
+
+[PAUSE]
+
+[SCREENCAST — stacks in maps]
+
+SPEAK:
+"Let's also look at the memory maps:
+
+cat /proc/<PID>/task/<TID>/maps | tail -5
+
+I want you to see those large rw-p regions near the top of the address
+space. Those are the thread stacks. Each thread has its own stack —
+usually about eight megabytes by default. Because all the code, data,
+and heap are mapped once, but each thread's stack is separate.
+
+And there is the trade-off in physical form. Threads are cheap
+compared to processes — but not free. Every thread costs a stack."
+
+[PAUSE]
+
+[SCREENCAST — kill the process]
+
+SPEAK:
+"Let's clean up. When the process finishes its sleep, or you can kill
+it now:
+
+kill <PID>
+
+Notice that killing the process terminates all threads at once. There
+is no way to kill just one thread of a process from the shell. Threads
+have no external identity separate from the process.
+
+That is a good reminder of what we discussed in video 3.3 — loss of
+isolation. All the threads die together."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we wrote our first multi-threaded program. We saw how
+threads share a PID but have distinct thread IDs. We compiled with
+-pthread, ran it multiple times to observe scheduling non-determinism,
+and inspected the running program from outside using ps -L and the
+/proc file system.
+
+What I want you to take away is that threads are not abstract. They
+are real kernel-scheduled tasks — visible, inspectable, and countable
+on a running Linux system.
+
+Experiment with the code on your own. Try creating ten threads
+instead of four. Try passing a pointer to a struct instead of a long.
+Try detaching threads instead of joining them. The intuition only
+comes from experimentation.
+
+In the next video, we will look at the tools that make thread
+observation easy at scale — ps, htop, and the /proc/task directory —
+and how to interpret what you see."
+
+[END OF VIDEO 3.6]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 3.7 — Touch Lab: Observing Threads with ps and /proc          ║
+║  Target duration: ~14 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Observing Threads with ps and /proc"]
+
+SPEAK:
+"Welcome to the final video of Week 3. In the previous lab we wrote
+our first pthread program and had a quick look at it with ps and
+/proc. In this video, I want to make you really comfortable with the
+tools. Because in real systems work, you will spend more time
+inspecting running processes than writing them.
+
+Let's make sure we can answer, at a glance, any of these questions:
+how many threads does a process have? Which thread is running on which
+CPU? Which thread is blocked on a syscall? Which thread is holding a
+lock? All of these are visible if you know where to look."
+
+[PAUSE]
+
+[SCREENCAST — create and run a longer test program]
+
+SPEAK:
+"Let's start by running our program again, but let me modify it so the
+threads stay alive for a minute. Open threads.c, change the sleep from
+thirty to sixty seconds, recompile, and run it in the background:
+
+./threads &
+
+Let's grab the PID. Then let's look at the process table."
+
+[SCREENCAST — ps aux / ps -ef]
+
+SPEAK:
+"First, ps aux or ps -ef will show the process, but only one line for
+it — because by default these commands show processes, not threads.
+
+To see threads, you need -L:
+
+ps -L -p <PID>
+
+Or to see every thread of every process:
+
+ps -eLf
+
+You can filter by command name:
+
+ps -eLf | grep threads
+
+And notice how the PID column repeats — that is the process ID. The
+LWP column has different values — those are the thread IDs."
+
+[PAUSE]
+
+[SCREENCAST — ps with custom columns]
+
+SPEAK:
+"If you want a specific view, use the -o flag with a custom column
+list:
+
+ps -L -p <PID> -o pid,tid,psr,stat,wchan:20,comm
+
+Let's walk through what these columns mean.
+
+PID is the process ID. TID is the thread ID — same as LWP in other
+formats. PSR is the Processor number — the CPU core where this thread
+is currently scheduled. STAT is the thread state — R for running, S
+for sleeping, D for uninterruptible sleep. And wchan is the kernel
+function where the thread is currently waiting — for example, if it
+is sleeping in hrtimer_nanosleep, it means it called sleep."
+
+[SCREENCAST — top -H]
+
+SPEAK:
+"Top has a mode for showing threads too:
+
+top -H -p <PID>
+
+The -H flag means show threads. You will see a list where each thread
+appears as its own row. The PID column in top will actually show the
+thread ID in this mode.
+
+Press lowercase h to see help, and uppercase H to toggle thread
+mode on and off. Press q to quit."
+
+[SCREENCAST — htop]
+
+SPEAK:
+"If you installed htop in Week 2, you can also use it. Press F2 to
+configure, then check "Show custom thread names" if you want to see
+thread names. Press F6 to sort by different columns. And use the
+setup menu to enable a threads view."
+
+[PAUSE]
+
+[SCREENCAST — /proc/PID/task]
+
+SPEAK:
+"Now let's go back to the /proc interface, because this is what is
+underneath all the tools we have used. Every thread lives at
+/proc/<PID>/task/<TID>/.
+
+ls /proc/<PID>/task
+
+You see the TIDs. Let's pick one and look at its status:
+
+cat /proc/<PID>/task/<TID>/status
+
+Look at the fields:
+
+Name is the name of the executable. State is the current thread state
+— S for sleeping. Tgid is the thread group ID — same for all threads.
+Pid is this thread's ID. Threads shows the total number of threads
+in the process.
+
+Let's also check the scheduler information:
+
+cat /proc/<PID>/task/<TID>/sched
+
+You will see runtime statistics specific to this thread. Fields like
+se.sum_exec_runtime show how much CPU time this thread has accumulated."
+
+[SCREENCAST — /proc/PID/task/TID/stat]
+
+SPEAK:
+"And one more — the raw stat file:
+
+cat /proc/<PID>/task/<TID>/stat
+
+This is a big, comma-separated list of numbers, and I want to point
+out a few of them. The first field is the PID. The second is the
+command name in parentheses. Then the third field is the state.
+
+Later in the line you will find fields like utime and stime — user
+and system time in jiffies. And further on, you will see the processor
+number — the CPU core where this thread last ran."
+
+[SCREENCAST — kill the process]
+
+SPEAK:
+"OK, let's clean up.
+
+kill <PID>
+
+And that's it."
+
+[SLIDE — Practice exercise]
+
+SPEAK:
+"Here is a practice exercise for you to do on your own.
+
+Write a C program that spawns five threads. Each thread should print
+its own TID, then sleep for a random duration between one and five
+seconds, then print a done message. The main thread should wait for
+all of them.
+
+While the program is running, use the tools we learned today to
+answer these questions:
+
+How many threads does the process have? What is the TID of each
+thread? Which CPU core is each thread running on? Which thread is
+currently sleeping in a syscall? Which thread has used the most CPU
+time?
+
+If you can answer all five questions using only ps and /proc, then
+you have mastered the tools. And these tools will serve you throughout
+the rest of this course and your career."
+
+[SLIDE — Week 3 wrap-up]
+
+SPEAK:
+"That wraps up Week 3. We covered a lot of ground: what a thread is,
+how it is implemented, why we use it, what risks it brings, how to
+use the pthreads API, and how to observe threads from the command
+line.
+
+The thread is the fundamental building block of modern high-performance
+software. From web servers that handle million connections per second
+to video games that render sixty frames per second while running
+physics and AI, everything relies on threads.
+
+But we have also seen, in video 3.4, that threads introduce the
+problem of race conditions — the possibility that shared data gets
+corrupted because two threads accessed it at the wrong time. That
+problem has a solution: synchronization.
+
+And that is the entire subject of next week — Week 4 — where we dig
+deep into locks, mutexes, semaphores, and condition variables.
+
+Please complete the written homework assignment for this week. It
+mixes conceptual questions with practical exercises on your own VM.
+
+See you in Week 4."
+
+[END OF VIDEO 3.7 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 3
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~114 minutes of raw footage
+After editing and trimming: ~95–105 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

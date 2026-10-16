@@ -1,0 +1,1605 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 11: DNS – Domain Name System</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 11</span>
+            <span class="green"><i class="fas fa-terminal"></i> Phase 2 · Linux Practical</span>
+            <span><i class="fas fa-laptop-code"></i> Deep Lab</span>
+        </div>
+
+        <h1>DNS – Domain Name System</h1>
+        <p class="lecture-sub">
+            Based on <em>DNS and BIND</em> (Cricket Liu &amp; Paul Albitz, 5th Edition), the official
+            <em>BIND 9 Administrator Reference Manual</em>, and RFC 1034 / RFC 1035 — the original DNS
+            specifications.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#why">11.1 · Why DNS Matters</a>
+            <a href="#hierarchy">11.2 · The DNS Hierarchy</a>
+            <a href="#resolution">11.3 · Resolution — Recursive &amp; Iterative</a>
+            <a href="#records">11.4 · Resource Record Types</a>
+            <a href="#zones">11.5 · Zones &amp; Zone Files</a>
+            <a href="#reverse">11.6 · Reverse Zones &amp; PTR</a>
+            <a href="#caching">11.7 · Caching, TTL &amp; Forwarding</a>
+            <a href="#tools">11.8 · dig, nslookup, host</a>
+            <a href="#lab-bind">11.9 · Deep Lab: BIND9 Setup</a>
+            <a href="#lab-zone">11.10 · Deep Lab: Zone for lab.local</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 11.1 WHY DNS MATTERS                                         -->
+        <!-- ============================================================ -->
+        <h2 id="why"><i class="fas fa-globe"></i> 11.1 · Why DNS Matters</h2>
+
+        <p>
+            Last week we configured a DHCP server that delivers IP addresses, gateway, and DNS servers to clients.
+            Now we are going to build the DNS server itself — the service those addresses point to. This is one of
+            the most important pieces of infrastructure on any network, and for many engineers it is also the most
+            mystifying.
+        </p>
+
+        <p>
+            Think about what happens when you type <code>github.com</code> into a browser. You have typed a name,
+            not a number. But the network underneath speaks in IP addresses. Somewhere between your keyboard and
+            the GitHub server, that name has to be translated into an address. That translation is DNS — the Domain
+            Name System.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>One-sentence definition:</strong> DNS is a globally distributed, hierarchical database that
+            maps human-readable names to IP addresses — and a lot more besides. It is, quite literally, the phone
+            book of the internet.
+        </div>
+
+        <h3>Why not just use IP addresses everywhere?</h3>
+
+        <p>
+            Because names are infinitely more stable, memorable, and manageable than numbers.
+        </p>
+
+        <ul>
+            <li><strong>Names are stable.</strong> GitHub's servers may change their IPs whenever they want — 
+                they have moved to different cloud providers, added anycast, and re-architected their
+                infrastructure. But <code>github.com</code> has always pointed to the right place.</li>
+            <li><strong>Names are memorable.</strong> You remember <code>google.com</code>. You do not remember
+                whatever the current IP is.</li>
+            <li><strong>Names are flexible.</strong> A single name can point to multiple IPs for load balancing,
+                to a canonical name that redirects, or to mail servers, and so on.</li>
+            <li><strong>Names are hierarchical.</strong> The DNS namespace is a tree, which means it can be
+                delegated — this is what makes the internet scale.</li>
+        </ul>
+
+        <h3>The problem DNS solves at scale</h3>
+
+        <p>
+            There are roughly 350 million registered domain names as of today, and that number keeps growing.
+            There is no central server that knows all of them. No single machine could store it, answer the
+            query volume (over a trillion per day), or be close enough to everyone on Earth to answer quickly.
+        </p>
+
+        <p>
+            DNS solves this with three ideas, and every part of this week's lecture builds on them:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Idea</th>
+                    <th>What it means</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Hierarchy</strong></td>
+                    <td>The namespace is a tree. Each level only needs to know about the level below it. Root
+                        servers delegate <code>.com</code> to TLD servers, which delegate <code>github.com</code>
+                        to GitHub's authoritative servers, and so on.</td>
+                </tr>
+                <tr>
+                    <td><strong>Distribution</strong></td>
+                    <td>Each piece of the tree is served by many independent servers, spread across the world.
+                        There is no single point of failure.</td>
+                </tr>
+                <tr>
+                    <td><strong>Caching</strong></td>
+                    <td>Every answer comes with a lifetime. Resolvers near you cache the answers, so the next
+                        million queries for the same name never leave your ISP.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The result:</strong> name resolution that is fast (typically tens of milliseconds for a
+            cached answer), resilient (many servers, many paths), and global (works the same on every continent).
+        </div>
+
+        <h3>What DNS carries besides IP addresses</h3>
+
+        <p>
+            DNS is often called "the phone book" but that undersells it. A modern DNS zone can store dozens of
+            different kinds of records:
+        </p>
+
+        <ul>
+            <li>IPv4 and IPv6 addresses for hosts (A and AAAA records).</li>
+            <li>Aliases and canonical names (CNAME records).</li>
+            <li>Mail routing information (MX records).</li>
+            <li>Zone delegation (NS records).</li>
+            <li>Service discovery (SRV records).</li>
+            <li>Anti-spam policy (TXT/SPF/DKIM/DMARC).</li>
+            <li>Reverse lookups from IP back to hostname (PTR records).</li>
+            <li>Free-form text for any purpose you can think of (TXT records).</li>
+        </ul>
+
+        <p>
+            In this week's labs, we will set up a BIND9 server that handles A, AAAA, CNAME, MX, NS, SOA, and PTR
+            records — which covers the vast majority of what you will ever touch as a practical administrator.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 11.2 THE DNS HIERARCHY                                       -->
+        <!-- ============================================================ -->
+        <h2 id="hierarchy"><i class="fas fa-sitemap"></i> 11.2 · The DNS Hierarchy</h2>
+
+        <p>
+            The DNS namespace is an inverted tree. The root is a dot — literally <code>.</code> — and everything
+            below it is a series of labels separated by dots, read from right to left.
+        </p>
+
+        <p>
+            In the name <code>www.example.com.</code>, the trailing dot is the root, <code>com</code> is the
+            top-level domain, <code>example</code> is the second-level domain, and <code>www</code> is the host
+            name. When you type a name without a trailing dot, your resolver appends a default search suffix or
+            the root, depending on configuration.
+        </p>
+
+        <!-- SVG: DNS hierarchy -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 460" xmlns="http://www.w3.org/2000/svg" aria-label="DNS hierarchy">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The DNS namespace is an inverted tree — the root delegates to TLDs, TLDs to domains</text>
+
+                <!-- Root -->
+                <circle cx="410" cy="70" r="30" fill="rgba(59, 130, 246, 0.22)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="410" y="76" font-family="Courier New" font-size="14" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">.</text>
+                <text x="410" y="120" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">Root (13 root server clusters, planet-wide)</text>
+
+                <!-- TLDs -->
+                <line x1="410" y1="100" x2="180" y2="190" stroke="#475569" />
+                <line x1="410" y1="100" x2="410" y2="190" stroke="#475569" />
+                <line x1="410" y1="100" x2="640" y2="190" stroke="#475569" />
+
+                <rect x="100" y="190" width="160" height="50" rx="8" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="180" y="222" font-family="Courier New" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">.com</text>
+
+                <rect x="330" y="190" width="160" height="50" rx="8" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="410" y="222" font-family="Courier New" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">.org</text>
+
+                <rect x="560" y="190" width="160" height="50" rx="8" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="640" y="222" font-family="Courier New" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">.ps</text>
+
+                <!-- Second-level domains -->
+                <line x1="180" y1="240" x2="100" y2="320" stroke="#475569" />
+                <line x1="180" y1="240" x2="260" y2="320" stroke="#475569" />
+
+                <line x1="410" y1="240" x2="380" y2="320" stroke="#475569" />
+                <line x1="410" y1="240" x2="460" y2="320" stroke="#475569" />
+
+                <rect x="30" y="320" width="140" height="50" rx="8" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="100" y="352" font-family="Courier New" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">google.com</text>
+
+                <rect x="190" y="320" width="140" height="50" rx="8" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="260" y="352" font-family="Courier New" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">github.com</text>
+
+                <rect x="310" y="320" width="140" height="50" rx="8" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="380" y="352" font-family="Courier New" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">wikipedia.org</text>
+
+                <rect x="470" y="320" width="120" height="50" rx="8" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="530" y="352" font-family="Courier New" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">ucas.edu.ps</text>
+
+                <!-- Hosts -->
+                <line x1="100" y1="370" x2="60" y2="410" stroke="#475569" />
+                <line x1="100" y1="370" x2="140" y2="410" stroke="#475569" />
+                <line x1="260" y1="370" x2="260" y2="410" stroke="#475569" />
+
+                <circle cx="60" cy="420" r="12" fill="rgba(236, 72, 153, 0.22)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="60" y="424" font-family="Courier New" font-size="10" fill="#f472b6"
+                    text-anchor="middle">www</text>
+
+                <circle cx="140" cy="420" r="12" fill="rgba(236, 72, 153, 0.22)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="140" y="424" font-family="Courier New" font-size="10" fill="#f472b6"
+                    text-anchor="middle">mail</text>
+
+                <circle cx="260" cy="420" r="12" fill="rgba(236, 72, 153, 0.22)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="260" y="424" font-family="Courier New" font-size="10" fill="#f472b6"
+                    text-anchor="middle">api</text>
+            </svg>
+            <div class="svg-caption">DNS names are read right to left. The root delegates to top-level domains, each TLD delegates to registered domains, and each domain delegates to whatever subdomains it wants to create.</div>
+        </div>
+
+        <h3>The three tiers</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Tier</th>
+                    <th>What it does</th>
+                    <th>Examples</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Root servers</strong></td>
+                    <td>Know where the TLD servers are. There are 13 logical roots, each served by hundreds of
+                        physical machines globally via anycast. They do not know about individual domains — only
+                        about <code>.com</code>, <code>.org</code>, <code>.ps</code>, and the ~1500 other TLDs.</td>
+                    <td><code>a.root-servers.net</code> through <code>m.root-servers.net</code></td>
+                </tr>
+                <tr>
+                    <td><strong>TLD servers</strong></td>
+                    <td>Know which DNS servers are authoritative for each domain under them. For example, the
+                        <code>.com</code> servers know who handles <code>github.com</code> and
+                        <code>google.com</code>.</td>
+                    <td>These are run by the registry, e.g. Verisign runs <code>.com</code>, the
+                        .ps registry runs <code>.ps</code>.</td>
+                </tr>
+                <tr>
+                    <td><strong>Authoritative servers</strong></td>
+                    <td>Hold the actual records for a zone. When someone asks "what is the IP of
+                        <code>www.example.com</code>?", the authoritative server gives the true answer.</td>
+                    <td>These are run by the domain owner — you, if you own a domain. In our lab, our own BIND9
+                        server.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Delegation — the secret of scale</h3>
+
+        <p>
+            The crucial design principle is <strong>delegation</strong>. The root servers do not know how to reach
+            <code>www.example.com</code>. They only know who runs <code>.com</code>. The <code>.com</code> servers
+            do not know how to reach <code>www.example.com</code> either — they only know who runs
+            <code>example.com</code>. And the <code>example.com</code> servers know everything about their own
+            zone.
+        </p>
+
+        <p>
+            This is what makes the whole system work. Each level does not need to know about everything below it
+            — only about the next level down. If <code>example.com</code> adds a new subdomain, the
+            <code>.com</code> servers do not even notice. If a domain owner runs their own DNS servers on the
+            other side of the world, the registry does not care — it only stores the pointer.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Delegation is captured in the NS records.</strong> An NS record says "for this zone, ask that
+            nameserver". At the top of every zone, you will find NS records that delegate sub-zones to their own
+            servers. This is also how you take a subdomain like <code>dev.example.com</code> and hand it to a
+            completely separate team or server.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 11.3 RESOLUTION — RECURSIVE & ITERATIVE                      -->
+        <!-- ============================================================ -->
+        <h2 id="resolution"><i class="fas fa-exchange-alt"></i> 11.3 · Resolution — Recursive &amp; Iterative</h2>
+
+        <p>
+            Now that we know the structure of the hierarchy, let's walk through what actually happens when you
+            type <code>www.example.com</code> into a browser. There are two actors involved — a
+            <strong>recursive resolver</strong> and one or more <strong>authoritative servers</strong> — and two
+            different kinds of queries flow between them.
+        </p>
+
+        <h3>The two kinds of queries</h3>
+
+        <div class="two-cols">
+            <div class="col green">
+                <h4><i class="fas fa-user"></i> Recursive query</h4>
+                <p style="font-size:0.9rem; margin:0;">
+                    "Give me the final answer — or tell me it does not exist." The client trusts the resolver to
+                    do <em>all</em> the work, including following delegations across the internet. This is what
+                    your laptop sends to your ISP's resolver.
+                </p>
+            </div>
+            <div class="col violet">
+                <h4><i class="fas fa-share-nodes"></i> Iterative query</h4>
+                <p style="font-size:0.9rem; margin:0;">
+                    "Give me the best answer you have — even if it is only a referral." The resolver uses this
+                    when talking to root and TLD servers, which do not do full resolution for anyone. They
+                    return pointers to whoever knows more.
+                </p>
+            </div>
+        </div>
+
+        <!-- SVG: Recursive resolution -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 400" xmlns="http://www.w3.org/2000/svg" aria-label="Recursive resolution">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">A recursive lookup — one query out, many iterative queries behind the scenes</text>
+
+                <!-- Client -->
+                <rect x="40" y="80" width="140" height="60" rx="8" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="110" y="105" font-family="Inter" font-size="12" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">Laptop</text>
+                <text x="110" y="125" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">stub resolver</text>
+
+                <!-- Resolver -->
+                <rect x="290" y="80" width="160" height="60" rx="8" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="370" y="105" font-family="Inter" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">Recursive resolver</text>
+                <text x="370" y="125" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">1.1.1.1 / 8.8.8.8</text>
+
+                <line x1="180" y1="110" x2="290" y2="110" stroke="#3b82f6" stroke-width="2"
+                    marker-end="url(#rArrow)" />
+                <text x="235" y="98" font-family="Inter" font-size="10" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">recursive query</text>
+
+                <line x1="290" y1="130" x2="180" y2="130" stroke="#10b981" stroke-width="2"
+                    marker-end="url(#rArrowUp)" stroke-dasharray="4,3" />
+                <text x="235" y="148" font-family="Inter" font-size="10" fill="#34d399"
+                    text-anchor="middle" font-weight="700">final answer</text>
+
+                <!-- Iterative servers -->
+                <rect x="580" y="60" width="180" height="50" rx="8" fill="rgba(245, 158, 11, 0.15)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="670" y="90" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">Root server</text>
+
+                <rect x="580" y="140" width="180" height="50" rx="8" fill="rgba(245, 158, 11, 0.15)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="670" y="170" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">.com TLD server</text>
+
+                <rect x="580" y="220" width="180" height="50" rx="8" fill="rgba(245, 158, 11, 0.15)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="670" y="250" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">example.com auth.</text>
+
+                <!-- Arrows to each server -->
+                <line x1="450" y1="100" x2="580" y2="85" stroke="#94a3b8" stroke-width="1.5"
+                    marker-end="url(#rArrow)" stroke-dasharray="5,3" />
+                <text x="515" y="80" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">1. ask root</text>
+
+                <line x1="450" y1="140" x2="580" y2="160" stroke="#94a3b8" stroke-width="1.5"
+                    marker-end="url(#rArrow)" stroke-dasharray="5,3" />
+                <text x="515" y="155" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">2. ask .com</text>
+
+                <line x1="450" y1="175" x2="580" y2="240" stroke="#94a3b8" stroke-width="1.5"
+                    marker-end="url(#rArrow)" stroke-dasharray="5,3" />
+                <text x="515" y="215" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">3. ask example.com</text>
+
+                <text x="410" y="330" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Each iterative hop usually terminates with a <em>referral</em>, not an answer. Only the last
+                    hop gives the authoritative answer.
+                </text>
+
+                <text x="410" y="360" font-family="Inter" font-size="11" fill="#a7f3d0" text-anchor="middle"
+                    font-weight="700">
+                    Total time for a cold lookup: 50–200 ms · For a cached answer: under 1 ms.
+                </text>
+
+                <defs>
+                    <marker id="rArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#3b82f6" />
+                    </marker>
+                    <marker id="rArrowUp" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#10b981" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">The client sends one recursive query. The resolver, behind the scenes, sends several iterative queries — each one to a server closer to the answer.</div>
+        </div>
+
+        <h3>The full sequence, step by step</h3>
+
+        <ol>
+            <li>The browser needs to reach <code>www.example.com</code>. It asks the local stub resolver — usually
+                via <code>systemd-resolved</code> or the C library's <code>gethostbyname()</code> — for the
+                address.</li>
+            <li>The stub resolver is not authoritative for anything, so it forwards a recursive query to a
+                configured resolver — say, <code>1.1.1.1</code> (Cloudflare) or <code>8.8.8.8</code> (Google),
+                or your ISP's resolver.</li>
+            <li>The recursive resolver does not have the answer cached. It begins an iterative hunt:
+                <ul>
+                    <li>It asks a <strong>root server</strong>: "who handles <code>com</code>?" The root returns a
+                        referral — the list of <code>.com</code> TLD nameservers.</li>
+                    <li>It asks one of the <strong>.com TLD servers</strong>: "who handles
+                        <code>example.com</code>?" The TLD returns a referral — the NS records for the zone.</li>
+                    <li>It asks one of the <strong>authoritative servers</strong> for
+                        <code>example.com</code>: "what is the address of <code>www.example.com</code>?" The
+                        authoritative server returns the A record — the actual IPv4 address.</li>
+                </ul>
+            </li>
+            <li>The resolver caches the answer, respecting its TTL, then returns it to the stub resolver, which
+                returns it to the browser.</li>
+            <li>The browser opens a TCP connection to the address and fetches the page.</li>
+        </ol>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Why this scales:</strong> the root servers are asked billions of times per day, but the
+            answers never change and come with long TTLs. Every resolver in the world caches them. What the root
+            servers actually answer is a tiny, static dataset — the TLD referral list. This is why 13 root
+            clusters can keep the entire internet running.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 11.4 RESOURCE RECORD TYPES                                   -->
+        <!-- ============================================================ -->
+        <h2 id="records"><i class="fas fa-file-code"></i> 11.4 · Resource Record Types</h2>
+
+        <p>
+            A DNS zone is a text file made of <strong>resource records</strong> — RRs for short. Each record has
+            the same logical structure — name, type, class, TTL, and data — but the meaning of the data depends
+            on the type.
+        </p>
+
+        <h3>The generic record format</h3>
+
+        <pre><code>name    [TTL]   [class]   type   data
+
+; Example — all on one logical line
+www.example.com.   3600   IN   A   203.0.113.42
+^name              ^TTL   ^class ^type ^data</code></pre>
+
+        <p>
+            The <strong>class</strong> field is almost always <code>IN</code> — for "Internet" — and is nearly
+            always omitted in modern zone files because it is implied. The TTL, if omitted, inherits from the
+            previous record or from the SOA's default.
+        </p>
+
+        <h3>The record types you must know</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 12%;">Type</th>
+                    <th style="width: 30%;">Purpose</th>
+                    <th>Example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>SOA</strong></td>
+                    <td>Start of Authority. Every zone has exactly one. Holds the primary nameserver, the
+                        administrative email (with <code>.</code> instead of <code>@</code>), and various
+                        timing parameters.</td>
+                    <td><code>example.com. IN SOA ns1.example.com. admin.example.com. ( 2024010101 3600 1800 604800 86400 )</code></td>
+                </tr>
+                <tr>
+                    <td><strong>NS</strong></td>
+                    <td>Nameserver. Declares which servers are authoritative for this zone. Zone files have
+                        one NS record per authoritative server.</td>
+                    <td><code>example.com. IN NS ns1.example.com.</code></td>
+                </tr>
+                <tr>
+                    <td><strong>A</strong></td>
+                    <td>Address. Maps a name to an IPv4 address.</td>
+                    <td><code>www IN A 203.0.113.42</code></td>
+                </tr>
+                <tr>
+                    <td><strong>AAAA</strong></td>
+                    <td>IPv6 address ("quad-A"). Maps a name to an IPv6 address.</td>
+                    <td><code>www IN AAAA 2001:db8::42</code></td>
+                </tr>
+                <tr>
+                    <td><strong>CNAME</strong></td>
+                    <td>Canonical Name. An alias — this name is really that other name. Cannot coexist with other
+                        record types for the same name.</td>
+                    <td><code>web IN CNAME www</code></td>
+                </tr>
+                <tr>
+                    <td><strong>MX</strong></td>
+                    <td>Mail Exchanger. Where to deliver email for this domain. Has a priority number; lower
+                        number = higher priority.</td>
+                    <td><code>example.com. IN MX 10 mail1.example.com.</code></td>
+                </tr>
+                <tr>
+                    <td><strong>PTR</strong></td>
+                    <td>Pointer. Used in reverse zones: maps an IP address back to a name.</td>
+                    <td><code>42 IN PTR www.example.com.</code></td>
+                </tr>
+                <tr>
+                    <td><strong>TXT</strong></td>
+                    <td>Text. Free-form strings. Used for SPF, DKIM, DMARC, and site-verification challenges.</td>
+                    <td><code>example.com. IN TXT "v=spf1 -all"</code></td>
+                </tr>
+                <tr>
+                    <td><strong>SRV</strong></td>
+                    <td>Service. Points to a host and port for a specific service, with priority and weight.</td>
+                    <td><code>_sip._udp IN SRV 10 5 5060 sipserver.example.com.</code></td>
+                </tr>
+                <tr>
+                    <td><strong>AAAA</strong> alias note</td>
+                    <td>Remember: you cannot have a CNAME and any other record with the same name. If you need
+                        both address records and mail records on the same name, use A/AAAA, not CNAME.</td>
+                    <td>—</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>CNAME — the alias with a rule</h3>
+
+        <p>
+            CNAMEs are the most misused record type in DNS. Let me explain the rule carefully because it will
+            cause you trouble in the lab if you violate it.
+        </p>
+
+        <p>
+            A CNAME says: "this name is <em>an alias for</em> another name — go look up that other name and use
+            the result". It is a complete redirection. This is why a CNAME <strong>cannot coexist with any other
+            record for the same owner name</strong>, and it cannot exist at the apex of a zone (where the SOA
+            and NS records already live).
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The CNAME trap:</strong> you cannot have <code>example.com. IN CNAME foo.example.com.</code>
+            at the apex of a zone, because the apex already has an SOA record and NS records. And you cannot have
+            <code>www IN CNAME target</code> <em>and</em> <code>www IN A 203.0.113.42</code> — the two conflict.
+            If BIND rejects your zone file with "CNAME and other data at the same name", this is why.
+        </div>
+
+        <h3>SOA — the zone's identity card</h3>
+
+        <p>
+            Every zone begins with an SOA record. It defines the zone's identity and operating parameters. Let me
+            walk through the fields:
+        </p>
+
+        <pre><code>@   IN  SOA ns1.example.com. admin.example.com. (
+        2024111501   ; Serial    — increment on every change
+        3600         ; Refresh   — how often secondaries check for updates
+        1800         ; Retry     — how long to wait after a failed check
+        604800       ; Expire    — how long secondaries may serve without contact
+        86400        ; Minimum   — negative-cache TTL
+)</code></pre>
+
+        <ul>
+            <li><strong>Serial:</strong> a version number for the zone. Whenever you edit the zone, you must
+                increment this. If you forget, secondaries will not pick up the change. A common convention is
+                <code>YYYYMMDDnn</code> — the date plus a two-digit counter.</li>
+            <li><strong>Refresh:</strong> how often secondary servers should poll the primary for changes.</li>
+            <li><strong>Retry:</strong> if a poll fails, how long to wait before trying again.</li>
+            <li><strong>Expire:</strong> how long a secondary may continue serving the zone if it cannot reach
+                the primary at all. After this, it must stop answering.</li>
+            <li><strong>Minimum:</strong> originally the default TTL for the zone. In modern use, it is the
+                negative-caching TTL — how long a resolver may cache a "name not found" answer.</li>
+        </ul>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Remember the serial increment rule.</strong> It is the single most common mistake beginners
+            make when editing a zone file. If you change a record, change the serial. If you forget, and you are
+            running primary/secondary replication, the change may never propagate.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 11.5 ZONES & ZONE FILES                                      -->
+        <!-- ============================================================ -->
+        <h2 id="zones"><i class="fas fa-file-lines"></i> 11.5 · Zones &amp; Zone Files</h2>
+
+        <p>
+            A <strong>zone</strong> is a contiguous portion of the DNS namespace that is managed by a single
+            administrative entity. It is what the SOA record actually declares authority over.
+        </p>
+
+        <p>
+            Note the distinction: a <em>domain</em> is a subtree of the namespace. A <em>zone</em> is a domain
+            minus whatever has been delegated to child zones. When we say a server is "authoritative for
+            <code>example.com</code>", we mean it is authoritative for the zone whose apex is
+            <code>example.com</code> — not for every name that ends in <code>example.com</code>, if some
+            subdomain has been delegated away.
+        </p>
+
+        <h3>Zone file examples</h3>
+
+        <p>
+            Here is what a simple forward zone file for <code>lab.local</code> looks like. This is exactly the
+            pattern we will build in the labs this week:
+        </p>
+
+        <pre><code>$TTL 3600
+$ORIGIN lab.local.
+
+@    IN   SOA   ns1.lab.local.  admin.lab.local. (
+                  2024111501    ; serial
+                  3600          ; refresh
+                  1800          ; retry
+                  604800        ; expire
+                  86400 )       ; minimum
+
+; Nameservers
+@       IN   NS      ns1.lab.local.
+@       IN   NS      ns2.lab.local.
+
+; Mail exchanger
+@       IN   MX   10   mail.lab.local.
+
+; Host records
+ns1     IN   A       192.168.56.1
+ns2     IN   A       192.168.56.2
+mail    IN   A       192.168.56.10
+www     IN   A       192.168.56.20
+web     IN   CNAME   www
+
+; Wildcard (any name not otherwise defined)
+*       IN   A       192.168.56.99</code></pre>
+
+        <p>
+            Let me point out a few conventions.
+        </p>
+
+        <ul>
+            <li><strong><code>$TTL</code></strong> sets a default time-to-live that applies to all following
+                records that do not have their own TTL.</li>
+            <li><strong><code>$ORIGIN</code></strong> sets the domain that is appended to any name that does not
+                end with a dot. This is why we can write <code>www</code> instead of <code>www.lab.local.</code></li>
+            <li><strong><code>@</code></strong> is shorthand for the current origin. At the top of the file,
+                <code>@</code> means <code>lab.local.</code>.</li>
+            <li><strong>Trailing dots matter.</strong> <code>ns1.lab.local.</code> (with trailing dot) is a fully
+                qualified domain name. <code>ns1.lab.local</code> (without) would be treated as
+                <code>ns1.lab.local.<current-origin></code>, which is usually not what you want. Always use
+                trailing dots for FQDNs.</li>
+            <li><strong>Relative names</strong> like <code>www</code> are appended with the current origin, so
+                they become <code>www.lab.local.</code></li>
+        </ul>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Trailing dots are the number-one source of zone file bugs.</strong> If your zone file loads
+            but nothing resolves, check the trailing dots first. BIND is strict about this — it does not guess.
+        </div>
+
+        <h3>Organizing a zone file</h3>
+
+        <p>
+            Real zones are organized into sections for readability. The standard order:
+        </p>
+
+        <ol>
+            <li><code>$TTL</code> and <code>$ORIGIN</code> directives.</li>
+            <li>The SOA record.</li>
+            <li>NS records for the zone's own nameservers.</li>
+            <li>MX records for mail routing.</li>
+            <li>A, AAAA, CNAME records for hosts.</li>
+            <li>Any delegation records (NS records for sub-zones).</li>
+        </ol>
+
+        <p>
+            Comments start with a semicolon and continue to the end of the line.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 11.6 REVERSE ZONES & PTR                                     -->
+        <!-- ============================================================ -->
+        <h2 id="reverse"><i class="fas fa-rotate-left"></i> 11.6 · Reverse Zones &amp; PTR Records</h2>
+
+        <p>
+            So far we have been mapping names to addresses. But there is a mirror-image concern: given an IP
+            address, what name is associated with it? This is called a <strong>reverse lookup</strong>, and it
+            matters for a surprising number of things.
+        </p>
+
+        <h3>Why reverse lookups exist</h3>
+
+        <ul>
+            <li><strong>Log readability.</strong> When your web server logs a client's IP, that IP is essentially
+                useless in a log. A reverse lookup gives you the hostname — much easier to interpret.</li>
+            <li><strong>Spam filtering.</strong> Many mail servers refuse mail from IPs whose PTR records do
+                not match the sending domain. This is called a <em>forward-confirmed reverse DNS</em> check.</li>
+            <li><strong>Diagnostics.</strong> When you <code>traceroute</code> across the internet, every hop
+                shows the reverse name of the router — if the operator has set it up.</li>
+            <li><strong>Access control.</strong> Some legacy systems use reverse lookups for coarse
+                authentication.</li>
+        </ul>
+
+        <h3>The in-addr.arpa domain</h3>
+
+        <p>
+            Because DNS names are hierarchical with the most significant part last, and IP addresses are
+            hierarchical with the most significant part first, reverse lookups require reversing the IP
+            octets. IPv4 reverse lookups all live under a special domain called <code>in-addr.arpa</code>.
+        </p>
+
+        <p>
+            To look up the name associated with <code>192.168.56.20</code>, we reverse the octets and append
+            <code>in-addr.arpa</code>:
+        </p>
+
+        <pre><code>20.56.168.192.in-addr.arpa.</code></pre>
+
+        <p>
+            This is the name that actually gets queried. It is a PTR-type query, and the answer is the
+            corresponding hostname.
+        </p>
+
+        <h3>A reverse zone file</h3>
+
+        <p>
+            Here is a reverse zone file for <code>192.168.56.0/24</code>. It lives in the domain
+            <code>56.168.192.in-addr.arpa</code> — the first three octets in reverse, plus
+            <code>in-addr.arpa</code>.
+        </p>
+
+        <pre><code>$TTL 3600
+$ORIGIN 56.168.192.in-addr.arpa.
+
+@    IN   SOA   ns1.lab.local.  admin.lab.local. (
+                  2024111501    ; serial
+                  3600          ; refresh
+                  1800          ; retry
+                  604800        ; expire
+                  86400 )       ; minimum
+
+@       IN   NS      ns1.lab.local.
+
+; PTR records — one per host that needs reverse lookup
+1       IN   PTR     ns1.lab.local.
+10      IN   PTR     mail.lab.local.
+20      IN   PTR     www.lab.local.</code></pre>
+
+        <p>
+            Notice how the PTR record owner is just the last octet — <code>1</code>, <code>10</code>,
+            <code>20</code>. The <code>$ORIGIN</code> line supplies the rest, so <code>20</code> becomes
+            <code>20.56.168.192.in-addr.arpa.</code>.
+        </p>
+
+        <h3>Forward-confirmed reverse DNS (FCrDNS)</h3>
+
+        <p>
+            A well-configured host has both directions matching:
+        </p>
+
+        <ol>
+            <li>Forward: <code>mail.lab.local</code> → <code>192.168.56.10</code></li>
+            <li>Reverse: <code>192.168.56.10</code> → <code>mail.lab.local</code></li>
+        </ol>
+
+        <p>
+            When both match, we say the record is <em>forward-confirmed</em>. This is what spam filters check.
+            A misconfigured mail server whose forward and reverse directions disagree will have trouble
+            delivering to many recipients.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>The reverse zone lesson:</strong> it is not enough to define an A record. If you want a host
+            to be findable by IP — for logs, for reverse diagnostics, or because some other service requires it
+            — you must also create the corresponding PTR record, in a separate reverse zone. Many a first-time
+            DNS deployment breaks silently on this point.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 11.7 CACHING, TTL, & FORWARDING                              -->
+        <!-- ============================================================ -->
+        <h2 id="caching"><i class="fas fa-clock-rotate-left"></i> 11.7 · Caching, TTL &amp; Forwarding</h2>
+
+        <p>
+            We saw in section 11.3 that the whole reason DNS scales is caching. Let's look at caching more
+            carefully, because it also has a dark side and a related technique called <em>forwarding</em>.
+        </p>
+
+        <h3>TTL — the cache lifetime</h3>
+
+        <p>
+            Every DNS record carries a TTL — a time-to-live — in seconds. When a resolver caches a record, it
+            remembers it for at most that long. After the TTL expires, the record must be re-fetched.
+        </p>
+
+        <p>
+            TTL is a trade-off between freshness and load.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">TTL setting</th>
+                    <th>What it means</th>
+                    <th style="width: 30%;">When it is right</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Very low</strong> (30–60 seconds)</td>
+                    <td>The record is refreshed quickly, so changes propagate fast. But the number of queries to
+                        the authoritative server skyrockets.</td>
+                    <td>Right before a planned migration, when you want to be able to change IPs quickly.
+                        Common in anycast/failover setups.</td>
+                </tr>
+                <tr>
+                    <td><strong>Medium</strong> (5 minutes – 1 hour)</td>
+                    <td>Good balance of freshness and load. What most production services use.</td>
+                    <td>Standard production websites and services.</td>
+                </tr>
+                <tr>
+                    <td><strong>High</strong> (several hours – days)</td>
+                    <td>Very light load on authoritative servers, but changes can be slow to propagate. Resolvers
+                        may still hold stale data for many hours.</td>
+                    <td>Stable records that rarely change — nameserver records, MX records, TXT records.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Common migration tip:</strong> before moving a service to a new IP, lower the TTL of its
+            record to 60 seconds a day or two in advance. This lets all resolvers expire their old cached
+            copies. Then, make the change, and after a day you can raise the TTL back to something normal.
+        </div>
+
+        <h3>The negative cache</h3>
+
+        <p>
+            DNS also caches the <em>absence</em> of a record. If you ask for a name that does not exist, the
+            resolver remembers the "NXDOMAIN" response for a duration defined by the SOA Minimum field. This
+            prevents repeated lookups of a name that everyone agrees does not exist.
+        </p>
+
+        <p>
+            This is worth knowing because it can bite you: when you first create a new subdomain, some resolvers
+            may still hold the negative cache entry. Their users will fail to resolve the new name until the
+            TTL expires. Setting a shorter SOA Minimum reduces this window.
+        </p>
+
+        <h3>Forwarding — when you do not want to do it all yourself</h3>
+
+        <p>
+            A recursive resolver does a lot of work — multiple queries across the globe for every uncached
+            name. Sometimes you do not want to do that work. This is where <strong>forwarding</strong> comes
+            in.
+        </p>
+
+        <p>
+            A forwarding resolver is configured to hand off recursive queries to an upstream resolver. It does
+            not do the iterative hunt itself — it just forwards the query and returns whatever comes back.
+        </p>
+
+        <ul>
+            <li><strong>Small networks</strong> usually use forwarding: internal residential routers forward all
+                DNS to the ISP's resolver. Simple and efficient.</li>
+            <li><strong>Corporate networks</strong> often use a mix: forward to internal servers for internal
+                zones, forward to public resolvers for external names.</li>
+            <li><strong>Privacy-conscious setups</strong> forward to explicit resolvers like
+                <code>1.1.1.1</code> or <code>9.9.9.9</code>, with encrypted transport (DNS over HTTPS or DNS
+                over TLS) to prevent eavesdropping.</li>
+        </ul>
+
+        <p>
+            In BIND9, forwarding is configured in the <code>options</code> block:
+        </p>
+
+        <pre><code>options {
+    directory "/var/cache/bind";
+    recursion yes;
+    forwarders {
+        1.1.1.1;
+        8.8.8.8;
+    };
+    forward only;   /* only forward, never recurse on our own */
+    ...
+};</code></pre>
+
+        <p>
+            The <code>forward only;</code> directive tells BIND to never do its own recursion — always defer
+            upstream. The alternative, <code>forward first;</code>, means "try forwarding, but fall back to
+            recursion if that fails".
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 11.8 DIG, NSLOOKUP, HOST                                     -->
+        <!-- ============================================================ -->
+        <h2 id="tools"><i class="fas fa-terminal"></i> 11.8 · Querying DNS: dig, nslookup, host</h2>
+
+        <p>
+            Now that we understand the theory, let's look at the tools you use every day to query DNS. There are
+            three main ones — <code>dig</code>, <code>nslookup</code>, and <code>host</code> — and they serve
+            overlapping but different purposes.
+        </p>
+
+        <h3>dig — the professional's tool</h3>
+
+        <p>
+            <code>dig</code> — Domain Information Groper — is the tool serious administrators use. It sends a
+            single DNS query, prints the full response, and exits. No interactive mode, no guessing. Every piece
+            of information in the response is visible.
+        </p>
+
+        <pre><code>$ dig example.com A
+
+; <<>> DiG 9.18.24 <<>> example.com A
+;; global options: +cmd
+;; Got answer:
+;; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 12345
+;; flags: qr rd ra; QUERY: 1, ANSWER: 1, AUTHORITY: 0, ADDITIONAL: 1
+
+;; QUESTION SECTION:
+;example.com.       IN   A
+
+;; ANSWER SECTION:
+example.com.    300 IN   A    93.184.216.34
+
+;; Query time: 24 msec
+;; SERVER: 1.1.1.1#53(1.1.1.1) (UDP)
+;; WHEN: Fri Nov 15 10:22:14 UTC 2024
+;; MSG SIZE  rcvd: 56</code></pre>
+
+        <p>
+            Let me decode the important parts:
+        </p>
+
+        <ul>
+            <li><strong>status: NOERROR</strong> — the query succeeded. Common alternatives:
+                <code>NXDOMAIN</code> (name does not exist), <code>SERVFAIL</code> (server error).</li>
+            <li><strong>flags: qr rd ra</strong> — qr means "query response" (this is a reply). rd means
+                "recursion desired" (the client wants full resolution). ra means "recursion available" (the
+                server supports it). If you see <code>aa</code>, the server was authoritative.</li>
+            <li><strong>ANSWER SECTION</strong> — the actual answer. In this case, one A record with a TTL of
+                300 seconds.</li>
+            <li><strong>Query time, SERVER</strong> — how long the response took, and which server answered.</li>
+        </ul>
+
+        <h3>Useful dig variations</h3>
+
+        <pre><code>dig example.com              # A record by default
+dig example.com MX           # mail exchangers
+dig example.com NS           # authoritative nameservers
+dig example.com TXT          # any TXT records (SPF, etc.)
+dig -x 93.184.216.34         # reverse lookup — PTR query
+dig @8.8.8.8 example.com     # query a specific server
+dig +short example.com       # just the answer, no headers
+dig +trace example.com       # walk the hierarchy from the root
+dig +noall +answer example.com   # suppress everything except the answer
+dig ANY example.com          # request all record types (often ignored)</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The single most useful debug command:</strong> <code>dig +trace example.com</code>.
+            This command starts at the root servers, follows every referral, and prints each step. It shows
+            you exactly which servers answered at each level, and where the resolution succeeds or fails. When
+            DNS is broken, this command tells you where.
+        </div>
+
+        <h3>nslookup — the interactive classic</h3>
+
+        <p>
+            <code>nslookup</code> is older than <code>dig</code> and its output is less structured. It is often
+            used interactively, which makes exploratory debugging pleasant.
+        </p>
+
+        <pre><code>$ nslookup example.com
+Server:		1.1.1.1
+Address:	1.1.1.1#53
+
+Non-authoritative answer:
+Name:	example.com
+Address: 93.184.216.34
+
+# Interactive mode:
+$ nslookup
+> server 8.8.8.8
+> set type=MX
+> example.com
+> exit</code></pre>
+
+        <p>
+            The phrase "Non-authoritative answer" simply means the answer came from a cache, not from an
+            authoritative server. This is normally fine. If you need an authoritative answer, query the
+            authoritative server directly with <code>nslookup example.com ns1.example.com</code>.
+        </p>
+
+        <h3>host — brief and to the point</h3>
+
+        <p>
+            <code>host</code> is the simplest of the three. It gives you what you asked for in one line, without
+            any of the extra output.
+        </p>
+
+        <pre><code>$ host example.com
+example.com has address 93.184.216.34
+example.com has IPv6 address 2606:2800:220:1:248:1893:25c8:1946
+example.com mail is handled by 0 .
+
+$ host 93.184.216.34
+34.216.184.93.in-addr.arpa domain name pointer example.com.</code></pre>
+
+        <p>
+            For simple queries — "what is the IP of this name?" or "what is the name of this IP?" — 
+            <code>host</code> is the fastest to type and the fastest to read. When you need to inspect the full
+            response, use <code>dig</code>.
+        </p>
+
+        <h3>Which to use?</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Tool</th>
+                    <th>Best for</th>
+                    <th style="width: 30%;">Output style</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>dig</strong></td>
+                    <td>Debugging, scripted queries, full detail, trace queries</td>
+                    <td>Verbose, structured, everything visible</td>
+                </tr>
+                <tr>
+                    <td><strong>nslookup</strong></td>
+                    <td>Interactive exploration, one-off queries</td>
+                    <td>Readable but less structured</td>
+                </tr>
+                <tr>
+                    <td><strong>host</strong></td>
+                    <td>Quick single queries, scripts that want terse output</td>
+                    <td>One or two lines, minimal formatting</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ============================================================ -->
+        <!-- 11.9 DEEP LAB — BIND9 SETUP                                  -->
+        <!-- ============================================================ -->
+        <h2 id="lab-bind"><i class="fas fa-server"></i> 11.9 · Deep Lab — Installing and Configuring BIND9</h2>
+
+        <p>
+            Now let's build. In this lab, we will install BIND9 — the reference implementation of DNS and the
+            most widely deployed authoritative DNS server in the world — and configure it as the authoritative
+            nameserver for our own private zone.
+        </p>
+
+        <h3>Step 1 — Install BIND9</h3>
+
+        <pre><code>sudo apt update
+sudo apt install bind9 bind9utils bind9-doc dnsutils -y</code></pre>
+
+        <p>
+            <code>bind9</code> is the server itself. <code>bind9utils</code> contains the zone file checking
+            tools we will use. <code>dnsutils</code> gives us <code>dig</code> and <code>nslookup</code>.
+        </p>
+
+        <h3>Step 2 — Understand the default layout</h3>
+
+        <p>
+            BIND9's configuration lives in <code>/etc/bind/</code>. After installation you will see:
+        </p>
+
+        <pre><code>$ ls /etc/bind/
+bind.keys   db.0     db.255    db.empty   db.local
+db.root     named.conf  named.conf.default-zones  named.conf.local
+named.conf.options  rndc.key  zones.rfc1918
+
+$ ls /var/cache/bind/     # working directory for BIND
+$ ls /var/lib/bind/       # dynamically-updated zones</code></pre>
+
+        <p>
+            The key files:
+        </p>
+
+        <ul>
+            <li><code>named.conf</code> — the main config. It includes the others.</li>
+            <li><code>named.conf.options</code> — global options like forwarders, ACLs, listening interfaces.</li>
+            <li><code>named.conf.local</code> — where you declare your own zones. This is the one we edit
+                most.</li>
+            <li><code>named.conf.default-zones</code> — the standard zones (root hints, localhost, etc.).
+                Leave it alone.</li>
+        </ul>
+
+        <h3>Step 3 — Configure listening and recursion</h3>
+
+        <pre><code>sudo nano /etc/bind/named.conf.options</code></pre>
+
+        <p>
+            Replace the <code>options</code> block content with:
+        </p>
+
+        <pre><code>options {
+    directory "/var/cache/bind";
+
+    // Listen on all interfaces on port 53
+    listen-on { any; };
+    listen-on-v6 { any; };
+
+    // Allow recursion only from the lab network
+    recursion yes;
+    allow-recursion { 192.168.56.0/24; 127.0.0.1; };
+
+    // Forward everything else to public resolvers
+    forwarders {
+        1.1.1.1;
+        8.8.8.8;
+    };
+
+    // Standard best-practice request
+    dnssec-validation auto;
+
+    // Use IPv4 and IPv6
+    listen-on-v6 { any; };
+};</code></pre>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Never run an open recursive resolver on the public internet.</strong> If you set
+            <code>recursion yes</code> without an <code>allow-recursion</code> ACL, anyone on the network can
+            use your server to attack third parties. This is called a "DNS amplification attack", and your
+            server will be blacklisted within hours. Always restrict recursion to your own network — as we did
+            above with the <code>192.168.56.0/24</code> ACL.
+        </div>
+
+        <h3>Step 4 — Check and restart</h3>
+
+        <pre><code>sudo named-checkconf
+# No output means the config is syntactically valid.
+
+sudo systemctl restart named
+sudo systemctl status named
+
+# Verify it is listening:
+sudo ss -tlnp | grep :53</code></pre>
+
+        <p>
+            You should see both UDP and TCP listeners on port 53. DNS uses UDP for most queries and TCP for
+            large responses and zone transfers.
+        </p>
+
+        <h3>Step 5 — Verify basic resolution</h3>
+
+        <pre><code># Ask BIND9 (running on localhost) about a public domain
+dig @127.0.0.1 example.com A
+
+# You should see NOERROR and an A record.
+# If you get SERVFAIL, check journalctl -u named -n 50.</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What you have built:</strong> a working recursive DNS resolver that your lab machines can
+            point at. This is already useful — but the real lab is next: making it authoritative for our own
+            private zone.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 11.10 DEEP LAB — ZONE FOR LAB.LOCAL                          -->
+        <!-- ============================================================ -->
+        <h2 id="lab-zone"><i class="fas fa-diagram-project"></i> 11.10 · Deep Lab — Authoritative Zone for lab.local</h2>
+
+        <p>
+            Now the main event. We will create a forward zone and a reverse zone for <code>lab.local</code>,
+            populate them with A, CNAME, MX, and PTR records, and then verify resolution from a client machine.
+        </p>
+
+        <h3>Step 1 — Create the forward zone file</h3>
+
+        <pre><code>sudo nano /etc/bind/db.lab.local</code></pre>
+
+        <p>Paste this content:</p>
+
+        <pre><code>;
+; Forward zone file for lab.local
+;
+$TTL 3600
+$ORIGIN lab.local.
+
+;
+; SOA — start of authority
+;
+@   IN  SOA ns1.lab.local. admin.lab.local. (
+        2024111501   ; serial   — increment on every change
+        3600         ; refresh  — secondary checks every hour
+        1800         ; retry    — retry every 30 minutes
+        604800       ; expire   — stop serving after a week
+        86400 )      ; negative cache TTL
+
+;
+; Nameservers
+;
+@       IN  NS      ns1.lab.local.
+@       IN  NS      ns2.lab.local.
+
+;
+; Mail exchanger — priority 10 for mail.lab.local
+;
+@       IN  MX  10  mail.lab.local.
+
+;
+; Address records
+;
+ns1     IN  A       192.168.56.1
+ns2     IN  A       192.168.56.2
+mail    IN  A       192.168.56.10
+www     IN  A       192.168.56.20
+db      IN  A       192.168.56.30
+
+; CNAME — an alias
+web     IN  CNAME   www
+
+; Wildcard — anything not otherwise defined
+*       IN  A       192.168.56.99</code></pre>
+
+        <h3>Step 2 — Create the reverse zone file</h3>
+
+        <pre><code>sudo nano /etc/bind/db.192.168.56</code></pre>
+
+        <pre><code>;
+; Reverse zone file for 192.168.56.0/24
+;
+$TTL 3600
+$ORIGIN 56.168.192.in-addr.arpa.
+
+@   IN  SOA ns1.lab.local. admin.lab.local. (
+        2024111501   ; serial
+        3600         ; refresh
+        1800         ; retry
+        604800       ; expire
+        86400 )      ; minimum
+
+;
+; Nameservers
+;
+@       IN  NS      ns1.lab.local.
+
+;
+; PTR records — reverse lookups
+;
+1       IN  PTR     ns1.lab.local.
+10      IN  PTR     mail.lab.local.
+20      IN  PTR     www.lab.local.
+30      IN  PTR     db.lab.local.</code></pre>
+
+        <h3>Step 3 — Validate the zone files before loading</h3>
+
+        <p>
+            This step is essential. Never point BIND at a zone file you have not validated — a syntax error can
+            prevent the service from starting entirely.
+        </p>
+
+        <pre><code>sudo named-checkzone lab.local /etc/bind/db.lab.local
+# Expected: "zone lab.local/IN: loaded serial 2024111501"
+# and "OK"
+
+sudo named-checkzone 56.168.192.in-addr.arpa /etc/bind/db.192.168.56
+# Expected: "zone 56.168.192.in-addr.arpa/IN: loaded serial 2024111501"
+# and "OK"</code></pre>
+
+        <p>
+            If you see anything other than <code>OK</code>, read the error message carefully. The most common
+            causes are missing trailing dots and mismatched parentheses in the SOA block.
+        </p>
+
+        <h3>Step 4 — Declare the zones in named.conf.local</h3>
+
+        <pre><code>sudo nano /etc/bind/named.conf.local</code></pre>
+
+        <p>Add these two zone declarations:</p>
+
+        <pre><code>zone "lab.local" {
+    type master;
+    file "/etc/bind/db.lab.local";
+    allow-update { none; };
+};
+
+zone "56.168.192.in-addr.arpa" {
+    type master;
+    file "/etc/bind/db.192.168.56";
+    allow-update { none; };
+};</code></pre>
+
+        <p>
+            <code>type master</code> means this server is the primary authoritative server for the zone.
+            <code>allow-update { none; }</code> disables dynamic DNS updates — we want only explicit file edits
+            to affect the zone.
+        </p>
+
+        <h3>Step 5 — Reload BIND and verify</h3>
+
+        <pre><code>sudo named-checkconf       # validate the whole config tree
+sudo systemctl reload named
+
+# Check the journal for zone loading
+sudo journalctl -u named -n 20
+
+# You should see lines like:
+#   zone lab.local/IN: loaded serial 2024111501
+#   zone 56.168.192.in-addr.arpa/IN: loaded serial 2024111501</code></pre>
+
+        <h3>Step 6 — Test from the server itself</h3>
+
+        <pre><code># Forward lookup — A record
+dig @127.0.0.1 www.lab.local A
+# Expected: 192.168.56.20
+
+# CNAME
+dig @127.0.0.1 web.lab.local A
+# Expected: web is a CNAME for www.lab.local, then the A record 192.168.56.20
+
+# MX
+dig @127.0.0.1 lab.local MX
+# Expected: 10 mail.lab.local.
+
+# Reverse
+dig @127.0.0.1 -x 192.168.56.20
+# Expected: www.lab.local.
+
+# Wildcard
+dig @127.0.0.1 anything.lab.local A
+# Expected: 192.168.56.99</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>If all five queries return the expected answer, your zone is working correctly.</strong>
+            You have built an authoritative DNS server.
+        </div>
+
+        <h3>Step 7 — Point a client at your server</h3>
+
+        <p>
+            On a second VM connected to the same host-only network, change the DNS server configuration to point
+            at <code>192.168.56.1</code> (or whatever address your BIND9 server holds on that network).
+        </p>
+
+        <p>
+            If the client is using Netplan:
+        </p>
+
+        <pre><code>sudo nano /etc/netplan/01-netcfg.yaml</code></pre>
+
+        <p>Add <code>192.168.56.1</code> as the first nameserver for the interface. Then:</p>
+
+        <pre><code>sudo netplan apply
+cat /etc/resolv.conf
+# The first "nameserver" line should now be 192.168.56.1
+
+# Test resolution
+dig www.lab.local
+host mail.lab.local
+nslookup db.lab.local
+</code></pre>
+
+        <p>
+            From the client, all names in <code>lab.local</code> should resolve to their configured addresses —
+            routed through your BIND9 server.
+        </p>
+
+        <h3>Step 8 — Break it, then fix it</h3>
+
+        <p>
+            Now let's build some diagnostic reflexes. Introduce a deliberate mistake in the zone file:
+        </p>
+
+        <pre><code>sudo nano /etc/bind/db.lab.local
+# Change the serial to a random value, or remove a trailing dot
+# (for example: change "ns1.lab.local." to "ns1.lab.local")
+
+sudo named-checkzone lab.local /etc/bind/db.lab.local
+# This will produce an error — read it.
+
+# Try to reload:
+sudo systemctl reload named
+# The reload may succeed at the systemd level, but BIND will
+# reject the zone. Check the journal.
+sudo journalctl -u named -n 30 --no-pager
+</code></pre>
+
+        <p>
+            The journal is where BIND tells you exactly what it did not like. Look for lines mentioning
+            <code>db.lab.local</code> and the specific error message — usually something like
+            "bad owner name" or "not at top of zone". Fix the mistake, re-run
+            <code>named-checkzone</code> until it says OK, and reload.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The workflow you have just learned:</strong> edit zone file → run
+            <code>named-checkzone</code> → reload → check journal. Never skip the check. On a production
+            primary nameserver for a public zone, skipping this check can take an entire domain offline.
+        </div>
+
+        <h3>Step 9 — Add a new host, end to end</h3>
+
+        <p>
+            As a final exercise, add a new host — say, <code>app.lab.local</code> at
+            <code>192.168.56.40</code> — and verify that both forward and reverse lookups work.
+        </p>
+
+        <ol>
+            <li>Add an A record to <code>db.lab.local</code>.</li>
+            <li>Add a matching PTR record to <code>db.192.168.56</code>.</li>
+            <li>Increment the serial in both SOA records.</li>
+            <li>Run <code>named-checkzone</code> on both files.</li>
+            <li>Reload BIND and verify with <code>dig</code> from server and client.</li>
+        </ol>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The serial rule in action:</strong> if you change the record but forget to change the
+            serial, and this server were a primary with secondaries, the secondaries would not pick up the
+            change. On a single-server lab, the change still applies immediately — but build the discipline of
+            incrementing the serial anyway. It is a habit that will save you on real infrastructure.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 11 — Deep Assignment</h3>
+            <p>
+                This assignment combines conceptual questions with a substantial hands-on DNS lab. Submit both
+                the written answers and your terminal outputs as a PDF, plus your two zone files as attachments.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the difference between a <em>recursive query</em> and an <em>iterative query</em>. In
+                    a typical resolver chain, which party sends which? Give a concrete example of each.</li>
+                <li>Describe what happens, step by step, when a user types <code>example.com</code> into a
+                    browser that has never visited that name before. Include at least: the stub resolver, the
+                    recursive resolver, the root servers, the TLD servers, and the authoritative servers.</li>
+                <li>Explain the difference between a <strong>domain</strong> and a <strong>zone</strong>. Give an
+                    example where they are not the same thing.</li>
+                <li>Define each of the following record types and give one realistic use case for each:
+                    <em>A, AAAA, CNAME, MX, NS, PTR, SOA, TXT</em>.</li>
+                <li>Why does the CNAME record type have a rule stating it cannot coexist with any other record
+                    at the same name? Give a concrete example where violating this rule breaks things.</li>
+                <li>Explain what a <em>forward-confirmed reverse DNS</em> record is, and give one realistic
+                    scenario where its absence causes a service to misbehave.</li>
+            </ol>
+
+            <h4>Part II — Query Analysis (35 points)</h4>
+            <ol>
+                <li>Run <code>dig A example.com</code> from your VM. Paste the output. Identify:
+                    <ul>
+                        <li>The resolver that answered.</li>
+                        <li>The TTL of the answer.</li>
+                        <li>Whether the answer was authoritative.</li>
+                        <li>The query time in milliseconds.</li>
+                    </ul>
+                </li>
+                <li>Run the same query again a few seconds later. Is the query time lower? Why?</li>
+                <li>Run <code>dig +trace example.com</code>. Paste the output. In order, list the servers that
+                    answered you, and identify which one gave the final answer.</li>
+                <li>Run <code>dig MX example.com</code> and <code>dig TXT example.com</code>. Paste the outputs
+                    and interpret the MX priority and any TXT content.</li>
+                <li>Pick any public IPv4 address — for example, one of the addresses appearing in the trace
+                    above. Run a reverse lookup on it. Paste the result. If no PTR record exists, explain what
+                    that means.</li>
+            </ol>
+
+            <h4>Part III — DNS Server Lab (35 points)</h4>
+            <ol>
+                <li>Install BIND9 on your Ubuntu VM, following the steps in section 11.9.</li>
+                <li>Create a forward zone file <code>db.lab.local</code> with the following records:
+                    <ul>
+                        <li>SOA and NS records as shown.</li>
+                        <li>A records for <code>ns1</code>, <code>ns2</code>, <code>mail</code>,
+                            <code>www</code>, <code>app</code>.</li>
+                        <li>An MX record for <code>mail.lab.local</code> with priority 10.</li>
+                        <li>A CNAME from <code>web.lab.local</code> to <code>www.lab.local</code>.</li>
+                        <li>A wildcard A record.</li>
+                    </ul>
+                    Paste the full contents of your zone file.</li>
+                <li>Create the corresponding reverse zone <code>db.192.168.56</code> for the
+                    <code>192.168.56.0/24</code> subnet. Include PTR records for at least <code>ns1</code>,
+                    <code>mail</code>, <code>www</code>, and <code>app</code>. Paste the full contents.</li>
+                <li>Validate both zone files with <code>named-checkzone</code>. Paste the outputs.</li>
+                <li>Reload BIND and verify with <code>dig</code> that each of the following resolves correctly:
+                    <ul>
+                        <li><code>dig @127.0.0.1 www.lab.local A</code></li>
+                        <li><code>dig @127.0.0.1 web.lab.local A</code></li>
+                        <li><code>dig @127.0.0.1 lab.local MX</code></li>
+                        <li><code>dig @127.0.0.1 -x 192.168.56.20</code></li>
+                        <li><code>dig @127.0.0.1 anything.lab.local A</code></li>
+                    </ul>
+                </li>
+                <li>From a second VM or from your host machine, point the DNS configuration at your BIND9
+                    server. Verify with <code>dig www.lab.local</code> and <code>ping app.lab.local</code> that
+                    remote resolution works.</li>
+                <li>Deliberately introduce a syntax error in one zone file. Run <code>named-checkzone</code>
+                    (paste the error) and then reload BIND. What does the journal say? Fix the error and confirm
+                    that everything works again.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF plus your two zone files
+                (<code>db.lab.local</code> and <code>db.192.168.56</code>) to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 11 Summary</h3>
+            <ul>
+                <li><strong>What DNS does:</strong> maps human-readable names to IP addresses and everything
+                    else networks need. It is the phone book of the internet, but far richer than that.</li>
+                <li><strong>The hierarchy:</strong> an inverted tree. Root servers delegate TLDs, TLDs delegate
+                    domains, domains delegate subdomains. Delegation is what makes DNS scale.</li>
+                <li><strong>Resolution:</strong> clients send <em>recursive</em> queries to a resolver. The
+                    resolver sends <em>iterative</em> queries to root, TLD, and authoritative servers, following
+                    referrals until it gets a final answer.</li>
+                <li><strong>Resource records:</strong> A, AAAA, CNAME, MX, NS, PTR, SOA, TXT, SRV. Each one
+                    carries a different kind of data. CNAMEs cannot coexist with other records at the same name.</li>
+                <li><strong>Zones and zone files:</strong> a zone is a portion of the namespace managed by one
+                    authority. Zone files are text files with SOA, NS, and record entries. Trailing dots matter.</li>
+                <li><strong>Reverse zones:</strong> they live under <code>in-addr.arpa</code>, with IP octets
+                    reversed. PTR records map IP addresses back to hostnames. Forward-confirmed reverse DNS
+                    matters for mail servers and logging.</li>
+                <li><strong>Caching and TTL:</strong> every record carries a time-to-live. Caching is what makes
+                    DNS cheap; TTL controls the freshness/load trade-off. Negative caching also occurs.</li>
+                <li><strong>Forwarding:</strong> a simpler resolver model where queries are handed off upstream
+                    to a designated resolver instead of being resolved iteratively by the local server.</li>
+                <li><strong>Tools:</strong> <code>dig</code> for full-detail queries and traces,
+                    <code>nslookup</code> for interactive exploration, <code>host</code> for brief answers.</li>
+                <li><strong>BIND9:</strong> the reference authoritative server. Configuration under
+                    <code>/etc/bind/</code>. Always validate with <code>named-checkzone</code> before reloading.
+                    Restrict recursion with an ACL — never run an open resolver.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>DNS and BIND</strong>, <strong>RFC 1034 / 1035</strong>, and the
+                <strong>BIND 9 Administrator Reference Manual</strong> | Instructor:
+                <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

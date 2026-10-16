@@ -1,0 +1,1705 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 14 — Integrated Services Lab: DNS + HTTP + MariaDB
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  ten short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the sixth week of Phase 2, and the integration week. Students
+  are expected to have completed Weeks 10 (packages + DHCP), 11 (DNS),
+  12 (HTTP + Nginx), and 13 (MariaDB). Their VMs should have all four
+  services working in isolation, and a host-only network at
+  192.168.56.0/24.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.1 — The Full Stack Architecture                            ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Integrated Services Lab: DNS + HTTP + MariaDB"
++ course name]
+
+SPEAK:
+"Welcome to Week 14 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+For the last four weeks, we have built services one at a time. We
+built a DHCP server and learned how addresses are assigned. We built
+a DNS server that answers authoritatively for our own internal
+domain. We deployed Nginx as a web server and a reverse proxy. And
+we installed MariaDB and connected a backend application to a real
+database.
+
+Each of those services works. But they work in isolation. And no
+real system runs in isolation.
+
+This week is the integration week. We are going to stop thinking
+about DNS, HTTP, and MariaDB as separate services, and start thinking
+about them as layers of one coherent application. And we are going
+to build that application end to end, test it, and document it.
+
+By the end of this week, you will have a complete three-tier web
+service running on your VM. And more importantly, you will know how
+to operate it — how to debug it when something goes wrong, how to
+prove to someone else that it works, and how to hand it off to
+another engineer.
+
+That is what this week is about."
+
+[PAUSE]
+
+[SLIDE 2 — The three-tier diagram]
+
+SPEAK:
+"Let me show you the picture of what we are building, because it is
+the same picture as every serious web service in the world.
+
+At the top, a client. In our lab, that is a second VM. In the real
+world, it is a browser on a laptop, or a mobile app, or a script.
+
+The client sends two kinds of requests. First, a DNS query — 'what
+is the address of app.lab.local?' Our BIND9 server answers
+authoritatively. Second, an HTTP request to that address. Nginx
+receives that request on port 80.
+
+Nginx either serves the request from static files on disk, or it
+forwards the request to our Flask backend on port 5000. When it
+forwards, it adds the usual proxy headers — X-Real-IP,
+X-Forwarded-For — so the backend can find out who actually made the
+request.
+
+The Flask backend handles the business logic. It parses the request,
+does whatever work is needed, and — for anything that involves data
+— it queries MariaDB.
+
+MariaDB stores the data persistently. It listens on the Unix socket
+only, which means it is not reachable from the network. The only way
+in is through the Flask application on the same machine.
+
+And then the response comes back. Flask returns JSON. Nginx passes
+it back. The client receives it.
+
+That is the whole picture. Every serious web service in the world
+has this shape. Google, Facebook, GitHub, your bank. The tools are
+different at scale, and there are many more layers in a real
+production system. But the pattern — from client to DNS to HTTP to
+application to database — is the same everywhere."
+
+[PAUSE]
+
+[SLIDE 3 — Why integration is not "just another service"]
+
+SPEAK:
+"Here is a question worth pausing on. We already have each service.
+Why is integration its own topic? Why can we not just start them all
+and be done?
+
+Because integration changes the failure modes.
+
+When a service fails in isolation, you know exactly which service.
+When MariaDB stops, the app does not respond. You look at the
+database. You fix it. Simple.
+
+When a service fails in an integrated stack, the symptom may point
+at any of several layers. The client gets a 500 error. Did Nginx
+fail? Did Flask fail? Did the database fail? Did the network between
+them fail? The client does not know. You have to investigate.
+
+That is the essential challenge of operations. And the goal of this
+week is to give you the diagnostic reflexes to handle it."
+
+[SLIDE 4 — What you will leave with]
+
+SPEAK:
+"Let me be concrete about what you should have at the end of this
+week.
+
+First: a working stack. Client VM, DNS server, Nginx, Flask backend,
+MariaDB — all running, all talking to each other, and a client that
+can create and query data through the full stack.
+
+Second: a service inventory. A short document that lists every
+service, where it runs, on which port, where it logs, and where its
+configuration lives.
+
+Third: evidence. Real captured outputs — dig, curl, log excerpts,
+SQL queries — that prove the stack works.
+
+Fourth: a failure-analysis section. You will deliberately break
+three layers, observe the symptoms, and identify the failing layer
+from the logs. This is the part that will teach you most, because
+it is the part that turns 'I can install a service' into 'I can run
+a service.'
+
+Let's start with planning."
+
+[END OF VIDEO 14.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.2 — Planning the Integrated Environment                    ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Planning the Environment"]
+
+SPEAK:
+"Welcome back. Before we touch a single configuration file, we plan.
+
+This may seem like a formality, but I promise you it is the
+difference between a lab that takes an hour and a lab that takes
+three days. Every serious infrastructure project starts with a
+short written plan that answers a handful of specific questions.
+Let's answer them now."
+
+[PAUSE]
+
+[SLIDE 2 — The five questions]
+
+SPEAK:
+"Here are the five questions we must answer first.
+
+Question one: what is our internal domain name? We have been using
+lab.local, and we will continue. The .local TLD is reserved for
+mDNS, so using it in a private DNS zone is safe. It will never
+conflict with a real public domain.
+
+Question two: what is each machine's address and role? We have two
+VMs. The server VM has address 192.168.56.1 on the host-only
+network and provides all four services. The client VM gets its
+address by DHCP and only sends requests.
+
+Question three: what hostnames do we need? At minimum,
+app.lab.local for the application. We may also want ns1.lab.local
+for the nameserver, so the SOA record has something valid to point
+at.
+
+Question four: what TCP ports are involved? DNS is 53. HTTP is 80.
+The Flask backend is on 5000, localhost only. MariaDB is on 3306
+and the Unix socket, also localhost only.
+
+Question five: where do the logs go? Nginx writes to
+/var/log/nginx/. BIND9 writes to the systemd journal. MariaDB
+writes to the systemd journal. The Flask app writes to stdout,
+which we can capture however we like.
+
+Answering these five questions once — in writing — eliminates about
+ninety percent of the confusion that happens later."
+
+[PAUSE]
+
+[SLIDE 3 — The lab layout table]
+
+SPEAK:
+"Let me put all of that into a table.
+
+DNS, at 192.168.56.1, listens on port 53. It is authoritative for
+lab.local and forwards everything else to public resolvers.
+
+Nginx, at 192.168.56.1, listens on port 80. It is the reverse proxy
+for app.lab.local.
+
+The Flask backend listens on 127.0.0.1, port 5000, loopback only.
+It is only reachable from the same machine, which means
+operationally, only reachable through Nginx.
+
+MariaDB listens on the Unix socket, and optionally on 127.0.0.1:3306,
+also loopback only.
+
+And the client VM is on 192.168.56.101 — or wherever DHCP assigned
+it — with its DNS configured to use our server.
+
+That is our layout. Write it down. Keep it somewhere you can see it
+while debugging."
+
+[SLIDE 4 — What we will not do]
+
+SPEAK:
+"Let me also say clearly what we will NOT do this week. There is a
+strong temptation, when building an integrated stack, to pile on
+features. HTTPS, rate limiting, load balancing, DNSSEC, database
+replication. Resist that temptation.
+
+Every feature you add is another layer of potential failure. And
+because we are in the integration week, we want to keep the number
+of things that can break small.
+
+So in this lab, no HTTPS. No load balancing across multiple
+backends. No DNSSEC. No replication. Plain HTTP, one backend, one
+authoritative nameserver, one database.
+
+Add complexity after correctness. Never the other way around."
+
+[SLIDE 5 — The startup order]
+
+SPEAK:
+"One last planning detail, and it is one that catches people who
+have not thought about it.
+
+The order in which you start the services matters. If Nginx starts
+before the backend, the first requests to it will fail with 502.
+If the backend starts before MariaDB, its first connection attempt
+will fail.
+
+The correct order, from the bottom of the stack up, is: MariaDB
+first, then BIND9, then the Flask backend, then Nginx. Reverse the
+order to shut down.
+
+In a production system, you would enforce this with systemd
+dependencies — a unit file for the Flask app with
+After=mariadb.service, and After=named.service. For the lab, you
+can do it manually. But the ordering exists on every production
+system you will ever work on, and it is worth knowing about now."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Answer these five questions before touching a config file: domain,
+addresses, hostnames, ports, log locations.
+
+Our lab uses lab.local, with all services on the server VM at
+192.168.56.1 and a client VM that talks to it over the host-only
+network.
+
+We deliberately keep the stack small — no HTTPS, no load balancing,
+no DNSSEC, no replication. Complexity after correctness.
+
+And the startup order is MariaDB, BIND9, Flask, Nginx.
+
+In the next video, we look at the DNS layer in detail."
+
+[END OF VIDEO 14.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.3 — The DNS Layer                                          ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The DNS Layer — Service Discovery"]
+
+SPEAK:
+"Welcome to the third video of Week 14. We start at the bottom of
+the client-facing stack: DNS.
+
+DNS is the first layer the client touches. Before any HTTP request
+is made, the client needs to translate a name — app.lab.local —
+into an IP address. If that translation fails, nothing else in the
+stack can help. The client will not even be able to reach the HTTP
+layer."
+
+[PAUSE]
+
+[SLIDE 2 — The zone records]
+
+SPEAK:
+"Here is what our zone needs to contain.
+
+At the top, the SOA record. Every zone has one. It declares the zone
+and its operating parameters.
+
+Below it, NS records. At least one — ideally two — pointing at the
+authoritative nameservers. In our lab, we only have one, so one NS
+record pointing at ns1.lab.local.
+
+Then A records for each name that needs to resolve. Some of them
+are infrastructure — ns1. Some are services — app. Some are
+reserved for future use — db, for example.
+
+For our lab, the important records are:
+
+ns1 at 192.168.56.1
+app at 192.168.56.1
+db at 192.168.56.1
+
+Notice that app and db point at the same address, because in our
+lab everything lives on one VM. In a real layout, they would point
+at different addresses. But the client does not need to know that.
+The client uses names."
+
+[PAUSE]
+
+[SLIDE 3 — Why this is the architectural win]
+
+SPEAK:
+"Here is why this matters, and I want to make it very concrete.
+
+Suppose tomorrow, we decide to move the application to a different
+server. The new server has a different IP address. What do we change?
+
+We change one line in the zone file. We update the A record for app
+from one IP to another. We increment the serial. We reload BIND9.
+
+The client does not change anything. The client's DNS query now
+resolves to the new address. The client's HTTP request goes to the
+new server. The client never knows the difference.
+
+That is service discovery. That is why DNS is such a fundamental
+layer. It decouples the name the client uses from the address that
+actually serves the request.
+
+In a real production system, this decoupling is even more valuable,
+because you can also point a name at multiple addresses for load
+balancing, or spread a name across data centers by returning
+different addresses based on where the query came from. None of
+that would be possible if clients were hardcoded to IPs."
+
+[SLIDE 4 — The DNS integration checklist]
+
+SPEAK:
+"When you make any change to DNS, run through this checklist. Five
+quick checks. It takes thirty seconds and tells you exactly where a
+problem lives.
+
+Check one: is BIND9 running? systemctl status named.
+
+Check two: does the zone file parse? named-checkzone lab.local
+/etc/bind/db.lab.local. If the file has a syntax error, BIND9 will
+not load it.
+
+Check three: is the zone actually loaded? Look at the journalctl
+output for named. You should see lines saying 'zone lab.local/IN:
+loaded serial 2024111501' or similar.
+
+Check four: does the record resolve locally? dig @127.0.0.1
+app.lab.local A. This tests that BIND9 is answering for the name.
+
+Check five, and this is the integration check: does it resolve from
+the client? dig app.lab.local from the client VM. This tests that
+the client is pointed at our server as its resolver. If the client
+is pointing at 8.8.8.8, this will fail even though BIND9 is
+perfectly fine."
+
+[SLIDE 5 — The #1 mistake]
+
+SPEAK:
+"Let me talk about the single most common mistake at this layer,
+because it is the one that traps almost every student.
+
+The client VM is still pointing at a public resolver. Maybe it was
+configured that way when we set up DHCP, or maybe it is using
+whatever Ubuntu's default Netplan configuration specifies — often
+the address of a local gateway that forwards to public DNS.
+
+In that case, when the client asks for app.lab.local, it sends the
+query to a public resolver — or to a gateway — and gets back
+NXDOMAIN, because public resolvers have no idea what lab.local is.
+The client fails on the first step of the stack. The user sees an
+error like 'could not resolve host.' You look at Nginx, which is
+perfectly fine, and you waste time.
+
+The fix is always to verify /etc/resolv.conf on the client, or the
+Netplan configuration on the client, and confirm that the first
+nameserver is 192.168.56.1 — our BIND9 server. Only the first
+nameserver matters if it responds. Everything else is only used as
+a fallback."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+DNS resolves names to IPs. It is the first layer the client touches.
+
+The zone file needs SOA, NS, and A records for our hostnames.
+
+By using DNS, we decouple the name the client uses from the address
+of the server — which is the architectural win of the service
+discovery pattern.
+
+Run the five-check verification whenever you change DNS.
+
+The most common integration failure: the client is pointed at a
+public resolver, not our own BIND9.
+
+In the next video, we cover the HTTP layer."
+
+[END OF VIDEO 14.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.4 — The HTTP Layer                                         ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The HTTP Layer — Nginx and the Backend"]
+
+SPEAK:
+"Welcome back. Now we move up one layer to HTTP.
+
+DNS told the client where the application lives. HTTP is how the
+client actually talks to it. Nginx listens on port 80, accepts the
+client's request, and either serves a static file directly or
+forwards the request to the Flask backend."
+
+[PAUSE]
+
+[SLIDE 2 — The Nginx virtual host]
+
+SPEAK:
+"Let me walk through the Nginx configuration for our app.
+
+We have a server block. Listen on port 80. Server_name
+app.lab.local.
+
+There is a location block for /static/. That serves static files
+directly from disk. Nginx is very fast at this — much faster than
+Flask would be — so we route all static content through it and
+bypass the backend entirely.
+
+And then a location block for /. That is the catch-all. Requests
+that do not match /static/ get proxied to the backend.
+
+The proxy_pass directive points at http://127.0.0.1:5000 — the
+Flask backend. Then we set four proxy_set_header directives.
+
+Host — forwards the original Host header, so the backend knows
+which site was requested and can generate correct URLs.
+
+X-Real-IP — the real client's IP address. The backend sees the
+connection coming from 127.0.0.1, so without this header, it would
+think every request comes from localhost.
+
+X-Forwarded-For — the full chain of proxies. If there were multiple
+proxies between client and backend, this would contain all of them.
+
+X-Forwarded-Proto — whether the original request came in over HTTP
+or HTTPS. We are using plain HTTP, but the backend might still use
+this header in a real deployment.
+
+Then we set two timeouts. proxy_connect_timeout is how long Nginx
+will wait for TCP connection to the backend. proxy_read_timeout is
+how long it will wait for the backend to send a response. Both are
+important for production reliability."
+
+[PAUSE]
+
+[SLIDE 3 — The DNS/HTTP handshake]
+
+SPEAK:
+"I want to point out something that surprises beginners.
+
+Nginx chooses a server block based on a match between the Host
+header — that is what the client sent — and the server_name
+directive — that is what Nginx expects. If the client sends a Host
+header of 'app.lab.local' and the server_name is 'app.lab.local',
+they match. Success.
+
+But if the client sends 'app.local' — without the 'lab' — or if
+they use the IP address 192.168.56.1 directly — the server_name
+will not match. Nginx will fall back to its default server. In our
+configuration, we removed the default server, so Nginx will serve
+whatever the first matching server block is, or return a 404.
+
+This is why you must always test with the name, not the IP. If you
+run curl http://192.168.56.1/ you are sending a Host header of
+'192.168.56.1', and Nginx will not match it. You must run curl
+http://app.lab.local/ to send a Host header of 'app.lab.local'.
+
+The client's DNS resolution and its Host header are two separate
+things, but they need to harmonize for the stack to work. That is
+the integration at this layer."
+
+[SLIDE 4 — The Flask backend]
+
+SPEAK:
+"Now the backend. Our Flask application listens on 127.0.0.1, port
+5000 — loopback only. That is important. The backend is not
+reachable from the network. The only way to reach it is through
+Nginx on the same machine.
+
+The application exposes a few endpoints.
+
+Root — returns some HTML confirming the service is up.
+
+Health — returns OK, and verifies the database connection. This
+is the endpoint that a load balancer or monitoring system would
+poll.
+
+API customers — returns a JSON array of all customers.
+
+API customers slash identifier — returns one customer, or 404.
+
+And POST on API customers — creates a new customer from a JSON
+body.
+
+Every one of these endpoints goes through the full stack. Client
+to DNS to Nginx to Flask to MariaDB, and back out."
+
+[SLIDE 5 — The HTTP integration checklist]
+
+SPEAK:
+"Here is the checklist for the HTTP layer.
+
+Check one: is Nginx running? systemctl status nginx.
+
+Check two: does the config parse? sudo nginx -t.
+
+Check three: is the virtual host enabled? Look in
+/etc/nginx/sites-enabled/ for a symlink to app.lab.local.
+
+Check four: does Nginx respond locally? Run curl with an explicit
+Host header — curl dash H 'Host: app.lab.local' http://localhost/ —
+on the server.
+
+Check five: does it respond from the client, by name? curl
+http://app.lab.local/ from the client VM.
+
+And check six: is the backend reachable at all? curl
+http://127.0.0.1:5000/health from the server — this bypasses Nginx
+and tests the backend directly.
+
+That is the checklist. Every time you change anything in this
+layer, run it."
+
+[SLIDE 6 — The #1 mistake]
+
+SPEAK:
+"The most common failure at this layer, and probably the most
+common failure in the entire lab, is the 502 Bad Gateway.
+
+You run curl from the client. The client resolves the name, sends
+the HTTP request, reaches Nginx. Nginx accepts the request. Nginx
+checks the proxy_pass target. It tries to reach 127.0.0.1:5000.
+Connection refused. It returns 502 to the client.
+
+What does this mean? It means Nginx is fine. The DNS is fine. The
+client is fine. The backend is not reachable — usually because it
+is not running, or it crashed on the last request, or it is
+listening on a different port.
+
+Check with: sudo ss -tlnp | grep 5000. If the port is not listening,
+the backend is not running. If it is listening on a different
+address — say, 0.0.0.0 instead of 127.0.0.1 — that is a different
+problem, but usually fine, because 0.0.0.0 includes 127.0.0.1.
+
+The 502 status is Nginx telling you: 'I could not reach my upstream.'
+Learn to read it that way and you will diagnose this in seconds."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Nginx on port 80 accepts client requests. It serves static files
+directly, and proxies everything else to the Flask backend.
+
+The server_name must match the Host header the client sends.
+
+The backend listens on 127.0.0.1:5000, loopback only — not reachable
+from the network.
+
+The integration checklist: is Nginx running, does the config parse,
+is the site enabled, does it respond locally, does it respond from
+the client, is the backend reachable.
+
+502 Bad Gateway means Nginx could not reach the backend. That is
+the single most common failure at this layer.
+
+In the next video, we cover the database layer."
+
+[END OF VIDEO 14.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.5 — The Database Layer                                     ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The Database Layer — MariaDB"]
+
+SPEAK:
+"Welcome to the fifth video of Week 14. Now we look at the layer the
+client never sees: the database.
+
+The client asks for data. The application answers. The database
+remembers. If the database is not durable, the memory of the data
+is lost the moment the application restarts. Persistence is the
+whole point of this layer."
+
+[PAUSE]
+
+[SLIDE 2 — The schema]
+
+SPEAK:
+"For our lab, we use a small schema that demonstrates real
+relationships. Two tables, related by a foreign key.
+
+Customers — one row per person. An integer ID that auto-increments
+and is the primary key. A name and an email, both required. The
+email is unique.
+
+Orders — one row per transaction. An integer ID. A customer_id that
+references the customer. A total amount stored as DECIMAL, because
+we are dealing with money. And a placed_at timestamp.
+
+The customer_id is a foreign key. If you try to create an order
+with a customer_id that does not exist, the database refuses. That
+is referential integrity, enforced by the database, not by the
+application.
+
+Notice the ON DELETE CASCADE. If a customer is deleted, their
+orders are deleted too — automatically. That is a policy decision,
+not a technical requirement. Other policies exist: ON DELETE SET
+NULL, or ON DELETE RESTRICT. We chose CASCADE for the lab, because
+it matches how a real store might operate."
+
+[PAUSE]
+
+[SLIDE 3 — The application user]
+
+SPEAK:
+"The application connects with a specific user — app at localhost.
+This user has been granted exactly four privileges on the app_db
+database: SELECT, INSERT, UPDATE, DELETE. Nothing more.
+
+Why not root? Because if the application is ever compromised, the
+attacker inherits whatever privileges the application has. Root
+would mean full control of the database server. Four limited
+privileges means the attacker can read and modify data within one
+database, and nothing else.
+
+This is the principle of least privilege, and it is one of the most
+important operational habits you can develop. Every user gets the
+privileges it actually needs, and nothing more."
+
+[SLIDE 4 — Where the database lives in the stack]
+
+SPEAK:
+"One detail that matters at integration time. MariaDB in our lab
+listens on the Unix socket only. It is not listening on the
+network. That is deliberate.
+
+Why? Because the application runs on the same machine. It can talk
+to the database over the Unix socket, which is faster and more
+secure than TCP.
+
+If the application were on a different machine, we would have to
+enable TCP listening, restrict it to a specific source IP, and use
+encryption. But the same-machine case is the common one for a
+small stack, and the Unix socket is the right choice.
+
+Notice the implication for the failure analysis section. If
+someone breaks into the network and scans for open ports on the
+server VM, they will find ports 53 and 80, but not 3306. The
+database is not exposed. That is a good thing."
+
+[SLIDE 5 — The database integration checklist]
+
+SPEAK:
+"Checklist for this layer.
+
+Check one: is MariaDB running? systemctl status mariadb.
+
+Check two: does the app user exist with the right grants? Run SHOW
+GRANTS FOR 'app' at 'localhost'.
+
+Check three: is the database reachable? mysql dash u app dash p
+app_db dash e 'SELECT 1;'. If you get an error, either the
+credentials are wrong or the user does not have access to that
+database.
+
+Check four: do the tables exist? SHOW TABLES inside the app_db
+database.
+
+Check five: can the application actually reach the database? curl
+http://127.0.0.1:5000/health from the server. If this returns OK,
+the entire path from Flask to MariaDB is working.
+
+That is the checklist. Very short, but every step matters."
+
+[SLIDE 6 — The #1 mistake]
+
+SPEAK:
+"The most common mistake at this layer is a mismatch between the
+user's host and where the application connects from.
+
+In MariaDB, a user is not just a username. It is a user at host
+pair. 'app' at 'localhost' is a different account from 'app' at
+'127.0.0.1'. And from 'app' at '%'.
+
+When your Python application connects using host='localhost', it
+uses the Unix socket, and MariaDB matches the 'app' at 'localhost'
+account. Good.
+
+But if you change the connection string to host='127.0.0.1', the
+application now connects over TCP, and MariaDB matches a different
+account — 'app' at '127.0.0.1'. If that account does not exist, or
+does not have the same grants, the connection will fail — or worse,
+succeed with different privileges.
+
+Verify with SHOW GRANTS. Confirm the account matches where the
+app actually connects from. If you need to change it, either
+change the connection string back to 'localhost', or create the
+additional user at '127.0.0.1' with the same grants."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+The database stores data durably. That is its single job.
+
+Our schema uses two related tables with a foreign key constraint
+enforcing referential integrity.
+
+The application connects as 'app' at 'localhost', with only the
+four privileges it needs.
+
+MariaDB listens on the Unix socket only — not on the network —
+which is the correct posture for a same-machine backend.
+
+The integration checklist is short: is MariaDB running, does the
+user have the right grant, is the database reachable, do the tables
+exist, does the app's health check return OK.
+
+And the most common failure is a mismatch between the user's host
+and where the app connects from.
+
+In the next video, we look at how all these layers fit together."
+
+[END OF VIDEO 14.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.6 — Wiring It Together                                     ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Wiring It Together"]
+
+SPEAK:
+"Welcome back. We have all three layers — DNS, HTTP, and MariaDB.
+Now let's look at what actually connects them. The five connections
+between the layers, and the specific files that own each one."
+
+[PAUSE]
+
+[SLIDE 2 — The five connections]
+
+SPEAK:
+"There are five connections between the layers of our stack.
+
+Connection one: client to DNS. The client sends UDP queries to
+port 53 on our server, and gets back A records. This is configured
+on the client, in /etc/resolv.conf or in a Netplan file.
+
+Connection two: client to Nginx. The client sends HTTP requests
+over TCP to port 80, with a Host header of app.lab.local. This is
+configured on the client — via DNS resolution — and on the server —
+via the server_name directive in Nginx.
+
+Connection three: Nginx to Flask. Nginx sends HTTP requests over
+TCP to 127.0.0.1:5000, adding the proxy headers. This is
+configured in Nginx, in the proxy_pass directive.
+
+Connection four: Flask to MariaDB. Flask sends SQL over the Unix
+socket to the MariaDB daemon. This is configured in the Flask
+application, in the connection string.
+
+Connection five: everything to logs. Each service writes its own
+log. Nginx to /var/log/nginx. BIND9 to the journal. MariaDB to
+the journal. Flask to stdout.
+
+Notice that the client only knows about two of these five — the
+DNS query and the HTTP request. The other three are internal. The
+client has no idea that Nginx proxy-passes to Flask, or that Flask
+talks to MariaDB. That invisibility is by design. It means the
+internal architecture can change without the client ever needing
+to know."
+
+[PAUSE]
+
+[SLIDE 3 — The config files]
+
+SPEAK:
+"Here is every file involved, and which layer of the stack each
+one belongs to.
+
+On the DNS side: /etc/bind/named.conf.options for the global
+options, /etc/bind/named.conf.local for our zone declarations,
+and /etc/bind/db.lab.local for the zone file itself.
+
+On the HTTP side: /etc/nginx/sites-available/app.lab.local for
+the virtual host, and the same path under sites-enabled for the
+active symlink.
+
+On the application side: /opt/myapp/app.py for the Flask source.
+That is it. That is the entire application.
+
+And on the database side: no files, really — the schema lives in
+the database itself, editable via the mysql client.
+
+Notice how small each file is. Each one can be read start to
+finish in under a minute. That is the point of a well-designed
+stack. It is not a maze of code — it is a small number of files,
+each doing one job, in a place where an operator can find them."
+
+[SLIDE 4 — The startup order]
+
+SPEAK:
+"Startup order matters.
+
+Start MariaDB first. It is the bottom of the stack, and everything
+above it depends on it.
+
+Then start BIND9. It is independent of the database, but it is
+needed for the client to find the application.
+
+Then start the Flask backend. It depends on MariaDB.
+
+Then start Nginx. It depends on Flask being reachable.
+
+At each step, verify the service is up before moving to the next
+one. If MariaDB fails to start, there is no point starting Flask.
+If Flask fails to start, there is no point starting Nginx.
+
+In production, you would enforce this with systemd unit
+dependencies. After=mariadb.service on the Flask unit, and
+After=network.target on the Nginx unit. For the lab, do it
+manually, but know that the ordering exists."
+
+[SLIDE 5 — A mental model that will save time]
+
+SPEAK:
+"Here is a mental model that will save you time when debugging.
+
+Every configuration file owns exactly one thing. When you need to
+change that thing, you edit that file. Never guess where the
+config lives — trace the behavior back to its owner.
+
+Want to change the domain name? It lives in the BIND9 zone file
+and the Nginx server_name. Both of those files own it.
+
+Want to change the backend port? It lives in the Flask application
+— the port it listens on — and in the Nginx proxy_pass. Both of
+those files own it.
+
+Want to add a column to the database? It lives in the SQL schema,
+only.
+
+Want to change the DNS server address on the client? It lives in
+/etc/resolv.conf or /etc/netplan/*.yaml.
+
+The ownership is always clear when you look at the file. That is
+what makes a well-designed stack easy to operate."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+There are five connections between the layers. Each one is
+configured by exactly one file.
+
+The client knows about two of those connections — DNS and HTTP.
+The internal three — Nginx to Flask, Flask to MariaDB, and the
+logging — are invisible to the client.
+
+Start services in order: MariaDB, BIND9, Flask, Nginx.
+
+Always trace a change back to the file that owns the thing you
+want to change.
+
+In the next video, we look at end-to-end testing."
+
+[END OF VIDEO 14.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.7 — End-to-End Testing                                     ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "End-to-End Testing"]
+
+SPEAK:
+"Welcome to the seventh video of Week 14. Now we are going to prove
+that our stack actually works.
+
+Testing an integrated stack is different from testing isolated
+services. An isolated service can be tested by invoking it
+directly — start it, run one command, see the result. An integrated
+stack requires a <em>sequence</em> of tests: one per layer, each
+isolating one thing, followed by a full round-trip that exercises
+the entire chain.
+
+Let's walk through that sequence."
+
+[PAUSE]
+
+[SLIDE 2 — Layer 1 — DNS]
+
+SPEAK:
+"Layer one: DNS.
+
+From the client VM, run:
+
+dig app.lab.local A
+
+You should get a NOERROR response, with an A record for
+192.168.56.1, and the 'aa' flag meaning authoritative answer.
+
+If this fails, the problem is DNS. Check /etc/resolv.conf on the
+client, and check the BIND9 status and logs on the server. Do not
+proceed until this works, because every subsequent test depends
+on the client being able to resolve the name."
+
+[PAUSE]
+
+[SLIDE 3 — Layer 2 — HTTP transport]
+
+SPEAK:
+"Layer two: HTTP. Still from the client.
+
+curl -v http://app.lab.local/
+
+The -v flag means verbose, so we see the details of the request and
+response. You should see the request going out with the correct
+Host header, and a response coming back with HTTP/1.1 200 OK, plus
+some HTML content from the backend.
+
+If this fails, the problem is HTTP or the reverse proxy. Check
+Nginx on the server, check the backend is running, check that
+Nginx can reach the backend on port 5000. Do not proceed until
+this works."
+
+[PAUSE]
+
+[SLIDE 4 — Layer 3 — Backend without Nginx]
+
+SPEAK:
+"Layer three: the backend, but testing it directly.
+
+From the server, run:
+
+curl http://127.0.0.1:5000/health
+
+You should get OK. If you do, the backend is running and can reach
+the database.
+
+If this fails but the previous step succeeded, something is wrong
+inside the backend or the backend's connection to the database.
+The response from Nginx would help — maybe a 500 error — but this
+direct test isolates the problem quickly."
+
+[SLIDE 5 — Layer 4 — Database directly]
+
+SPEAK:
+"Layer four: the database, tested directly.
+
+From the server:
+
+mysql -u app -p app_db -e "SELECT COUNT(*) FROM customers;"
+
+You should get back a number. That number might be zero on the
+first run, but the query should succeed. If the query fails, the
+problem is either the credentials, the privileges, or the
+database — check SHOW GRANTS and the journal for MariaDB.
+
+This test confirms that the database layer is working in
+isolation. It is the last layer in the stack, and the last one to
+verify before we do the full round trip."
+
+[PAUSE]
+
+[SLIDE 6 — The full round-trip test]
+
+SPEAK:
+"Now the full round-trip. This is what everything has been building
+up to, and it is what you will capture as your evidence.
+
+From the client VM, create a customer through the full stack:
+
+curl -X POST http://app.lab.local/api/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Layla","email":"layla@lab.local"}'
+
+Expected: 201 Created, with the new customer's JSON.
+
+Then read it back through the full stack:
+
+curl http://app.lab.local/api/customers
+
+Expected: a JSON array including the new customer.
+
+And then verify directly in the database, from the server:
+
+mysql -u app -p app_db -e "SELECT * FROM customers WHERE
+email='layla@lab.local';"
+
+Expected: the row for Layla.
+
+This is the money test. You created data from a client that has no
+idea about the internal architecture, and you find that data
+sitting in a database on a different layer of the stack. That is
+what a real service does."
+
+[SLIDE 7 — Failure injection]
+
+SPEAK:
+"Now let me talk about the most educational part: failure injection.
+
+A working stack is good. A stack you can debug is better. The only
+way to learn to debug is to break things on purpose.
+
+Here are three experiments. Try all of them.
+
+Experiment one: stop MariaDB.
+
+systemctl stop mariadb
+
+Then run curl http://app.lab.local/api/customers from the client.
+You will see a 500-level error. The client log shows the error.
+The Nginx log shows a 500. And the backend log shows something
+about a database connection. This teaches you that a 500 on the
+client always means some internal layer failed — not necessarily
+the one you are looking at.
+
+Experiment two: stop the Flask backend.
+
+pkill -f app.py
+
+Run curl http://app.lab.local/ from the client. You will see
+502 Bad Gateway — the classic status code that means Nginx could
+not reach the backend. The Nginx error log names the exact problem:
+'connect() failed (111: Connection refused)'. Learning to
+distinguish 502 from 500 is the difference between blaming the
+wrong layer and fixing the right one.
+
+Experiment three: break DNS on the client.
+
+echo "nameserver 192.0.2.1" | sudo tee /etc/resolv.conf
+
+Now run curl http://app.lab.local/ from the client. The client
+cannot even resolve the name. The error will be something like
+'Could not resolve host.' Nothing on the server is broken — DNS is
+actually fine, Nginx is fine, everything is fine. The client just
+cannot reach it. This teaches you that not all errors point at
+the server."
+
+[SLIDE 8 — Restore and verify]
+
+SPEAK:
+"After each experiment, undo the change and confirm the stack
+works again.
+
+For experiment one, restart MariaDB with systemctl start mariadb.
+
+For experiment two, start the backend again with python3
+/opt/myapp/app.py ampersand.
+
+For experiment three, restore /etc/resolv.conf to point at
+192.168.56.1.
+
+Then re-run the round-trip test. The stack works.
+
+That loop — break, observe, diagnose, fix, verify — is what
+operations engineers do for a living. You are doing it in a lab.
+But the discipline is the same."
+
+[SLIDE 9 — Summary]
+
+SPEAK:
+"To summarize.
+
+Test layer by layer first. DNS, HTTP, backend, database.
+
+Then test end to end. Create data through the full stack and find
+it in the database.
+
+Then deliberately break layers — MariaDB, Flask, DNS — and observe
+the symptoms and the logs. This is what teaches you to debug.
+
+Restore and verify after each experiment.
+
+In the next video, we look at the diagnostic methodology — the
+bottom-up walk through the stack, and the symptom-to-layer map that
+tells you where to look first."
+
+[END OF VIDEO 14.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.8 — Diagnosing Failures Across Layers                      ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Diagnosing Failures Across Layers"]
+
+SPEAK:
+"Welcome back. The hardest part of operations is not building the
+stack. It is diagnosing it when something goes wrong. In this
+video, I want to give you a structured diagnostic methodology that
+works on any three-tier stack, not just the one we built."
+
+[PAUSE]
+
+[SLIDE 2 — The bottom-up walk]
+
+SPEAK:
+"When a request fails, walk the stack from the bottom up. At each
+layer, ask three questions.
+
+First: is the service running? Check with systemctl status.
+
+Second: is it reachable from where it needs to be reachable? Check
+with curl, dig, or ss.
+
+Third: is it configured for this specific request? Check the config
+files and the logs.
+
+Stop at the first layer that fails its check. That layer is the
+problem — or something below it. Fix it, then re-run the client
+test. Do not try to solve multiple layers at once.
+
+Here is what the walk looks like in practice.
+
+Bottom layer: MariaDB. Is it running? systemctl status mariadb.
+Is it reachable? mysql -u app -p app_db -e 'SELECT 1;'. Is it
+configured for our app? The app user has the right grant, the
+database and tables exist.
+
+Next layer up: the Flask backend. Is it running? ps aux | grep
+app.py. Is it reachable? curl http://127.0.0.1:5000/health. Is it
+configured right? The connection string points at the right
+database, the user credentials are correct.
+
+Next: Nginx. Is it running? systemctl status nginx. Is it reachable?
+curl -H 'Host: app.lab.local' http://localhost/. Is it configured
+right? The server_name matches, the proxy_pass points at the right
+port.
+
+Top: DNS. Is it running? systemctl status named. Is it reachable?
+dig @127.0.0.1 app.lab.local. Is it configured right? The A record
+exists in the zone file, and the serial is up to date.
+
+Four layers, three questions each. Twelve checks, in order."
+
+[SLIDE 3 — Where the logs live]
+
+SPEAK:
+"Now, where do you find the actual error messages?
+
+Each layer produces its own logs.
+
+BIND9 logs to the systemd journal — journalctl -u named. Look for
+zone loading, query handling, and error messages.
+
+Nginx writes to two files: /var/log/nginx/access.log for the
+request log, and /var/log/nginx/error.log for the error log. The
+access log tells you the status code returned. The error log tells
+you why.
+
+The backend, if you started it with python3 app.py ampersand, logs
+to whatever stdout goes to. If you redirect it to a file, read
+that file. If you wrap it in a systemd unit, it logs to the
+journal.
+
+MariaDB logs to the journal — journalctl -u mariadb. Look for
+connection errors, refused queries, and errors loading the
+database.
+
+And finally, the client logs — curl's verbose output, dig's
+detailed response, and the shell's error messages. These are the
+fastest signal when the failure is at the top of the stack."
+
+[SLIDE 4 — The debugging habit]
+
+SPEAK:
+"Here is the single most useful debugging habit.
+
+Before you change anything, read the logs in order. Start with the
+log of the highest layer that logged an error, and work down.
+
+Nine times out of ten, the first error message in the highest
+layer's log contains exactly the pointer to the layer below that
+is broken.
+
+Let me give you an example. Client gets a 500 error. Nginx access
+log shows the 500. Nginx error log says 'upstream sent too big
+header' or 'connect() failed'. So we know the problem is between
+Nginx and Flask. Flask's log shows a traceback. The traceback says
+'MySQL server has gone away'. So the problem is between Flask and
+MariaDB. MariaDB's log shows MariaDB was restarted, and the
+existing connections were dropped. That is the whole story.
+
+Four layers, four logs, and the diagnosis emerges naturally. That
+is the skill that operations engineers use every day."
+
+[SLIDE 5 — Symptom-to-layer cheat sheet]
+
+SPEAK:
+"Let me give you the symptom-to-layer cheat sheet.
+
+'Could not resolve host' or 'Name or service not known' — the
+problem is DNS. Check /etc/resolv.conf on the client, then check
+BIND9 on the server.
+
+'Connection refused' on port 80 — Nginx is not listening, or it is
+listening on a different interface. Check with sudo ss -tlnp |
+grep :80.
+
+502 Bad Gateway — the backend is unreachable from Nginx. Check the
+backend process and check with sudo ss -tlnp | grep :5000.
+
+500 Internal Server Error — the backend ran, but failed. Read the
+backend's log for the exception. Usually a database error, but not
+always.
+
+504 Gateway Timeout — the backend is running but too slow to
+respond within the proxy's read timeout.
+
+Wrong page — the virtual host did not match the request's Host
+header. Check the server_name in Nginx.
+
+Data disappears after restart — the database is not what you think
+it is. Probably the app is writing to a file or an in-memory
+store, not MariaDB.
+
+Bookmark this cheat sheet. Every one of these symptoms is
+something you will see again on a real production system."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Diagnose from the bottom up. At each layer, ask three questions:
+running, reachable, configured for this request. Stop at the first
+failure.
+
+Logs are at every layer. Read them in order, from the highest
+layer that reported an error.
+
+The symptom-to-layer cheat sheet: 'Could not resolve host' means
+DNS. 502 means the backend is unreachable. 500 means the backend
+itself failed. 504 means the backend is too slow.
+
+Bookmark the cheat sheet. This is the essential operational skill
+of the entire lab.
+
+In the next video, we do the lab itself — building the stack step
+by step."
+
+[END OF VIDEO 14.8 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.9 — Deep Lab: Building the Integrated Stack                ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Building the Integrated Stack"]
+
+SPEAK:
+"Welcome to the practical side of Week 14. This is the biggest lab
+of the course. We are going to bring together every service we
+have built, wire them into one coherent stack, and prove that it
+works end to end.
+
+Make sure both VMs are running. This will take a few steps, so
+let's get started."
+
+[SCREENCAST — prerequisites]
+
+SPEAK:
+"First, confirm the prerequisites. On the server VM, verify that
+all four services are installed and functional in isolation.
+
+systemctl status mariadb
+systemctl status named
+systemctl status nginx
+curl http://127.0.0.1:5000/health
+
+If any service is not running, or the health check fails, go back
+to the earlier week's lab and fix it first. Integration of broken
+layers only produces broken integration."
+
+[SCREENCAST — DNS]
+
+SPEAK:
+"Let's configure the DNS zone.
+
+sudo nano /etc/bind/db.lab.local
+
+Make sure these records exist:
+
+ns1     IN    A    192.168.56.1
+app     IN    A    192.168.56.1
+db      IN    A    192.168.56.1
+
+Now increment the serial in the SOA to today's date plus a counter.
+Validate and reload:
+
+sudo named-checkzone lab.local /etc/bind/db.lab.local
+
+If it says OK, reload BIND9:
+
+sudo systemctl reload named
+
+And check the journal:
+
+sudo journalctl -u named -n 10
+
+You should see lines confirming the zones were reloaded with the
+new serial."
+
+[SCREENCAST — Nginx]
+
+SPEAK:
+"Now the Nginx virtual host.
+
+sudo nano /etc/nginx/sites-available/app.lab.local
+
+Paste in the configuration from the lecture. Save and exit.
+
+Enable the site.
+
+sudo ln -s /etc/nginx/sites-available/app.lab.local slash
+etc slash nginx slash sites dash enabled slash
+
+Remove the default site if it is still enabled.
+
+sudo rm -f /etc/nginx/sites-enabled/default
+
+Test the config.
+
+sudo nginx -t
+
+Reload.
+
+sudo systemctl reload nginx"
+
+[SCREENCAST — backend and DB check]
+
+SPEAK:
+"Confirm the backend is running and can reach the database.
+
+curl http://127.0.0.1:5000/health
+
+Should return OK.
+
+Now test locally through Nginx with an explicit Host header.
+
+curl -H 'Host: app.lab.local' http://localhost/api/customers
+
+You should get back the JSON array. If this works, the local chain
+— Nginx, Flask, MariaDB — is correct. If it fails, use the
+diagnostic walk from the previous video."
+
+[SCREENCAST — client test]
+
+SPEAK:
+"Now switch to the client VM. First, verify that DNS on the client
+is pointing at the server.
+
+cat /etc/resolv.conf
+
+The first nameserver line should be 192.168.56.1. If it is not,
+edit /etc/netplan/01-netcfg.yaml or /etc/resolv.conf to fix it.
+
+Then run the round-trip test.
+
+dig app.lab.local A
+
+Should return the A record.
+
+curl http://app.lab.local/api/customers
+
+Should return the JSON array.
+
+Now create a customer through the full stack.
+
+curl -X POST http://app.lab.local/api/customers \
+    -H 'Content-Type: application/json' \
+    -d '{"name":"Layla","email":"layla@lab.local"}'
+
+Should return 201 Created with the new customer JSON.
+
+And verify:
+
+curl http://app.lab.local/api/customers"
+
+[PAUSE]
+
+[SCREENCAST — verify in the database]
+
+SPEAK:
+"Back on the server, verify directly in the database.
+
+mysql -u app -p app_db -e "SELECT * FROM customers WHERE
+email='layla@lab.local';"
+
+The row should be there. The data we created through the client —
+via DNS, HTTP, and the reverse proxy — is sitting in MariaDB.
+
+That is the whole point. Persistence."
+
+[SCREENCAST — capture evidence]
+
+SPEAK:
+"Now let's capture the evidence. We need to produce a report, and
+these are the pieces.
+
+On the client:
+dig app.lab.local A > /tmp/dns-proof.txt
+curl -v http://app.lab.local/ 2>&1 > /tmp/http-proof.txt
+curl -X POST http://app.lab.local/api/customers ... >
+/tmp/create-proof.txt
+
+On the server:
+sudo tail -5 /var/log/nginx/access.log > /tmp/nginx-proof.txt
+mysql -u app -p app_db -e "SELECT * FROM customers;" >
+/tmp/db-proof.txt
+
+Collect those five files. They are the evidence for your report."
+
+[SCREENCAST — service inventory]
+
+SPEAK:
+"Now write your service inventory. Something like the one shown in
+the lecture. One row per service. Address, port, port status, log
+file, configuration file.
+
+Keep it short. It does not need to be pretty. It needs to be
+accurate and useful."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, you built a complete three-tier application.
+
+DNS resolves names for your service.
+
+Nginx accepts HTTP requests and dispatches them to the backend.
+
+Flask handles business logic and queries the database.
+
+MariaDB stores the data durably.
+
+And the client — a completely separate machine that knows nothing
+about the internal architecture — can create and query data through
+the full stack.
+
+That is the fundamental architecture of modern web software. You
+have just built it. From scratch. On your own machine."
+
+[END OF VIDEO 14.9]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 14.10 — Deep Lab: Verification, Documentation & Wrap-Up       ║
+║  Target duration: ~18 minutes (screencast + summary)                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Verification, Documentation & Wrap-Up"]
+
+SPEAK:
+"Welcome to the final video of Week 14.
+
+The build is done. Now we turn the working stack into a
+<em>deliverable</em> — evidence that it works, a short technical
+report, and documentation that lets another engineer pick up where
+we left off.
+
+This is the last step, and it is where the difference between 'I
+made it work' and 'I delivered a solution' shows up."
+
+[PAUSE]
+
+[SLIDE 2 — The failure injection experiments]
+
+SPEAK:
+"First, let's do the failure-injection experiments. They are the
+most educational part of the week.
+
+Experiment one: stop MariaDB.
+
+sudo systemctl stop mariadb
+
+From the client, run:
+
+curl -i http://app.lab.local/api/customers
+
+You will see a 500-level status. The client's log shows the error.
+The Nginx access log shows a 500. The Nginx error log might show
+something about upstream errors. And the Flask backend log shows
+the exact exception — usually a connection error.
+
+Now restart MariaDB.
+
+sudo systemctl start mariadb
+
+Wait two seconds and re-run the client. The stack should recover.
+That is the value of connection pooling and error handling in the
+backend. The stack adapted.
+
+Experiment two: stop the Flask backend.
+
+pkill -f app.py
+
+From the client:
+
+curl -i http://app.lab.local/
+
+You should see 502 Bad Gateway. The Nginx error log will say
+something like 'connect() failed (111: Connection refused).'
+
+Restart the backend:
+
+python3 /opt/myapp/app.py &
+
+Experiment three: break DNS.
+
+On the client:
+
+echo 'nameserver 192.0.2.1' | sudo tee /etc/resolv.conf
+
+curl http://app.lab.local/
+
+The client cannot resolve the name. The error is different from the
+previous two — something like 'could not resolve host.'
+
+Restore /etc/resolv.conf to point at 192.168.56.1.
+
+And verify everything works again.
+
+curl http://app.lab.local/api/customers
+
+For each experiment, capture the client's error and the server's
+log entry that identified the failing layer. Those captures go into
+your report."
+
+[SLIDE 3 — Writing the service inventory]
+
+SPEAK:
+"Now please write your service inventory. It contains one row per
+service, with five fields: host, role, port, service status, log
+file, configuration file.
+
+Something like the table in the lecture. Short, accurate, useful.
+
+Keep it in a text file. You will attach it to your final report.
+And you will use it again in Week 15 when you present the project."
+
+[SLIDE 4 — Writing the technical report]
+
+SPEAK:
+"Finally, the technical report. Two to four pages. Four sections.
+
+Section one: what was built. The architecture. A short paragraph
+and the stack diagram. Mention every service and what it does.
+
+Section two: how it works. Walk through one concrete request, end
+to end. Start with the client command. Follow it through every
+layer. End with the database row. Be specific — cite the actual
+commands and the actual files.
+
+Section three: how you prove it works. The evidence. The dig
+output, the curl output, the log excerpts, the SQL query. Each one
+captioned with what it demonstrates.
+
+Section four: how you would debug it if it broke. The bottom-up
+diagnostic walk. The symptom-to-layer cheat sheet. This is the
+section that shows you understand the system, not just the tools.
+
+That is the whole report. Two to four pages, but every page earns
+its place."
+
+[SLIDE 5 — The demo script]
+
+SPEAK:
+"One last thing, and this is for Week 15. Prepare a short demo
+script — ten commands that show your stack working.
+
+One: show the service inventory.
+
+Two: show the DNS zone file.
+
+Three: dig app.lab.local from the client.
+
+Four: show the Nginx virtual host config.
+
+Five: curl http://app.lab.local/api/customers from the client.
+
+Six: show the Nginx access log receiving the request.
+
+Seven: show the Flask backend source.
+
+Eight: show the MariaDB schema.
+
+Nine: create a customer through the full stack.
+
+Ten: verify the new customer directly in the database.
+
+Ten commands, ten minutes. That demonstrates the entire stack,
+every layer, end to end. That is what you will present in Week 15."
+
+[SLIDE 6 — Week 14 wrap-up]
+
+SPEAK:
+"That wraps up Week 14. And it wraps up the core service work of
+Phase 2.
+
+Look at what you have built over the past five weeks.
+
+A DHCP server. A DNS server. A web server and reverse proxy. A
+database. And now — a complete three-tier application that
+integrates all of them into a system a real business could use.
+
+You did not just install services. You planned the environment.
+You wired the layers together. You tested each layer in isolation
+and then end to end. You deliberately broke layers and learned to
+diagnose the failures. And you documented what you built in a form
+another engineer could pick up and understand.
+
+That is the full cycle of operations work. Not every topic in this
+course reaches that level of integration. This week does.
+
+Please complete the deliverables for this week. The report, the
+service inventory, the evidence, and the failure analysis. These
+are substantial, and they are the capstone of Phase 2.
+
+Next week — Week 15 — is the final week. You will present your
+project, defend your design decisions, and complete the review for
+the final exam.
+
+This has been the biggest week of the course. Take a moment to
+recognize what you have accomplished.
+
+See you next week.
+
+Until then — keep exploring."
+
+[END OF VIDEO 14.10 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 14
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~165 minutes of raw footage
+After editing and trimming: ~130–140 minutes of final content
+Target weekly student time: 135 minutes (video + lab + report +
+failure analysis)
+
+Deliverables for this week:
+  • Working integrated stack on the VMs
+  • Service inventory document
+  • Technical report (2–4 pages)
+  • Evidence captures for all four layers
+  • Failure analysis of three broken layers
+  • (Optionally) A short walkthrough video
+
+These deliverables feed directly into the Week 15 final project.
+═══════════════════════════════════════════════════════════════════════

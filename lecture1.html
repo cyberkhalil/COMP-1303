@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 1: Introduction to Operating Systems</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 1</span>
+            <span class="green"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-clock"></i> Theory + Touch Lab</span>
+        </div>
+
+        <h1>Introduction to Operating Systems</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> &amp;
+            <em>Operating System Concepts</em> — Silberschatz, Ch 1–2.
+        </p>
+
+        <!-- ========== QUICK NAV ========== -->
+        <nav class="quick-nav">
+            <a href="#what-is-os">1.1 · What is an OS?</a>
+            <a href="#dual-mode">1.2 · Modes of Operation</a>
+            <a href="#calls">1.3 · Calls &amp; Interrupts</a>
+            <a href="#architecture">1.4 · Kernel Architectures</a>
+            <a href="#lab-setup">1.5 · VM Setup</a>
+            <a href="#lab-commands">1.6 · First Commands</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 1.1 WHAT IS AN OPERATING SYSTEM?                             -->
+        <!-- ============================================================ -->
+        <h2 id="what-is-os"><i class="fas fa-microchip"></i> 1.1 · What is an Operating System?</h2>
+
+        <p>
+            An <strong>operating system (OS)</strong> is the piece of software that sits between the user (and the
+            applications they run) and the physical hardware of the computer. It is not just a program among many — it
+            is the <strong>foundation</strong> on which every other program runs.
+        </p>
+
+        <p>
+            When you open your laptop, start a browser, or run a Python script, you are interacting with the
+            <em>operating system</em> the whole time — even if you never see it directly.
+        </p>
+
+        <h3>Two complementary roles of an OS</h3>
+
+        <div class="two-cols">
+            <div class="col">
+                <h4><i class="fas fa-cogs"></i> Resource Manager</h4>
+                <p style="font-size:0.9rem;">
+                    The OS manages the computer's finite resources and decides who gets them, when, and how much:
+                </p>
+                <ul>
+                    <li>CPU time (scheduling)</li>
+                    <li>Memory (allocation, paging)</li>
+                    <li>Storage (file systems)</li>
+                    <li>I/O devices (disks, network cards)</li>
+                </ul>
+            </div>
+            <div class="col">
+                <h4><i class="fas fa-layer-group"></i> Abstraction Layer</h4>
+                <p style="font-size:0.9rem;">
+                    The OS hides the messy hardware complexity behind clean, standardized interfaces:
+                </p>
+                <ul>
+                    <li>Files instead of raw disk blocks</li>
+                    <li>Sockets instead of raw network packets</li>
+                    <li>Processes instead of CPU registers</li>
+                    <li>Virtual memory instead of physical addresses</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Key idea:</strong> The OS is <em>both</em> a resource manager <em>and</em> an abstraction provider.
+            You cannot separate the two roles — they are two faces of the same coin.
+        </div>
+
+        <h3>A brief history (in one paragraph)</h3>
+        <p>
+            Early computers had no OS — programmers directly manipulated hardware with plugboards and punch cards.
+            Mainframe batch systems introduced the first simple monitors to schedule jobs. Time-sharing systems in
+            the 1960s (CTSS, Multics) brought interactive multi-user computing. Unix, born in 1969 at Bell Labs,
+            shaped the modern OS landscape — and it inspired Linux, macOS, and (indirectly) even Windows.
+            Today, operating systems range from tiny embedded kernels to massive cloud-scale datacenter OSes.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 1.2 USER MODE VS KERNEL MODE                                 -->
+        <!-- ============================================================ -->
+        <h2 id="dual-mode"><i class="fas fa-user-shield"></i> 1.2 · User Mode vs Kernel Mode</h2>
+
+        <p>
+            If every application could execute any machine instruction — including resetting the CPU, modifying page
+            tables, or writing directly to disk sectors — the system would collapse in seconds. To prevent this, modern
+            processors provide (at least) <strong>two privilege levels</strong>.
+        </p>
+
+        <h3>The dual-mode model</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Aspect</th>
+                    <th style="width: 40%;">User Mode</th>
+                    <th style="width: 40%;">Kernel Mode</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Who runs here</strong></td>
+                    <td>Applications, libraries, your Python / C / Java code</td>
+                    <td>Operating system kernel code only</td>
+                </tr>
+                <tr>
+                    <td><strong>Privilege level</strong></td>
+                    <td>Restricted (Ring 3 on x86)</td>
+                    <td>Full (Ring 0 on x86)</td>
+                </tr>
+                <tr>
+                    <td><strong>Allowed instructions</strong></td>
+                    <td>Only non-privileged instructions</td>
+                    <td>All instructions, including privileged ones</td>
+                </tr>
+                <tr>
+                    <td><strong>Hardware access</strong></td>
+                    <td>Must request via system calls</td>
+                    <td>Direct access to devices, memory, and CPU registers</td>
+                </tr>
+                <tr>
+                    <td><strong>Risk if buggy</strong></td>
+                    <td>The application crashes — but the system survives</td>
+                    <td>A bug can crash the entire machine (kernel panic)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>How the CPU knows which mode it is in</h3>
+        <p>
+            The processor has a special <strong>mode bit</strong> (also called the CPL — Current Privilege Level). When
+            the CPU is in user mode, the bit is set to 1 (or 3 in x86 rings). When it enters kernel mode, that bit is
+            cleared. If user-mode code attempts to execute a privileged instruction, the CPU raises a
+            <strong>trap</strong> and transfers control to the kernel — which typically terminates the offending
+            process.
+        </p>
+
+        <!-- SVG: User / Kernel transition -->
+        <div class="svg-container">
+            <svg viewBox="0 0 720 260" xmlns="http://www.w3.org/2000/svg"
+                aria-label="User mode and kernel mode transition diagram">
+                <!-- User mode box -->
+                <rect x="30" y="40" width="280" height="180" rx="12" fill="rgba(59, 130, 246, 0.10)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="170" y="70" font-family="Inter" font-size="15" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">User Mode</text>
+                <text x="170" y="100" font-family="Inter" font-size="12" fill="#cbd5e1" text-anchor="middle">
+                    Application code
+                </text>
+                <text x="170" y="120" font-family="Inter" font-size="12" fill="#cbd5e1" text-anchor="middle">
+                    C library (glibc)
+                </text>
+                <text x="170" y="150" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Restricted — privileged
+                </text>
+                <text x="170" y="167" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    instructions are blocked
+                </text>
+                <text x="170" y="200" font-family="Courier New" font-size="11" fill="#fbbf24" text-anchor="middle">
+                    mode bit = 1
+                </text>
+
+                <!-- Kernel mode box -->
+                <rect x="410" y="40" width="280" height="180" rx="12" fill="rgba(16, 185, 129, 0.10)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="550" y="70" font-family="Inter" font-size="15" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Kernel Mode</text>
+                <text x="550" y="100" font-family="Inter" font-size="12" fill="#cbd5e1" text-anchor="middle">
+                    OS kernel code
+                </text>
+                <text x="550" y="120" font-family="Inter" font-size="12" fill="#cbd5e1" text-anchor="middle">
+                    Device drivers, memory manager
+                </text>
+                <text x="550" y="150" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Full privileges — all
+                </text>
+                <text x="550" y="167" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    instructions available
+                </text>
+                <text x="550" y="200" font-family="Courier New" font-size="11" fill="#fbbf24" text-anchor="middle">
+                    mode bit = 0
+                </text>
+
+                <!-- Arrows -->
+                <defs>
+                    <marker id="arrowBlue" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#3b82f6" />
+                    </marker>
+                    <marker id="arrowGreen" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#10b981" />
+                    </marker>
+                </defs>
+
+                <!-- user → kernel (system call) -->
+                <line x1="310" y1="110" x2="410" y2="110" stroke="#3b82f6" stroke-width="3"
+                    marker-end="url(#arrowBlue)" />
+                <text x="360" y="100" font-family="Inter" font-size="11" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">system call</text>
+
+                <!-- kernel → user (return) -->
+                <line x1="410" y1="160" x2="310" y2="160" stroke="#10b981" stroke-width="3"
+                    marker-end="url(#arrowGreen)" />
+                <text x="360" y="178" font-family="Inter" font-size="11" fill="#34d399" text-anchor="middle"
+                    font-weight="700">return</text>
+
+                <text x="360" y="240" font-family="Inter" font-size="12" fill="#94a3b8" text-anchor="middle">
+                    Transitions happen via the trap instruction — the application cannot simply “jump” into kernel mode.
+                </text>
+            </svg>
+            <div class="svg-caption">Dual-mode operation: the application can only enter kernel mode through a controlled trap.</div>
+        </div>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Important:</strong> User mode is <em>not</em> the same as “user account.” Even the <code>root</code>
+            user in Linux runs in user mode. Only the <em>kernel itself</em> runs in kernel mode. Root has more
+            permissions — but still cannot execute privileged CPU instructions directly.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 1.3 SYSTEM CALLS, INTERRUPTS, TRAPS                          -->
+        <!-- ============================================================ -->
+        <h2 id="calls"><i class="fas fa-bolt"></i> 1.3 · System Calls, Interrupts, and Traps</h2>
+
+        <p>
+            Applications do not access hardware directly — they ask the kernel to do it. That request is a
+            <strong>system call</strong>. The mechanism that transfers control from user code to the kernel is
+            a <strong>trap</strong>. And the hardware signals that need the kernel's attention are
+            <strong>interrupts</strong>. Let's disentangle these three concepts.
+        </p>
+
+        <h3>The three control-transfer mechanisms</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 18%;">Mechanism</th>
+                    <th style="width: 27%;">Triggered by</th>
+                    <th style="width: 27%;">Synchronous?</th>
+                    <th style="width: 28%;">Typical example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>System call</strong></td>
+                    <td>The application itself</td>
+                    <td>Yes — caused by the program's own instruction</td>
+                    <td><code>read()</code>, <code>write()</code>, <code>fork()</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Interrupt</strong></td>
+                    <td>An external device (disk, keyboard, network card, timer)</td>
+                    <td>No — asynchronous, can happen any time</td>
+                    <td>Keyboard press, disk I/O completion, timer tick</td>
+                </tr>
+                <tr>
+                    <td><strong>Exception / Trap</strong></td>
+                    <td>The CPU detecting an error or special condition during execution</td>
+                    <td>Yes — synchronous with the executing instruction</td>
+                    <td>Division by zero, page fault, invalid opcode</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-info-circle"></i>
+            <strong>Note on terminology:</strong> The word <em>trap</em> is used confusingly in the literature. In some
+            books (Silberschatz, for example), a “trap” is any software-generated interrupt — including system calls.
+            In others (Linux kernel docs), a “trap” is specifically an exception. In this course, we will use the
+            broader meaning: <strong>a trap is a software-triggered transfer to kernel mode</strong>.
+        </div>
+
+        <h3>How a system call actually works (step by step)</h3>
+
+        <ol>
+            <li>The application sets up the arguments and places the <strong>syscall number</strong> in a designated
+                register (e.g., <code>rax</code> on x86-64).</li>
+            <li>It executes a special instruction: <code>syscall</code> (x86-64) or <code>int 0x80</code> (32-bit).</li>
+            <li>The CPU switches to <strong>kernel mode</strong> and jumps to the kernel's syscall entry point.</li>
+            <li>The kernel looks up the syscall number in the <strong>syscall table</strong> and calls the corresponding
+                handler.</li>
+            <li>The handler performs the requested operation — often touching hardware through drivers.</li>
+            <li>The kernel returns the result and executes a <strong>return-from-trap</strong> instruction.</li>
+            <li>The CPU switches back to user mode, and the application continues from where it left off.</li>
+        </ol>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The takeaway:</strong> A system call is not a function call between two libraries — it is a
+            <em>privilege transition</em>. That is why they are relatively expensive (typically hundreds of nanoseconds
+            to a few microseconds).
+        </div>
+
+        <h3>Commonly seen syscalls</h3>
+
+        <pre><code>read(fd, buf, count)      /* read bytes from a file or device */
+write(fd, buf, count)     /* write bytes to a file or device */
+open(path, flags, mode)   /* open or create a file */
+close(fd)                 /* close a file descriptor */
+fork()                    /* create a new process */
+execve(path, argv, envp)  /* replace current process image */
+waitpid(pid, status, opt) /* wait for a child process */
+mmap(addr, len, prot)     /* map memory or files into the address space */
+socket(domain, type, protocol)  /* create a communication endpoint */</code></pre>
+
+        <p>
+            Most of these syscalls are wrapped by the C standard library (<code>glibc</code>), so you rarely write the
+            raw syscall instruction yourself — but the transition behind the scenes is exactly as described above.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 1.4 KERNEL ARCHITECTURES                                     -->
+        <!-- ============================================================ -->
+        <h2 id="architecture"><i class="fas fa-sitemap"></i> 1.4 · Kernel Architectures</h2>
+
+        <p>
+            The kernel has to do many things at once: manage memory, schedule processes, handle devices, provide system
+            calls. How all of that is organized internally is what we call the <strong>kernel architecture</strong>.
+            There is no single “right” design — each choice trades off performance, modularity, and safety.
+        </p>
+
+        <h3>The three main families</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Architecture</th>
+                    <th style="width: 34%;">Core idea</th>
+                    <th style="width: 27%;">Advantages</th>
+                    <th style="width: 17%;">Examples</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Monolithic</strong></td>
+                    <td>All kernel services run in a single, large kernel address space.</td>
+                    <td>Very fast — no message passing overhead.</td>
+                    <td>Linux, traditional Unix</td>
+                </tr>
+                <tr>
+                    <td><strong>Microkernel</strong></td>
+                    <td>Only the minimal core stays in kernel; everything else runs as user-space servers.</td>
+                    <td>More robust, easier to debug, better isolation.</td>
+                    <td>Minix, QNX, L4, seL4</td>
+                </tr>
+                <tr>
+                    <td><strong>Hybrid</strong></td>
+                    <td>Practical mixture: monolithic-style kernel plus some user-space services.</td>
+                    <td>Balanced trade-off between speed and modularity.</td>
+                    <td>Windows NT, macOS (XNU)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Monolithic kernels — the Linux way</h3>
+        <p>
+            Linux is a <strong>monolithic</strong> kernel. Everything — device drivers, file systems, network stack —
+            runs inside the same kernel address space. This makes it fast, but also means a buggy driver can crash the
+            entire system. To reduce that risk, Linux supports <strong>loadable kernel modules</strong> (LKMs):
+            pieces of code that can be loaded and unloaded at runtime (e.g., a new driver for a USB device) — without
+            recompiling or rebooting the kernel.
+        </p>
+
+        <h3>Microkernels — less is more</h3>
+        <p>
+            In a microkernel design, only the truly essential services (basic scheduling, memory management, and IPC)
+            live in kernel mode. Everything else — drivers, file systems, network stacks — is moved to user space as
+            separate, isolated processes. If a driver crashes, only that driver restarts; the whole system stays alive.
+            The price is more <strong>context switches</strong> and message passing, which historically made
+            microkernels slower than monolithic ones. Modern research kernels (like seL4) have largely closed that
+            gap.
+        </p>
+
+        <h3>Hybrid kernels — pragmatic middle ground</h3>
+        <p>
+            Real-world operating systems rarely fit a textbook category. Windows NT and macOS's XNU kernel are
+            examples of <strong>hybrid</strong> designs: they lean monolithic (for performance) but include some
+            microkernel-inspired modularity. This is closer to how OS engineering actually works in practice.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>What about Linux?</strong> You will often hear Linux described as “monolithic with modular
+            support.” This is accurate: the codebase is monolithic, but the ability to load and unload modules gives
+            it many of the practical benefits of a modular design without the performance costs of a pure microkernel.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 1.5 LAB: VM SETUP                                            -->
+        <!-- ============================================================ -->
+        <h2 id="lab-setup"><i class="fas fa-desktop"></i> 1.5 · Touch Lab — Setting Up Your Ubuntu Server VM</h2>
+
+        <p>
+            Throughout this course, you will work in a <strong>virtual machine</strong> (VM) running Ubuntu Server.
+            Using a VM keeps your experiments isolated — if you break the system, you simply restore a snapshot or
+            re-create the VM. It also lets you safely experiment with services like DNS and HTTP later in the course.
+        </p>
+
+        <h3>What you will do in this lab</h3>
+        <ol>
+            <li>Download and install <strong>VirtualBox</strong> (free, cross-platform) — or use VMware if you prefer.</li>
+            <li>Download the <strong>Ubuntu Server LTS ISO</strong> (the latest LTS release, e.g. 24.04).</li>
+            <li>Create a new VM with at least:
+                <ul>
+                    <li>2 CPUs</li>
+                    <li>4 GB RAM</li>
+                    <li>25 GB disk</li>
+                    <li>NAT + Host-Only network adapters (for later networking labs)</li>
+                </ul>
+            </li>
+            <li>Boot the VM from the ISO and complete the Ubuntu Server installation:
+                <ul>
+                    <li>Choose a language and keyboard</li>
+                    <li>Set a hostname (e.g. <code>os-lab</code>)</li>
+                    <li>Create a non-root user with a strong password</li>
+                    <li>Enable OpenSSH server — we will use it later</li>
+                </ul>
+            </li>
+            <li>Reboot into your new system and log in for the first time.</li>
+        </ol>
+
+        <div class="success-note">
+            <i class="fas fa-check"></i>
+            <strong>Tip:</strong> Run <code>sudo apt update &amp;&amp; sudo apt upgrade -y</code> right after the
+            first login to bring your VM up to date. Then take a <strong>snapshot</strong> so you can always return to
+            a clean, working baseline.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 1.6 LAB: FIRST COMMANDS                                      -->
+        <!-- ============================================================ -->
+        <h2 id="lab-commands"><i class="fas fa-terminal"></i> 1.6 · Touch Lab — Your First Linux Commands</h2>
+
+        <p>
+            Now that your VM is running, let's explore it through the shell. The commands below form the foundation of
+            everything else in this course — you will use them every week from now on.
+        </p>
+
+        <h3>The starter kit</h3>
+
+        <pre><code>man ls           # read the manual page of a command
+ls               # list files in the current directory
+ls -la           # list all files (including hidden) with details
+pwd              # print the current working directory
+cd /etc          # change directory to /etc
+cd ..            # go up one level
+uname -a         # show kernel and system information
+whoami           # print the current user
+hostname         # show this machine's name
+uptime           # show how long the system has been running
+df -h            # show disk usage in a human-readable format
+free -h          # show memory usage</code></pre>
+
+        <h3>How to read a man page</h3>
+
+        <p>
+            Every Linux command comes with a manual page. Learning to read <code>man</code> output is one of the most
+            valuable skills you can develop in this course.
+        </p>
+
+        <p>
+            Try <code>man ls</code> and pay attention to the structure: <strong>NAME</strong> (one-line description),
+            <strong>SYNOPSIS</strong> (usage pattern), <strong>DESCRIPTION</strong> (detailed behavior), and
+            <strong>OPTIONS</strong> (flags).
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-info-circle"></i>
+            Inside a man page, press <code>q</code> to quit, <code>/</code> to search forward, and <code>n</code> to
+            jump to the next match.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 1 — Written Assignment</h3>
+            <p>
+                Answer the questions below in your own words. Submit as a PDF. This assignment contributes to your
+                <strong>labs &amp; assignments</strong> grade (25% total).
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the <strong>two roles</strong> of an operating system (resource manager and abstraction
+                    provider). Give a concrete example for each role.</li>
+                <li>Why do modern CPUs require at least two privilege modes? What would happen if all instructions were
+                    always available to applications?</li>
+                <li>Define each of the following in one or two sentences, and clearly distinguish between them:
+                    <em>system call</em>, <em>interrupt</em>, <em>trap / exception</em>.</li>
+                <li>Compare monolithic and microkernel architectures. What are the main trade-offs between them?</li>
+            </ol>
+
+            <h4>Part II — Applied Questions (30 points)</h4>
+            <ol>
+                <li>Using your VM, run <code>man 2 fork</code>. What does the number <code>2</code> mean in this
+                    context?</li>
+                <li>Run <code>uname -a</code> on your VM and copy the output into your submission. Identify the kernel
+                    version and the machine architecture.</li>
+                <li>Run <code>ls -l /</code>. Explain the meaning of the first character of each line
+                    (e.g. <code>d</code>, <code>-</code>, <code>l</code>).</li>
+            </ol>
+
+            <h4>Part III — Reflection (20 points)</h4>
+            <ol>
+                <li>In your own words (3–5 sentences), describe what “the operating system” means to you now, after
+                    this lecture.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 1 Summary</h3>
+            <ul>
+                <li><strong>What an OS is:</strong> Both a resource manager and an abstraction layer — sitting between
+                    applications and hardware.</li>
+                <li><strong>Dual-mode operation:</strong> Applications run in user mode; the kernel runs in kernel mode.
+                    The transition is controlled and rare.</li>
+                <li><strong>System calls:</strong> The mechanism applications use to request kernel services — an
+                    expensive privilege transition, not a normal function call.</li>
+                <li><strong>Interrupts vs Traps:</strong> Interrupts are asynchronous and hardware-driven; traps and
+                    exceptions are synchronous and software-driven.</li>
+                <li><strong>Kernel architectures:</strong> Monolithic (Linux, Unix) for speed; microkernel (Minix, QNX)
+                    for isolation; hybrid (Windows NT, macOS) as a practical middle ground.</li>
+                <li><strong>Your lab environment:</strong> Ubuntu Server in VirtualBox is ready, and you have seen your
+                    first Linux commands.</li>
+            </ul>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- FOOTER                                                       -->
+        <!-- ============================================================ -->
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

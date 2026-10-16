@@ -1,0 +1,2030 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 10 — Packages, Networking Basics & DHCP Fundamentals
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  ten short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the second week of Phase 2. Students are expected to have a
+  working Ubuntu Server VM from Week 1 and to have completed the Week 9
+  labs on users, permissions, and systemd.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.1 — Package Management — The Big Picture                   ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Packages, Networking Basics & DHCP" +
+course name]
+
+SPEAK:
+"Welcome to Week 10 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week we built a multi-user environment and learned how to run
+services with systemd. We configured permissions, created users,
+and set up our first custom systemd service. This week, we take two
+big steps forward.
+
+First, we ask: how does software actually get onto a Linux machine
+in the first place? The answer is package management — one of the
+most important practical skills you will develop as a Linux
+administrator.
+
+Then, we widen our scope from one machine to a network of machines.
+We will learn IP addressing, the tools for inspecting and diagnosing
+network configurations, and then dive deep into one specific protocol
+— DHCP — that makes it possible for devices to join a network
+automatically.
+
+By the end of this week, you will have configured your own DHCP
+server and served addresses to a client machine. That is a real,
+running service that you built yourself.
+
+Let's get started with packages."
+
+[PAUSE]
+
+[SLIDE 2 — The problem: where does software come from?]
+
+SPEAK:
+"Here is a question every new Linux user thinks about but rarely
+asks explicitly. When you install a piece of software on Linux —
+say, the nginx web server — where does it actually come from? And
+why is installation such a structured process, compared to
+downloading an EXE on Windows?
+
+The answer is that Linux distributions maintain something called a
+package manager — a system tool for installing, updating,
+configuring, and removing software in a consistent way. And a
+package manager is built on top of something called a repository —
+a curated, signed collection of packages hosted by your distribution
+or by a trusted third party.
+
+When you install software on Linux, you are not downloading a random
+tarball from the internet. You are asking your distribution's
+package manager to fetch a specific, verified, tested version of
+that software from a repository that your distribution controls."
+
+[PAUSE]
+
+[SLIDE 3 — Why not just download and compile from source?]
+
+SPEAK:
+"Now, of course, you can download software and compile it from
+source. Many people do this for programs that are not packaged. You
+download a tarball, you run configure, make, and make install, and
+the program gets built on your system.
+
+But this approach has serious problems.
+
+First, dependencies. If a program needs a library, you have to find
+that library, build it, install it — and then all of its
+dependencies, and so on. It becomes a rabbit hole very quickly.
+
+Second, no clean uninstall. Files get scattered across the system
+— some in /usr/local/bin, some in /usr/local/lib, some elsewhere.
+There is no single command to remove the program. You have to find
+the files and delete them manually, hoping you got them all.
+
+Third, no easy upgrades. Every time a new version comes out, you
+have to remember it exists, re-download it, rebuild it, and
+reinstall. With dozens of source-built programs, this becomes
+unmanageable.
+
+Fourth — and this is the big one — security. A tarball downloaded
+from the internet has no chain of trust. You have no way to verify
+that it actually is what it claims to be. A malicious site can hand
+you a trojaned version, and you would never know.
+
+Package managers solve all four of these problems."
+
+[SLIDE 4 — The two-family world]
+
+SPEAK:
+"Almost every Linux distribution in the world belongs to one of two
+package-management families.
+
+The Debian family — Debian, Ubuntu, Linux Mint, Kali Linux — uses
+packages in the .deb format, managed by the apt toolchain. The
+low-level tool here is dpkg, which operates on individual files.
+The high-level tool is apt, which talks to repositories, resolves
+dependencies, and drives the whole flow.
+
+The Red Hat family — Red Hat Enterprise Linux, Fedora, CentOS
+Stream, Rocky, AlmaLinux, Amazon Linux — uses packages in the .rpm
+format. The low-level tool is rpm, and the high-level tool is dnf,
+or on older systems, yum.
+
+The two families have slightly different commands, but the concepts
+are identical. If you learn one, you can be productive in the other
+within about ten minutes.
+
+In this course, we work with Ubuntu, so we use apt."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize.
+
+A package manager installs, upgrades, and removes software in a
+safe, consistent, repeatable way.
+
+It works on top of repositories — curated, signed collections of
+packages.
+
+Debian-family systems use .deb packages and apt. Red Hat-family
+systems use .rpm packages and dnf.
+
+Every package manager has a low-level tool that operates on package
+files, and a high-level tool that talks to repositories and manages
+dependencies.
+
+In the next video, we will look at the actual apt commands you will
+use every day."
+
+[END OF VIDEO 10.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.2 — apt and dnf: The Day-to-Day Commands                   ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "apt & dnf — The Commands You'll Actually Use"]
+
+SPEAK:
+"Welcome back. In this video, I want to give you the muscle memory
+you need. These are the commands you will type literally every day
+as a Linux administrator.
+
+Let's start with the three that make up the core loop."
+
+[PAUSE]
+
+[SLIDE 2 — The three core commands]
+
+SPEAK:
+"Here they are. I want you to write them down and repeat them.
+
+sudo apt update — this refreshes the local index of available
+packages. It does not install anything. It just updates apt's
+knowledge about what versions are available on the repositories.
+
+sudo apt upgrade -y — this installs the newest versions of every
+package that is currently installed. The dash-y flag answers yes
+to any confirmation prompt.
+
+sudo apt install PACKAGE — this installs a specific package, along
+with all its dependencies.
+
+That is the loop. Update first, then upgrade, then install whatever
+you need.
+
+Let me emphasize one point about update. It does not install
+anything. It just asks the repositories — what is the latest
+version of everything? And it stores that information locally so
+that apt can make decisions without having to talk to the network
+for every single operation.
+
+This matters because if you skip update, apt is working from a
+stale index. It might try to download a version that no longer
+exists on the server, and you get a confusing '404 Not Found' error
+that does not explain itself. So: always update first."
+
+[PAUSE]
+
+[SLIDE 3 — The other apt commands you should know]
+
+SPEAK:
+"Here are the supporting commands.
+
+apt search NAME — searches available packages for a keyword.
+
+apt show NAME — shows detailed information about a package. Version,
+size, dependencies, description.
+
+apt list --installed — lists everything that is installed on this
+machine.
+
+apt list --upgradeable — lists what can be upgraded.
+
+apt remove NAME — removes a package, but leaves its configuration
+files behind.
+
+apt purge NAME — removes a package AND its configuration files.
+Useful when you want to reset a service to a clean state.
+
+apt autoremove — cleans up packages that were installed as
+dependencies but are no longer needed. After large upgrades, or
+after uninstalling a program that pulled in a lot of dependencies,
+this reclaims a meaningful amount of space.
+
+apt-cache policy NAME — shows what version is installed and what
+version is available. Useful when you are debugging why something
+is not upgrading."
+
+[SLIDE 4 — remove vs purge]
+
+SPEAK:
+"Let me pause on remove versus purge, because it is an important
+distinction that trips up beginners.
+
+When you install a service like nginx, its configuration goes into
+/etc/nginx/. That is standard practice on Linux — config files go in
+/etc.
+
+Now suppose you decide to uninstall nginx. If you run apt remove
+nginx, the nginx binaries go away, but /etc/nginx/ stays right
+there. If you later install nginx again, it picks up your old
+configuration.
+
+Sometimes that is what you want. Sometimes it is not — for
+example, if your old configuration is broken and you want a fresh
+start. In that case you use apt purge nginx, which removes the
+configuration as well.
+
+The rule of thumb: remove for a routine uninstall, purge for a
+clean reset."
+
+[PAUSE]
+
+[SLIDE 5 — dnf: the Red Hat equivalent]
+
+SPEAK:
+"Since I mentioned the Red Hat family earlier, let me show you the
+similar commands in dnf. The pattern is nearly identical.
+
+sudo dnf check-update — refresh the package index.
+sudo dnf upgrade — upgrade everything.
+sudo dnf install nginx — install.
+sudo dnf remove nginx — uninstall.
+sudo dnf search nginx — search.
+sudo dnf info nginx — show details.
+sudo dnf list installed — list installed packages.
+
+The names are different, but the concepts are one-to-one. If you
+understand apt, you understand dnf. The main practical difference
+is that dnf tends to be a bit slower and more thorough in its
+dependency resolution, whereas apt is older and has some quirks
+from its Debian heritage."
+
+[SLIDE 6 — Where apt keeps its configuration]
+
+SPEAK:
+"Let me show you where apt keeps its configuration, because you will
+eventually need to add a third-party repository, and the format
+surprises people the first time.
+
+The main configuration file is /etc/apt/sources.list. It contains a
+list of repository URLs, one per line, in the format:
+deb URL SUITE COMPONENT.
+
+For example: deb http://archive.ubuntu.com/ubuntu noble main
+restricted.
+
+Modern systems also use a directory, /etc/apt/sources.list.d/, that
+holds one file per additional repository. Each file ends in
+.list or .sources, and has the same format as the main file.
+
+This directory approach is a good design. If you install a
+third-party program that adds its own repository — say, Docker, or
+Kubernetes, or a database vendor — it puts its own file in
+sources.list.d/. When you uninstall that program, you just remove
+its file. You do not edit the main sources.list, which could
+accidentally break other repositories."
+
+[PAUSE]
+
+[SLIDE 7 — Adding a third-party repository safely]
+
+SPEAK:
+"Let me show you the modern, safe way to add a third-party
+repository. This is a pattern you will use over and over.
+
+First, download the repository's signing key. Repositories are
+identified by a GPG key. This is what makes them trustworthy — a
+package from a repository is only accepted by apt if its signature
+matches the key.
+
+Second, add the repository line to a new file in
+sources.list.d/. Crucially, include a signed-by clause that tells
+apt exactly which key should authenticate this repository.
+
+Let me show you the shape of the commands.
+
+curl -fsSL https://example.com/repo/key.gpg | sudo gpg --dearmor
+-o /usr/share/keyrings/example-archive-keyring.gpg
+
+That command downloads the key and installs it in the standard
+keyring directory.
+
+Then we add the repository:
+
+echo "deb [signed-by=/usr/share/keyrings/example-archive-keyring.gpg]
+https://example.com/repo stable main" | sudo tee
+/etc/apt/sources.list.d/example.list
+
+The signed-by clause is the security boundary. Without it, apt
+would refuse the repository, or if you relaxed the security, it
+would accept unsigned packages — which is dangerous.
+
+Then apt update, and you are done."
+
+[SLIDE 8 — A warning]
+
+SPEAK:
+"One important warning before we move on.
+
+Every repository you add is a party that you are trusting to sign
+your software. A malicious repository can hand you a trojaned
+version of a package you already trust — for example, replacing
+sudo with a backdoored version. That would be catastrophic, and you
+would probably not notice for a long time.
+
+So: only add reputable repositories. Verify them. Read their
+installation instructions carefully. If a repository is asking you
+to add it in an unusual way, that is a red flag.
+
+In practice, for a typical Linux system, this is not a big concern
+— most people only ever add a few well-known third-party
+repositories. But you should be aware of the trust relationship."
+
+[SLIDE 9 — Summary]
+
+SPEAK:
+"To summarize.
+
+The core apt loop: update, upgrade, install.
+
+Supporting commands: search, show, remove, purge, autoremove, policy.
+
+remove leaves config files; purge removes them too.
+
+dnf is the Red Hat equivalent — same concepts, different names.
+
+Repositories are configured in /etc/apt/sources.list and
+/etc/apt/sources.list.d/. Use signed-by to specify the trusted key.
+
+Always be careful about which repositories you add.
+
+In the next video, we start the networking side of this week. We
+will look at IP addressing — how addresses are structured, what the
+subnet mask does, and why some addresses are private."
+
+[END OF VIDEO 10.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.3 — IP Addressing Fundamentals                             ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "IP Addressing Fundamentals"]
+
+SPEAK:
+"Welcome to the third video of Week 10. We are now moving from
+single-machine administration to networking.
+
+Up to this point, everything we have done — processes, threads,
+memory, packages — has lived inside one machine. From now on, we
+need to think about machines talking to each other. And the
+foundation of that conversation is IP addressing.
+
+Let's build up the concept from the ground up."
+
+[PAUSE]
+
+[SLIDE 2 — IPv4: a 32-bit number]
+
+SPEAK:
+"IPv4 is the version of IP that almost everything on the internet
+still runs on. An IPv4 address is 32 bits long.
+
+That is four octets. We write it in dotted decimal notation —
+192.168.1.10 — but under the surface, it is just a 32-bit integer.
+In fact, if I convert 192.168.1.10 to a single number, it comes
+out to something around 3.2 billion.
+
+32 bits gives us about 4.3 billion possible addresses. That seemed
+like an inexhaustible supply in 1981, when IPv4 was standardized.
+It was not. IPv4 address exhaustion is why we have NAT, and why the
+transition to IPv6 has been one of the longest-running sagas in
+internet engineering.
+
+But for our course, and for the vast majority of the world's
+networks today, IPv4 is what you will work with."
+
+[PAUSE]
+
+[SLIDE 3 — Network portion and host portion]
+
+SPEAK:
+"Here is the key idea for this video. Every IPv4 address is
+logically split into two parts.
+
+The network portion identifies which network the address is on.
+The host portion identifies the specific device within that network.
+
+Think of it like a street address. The street name is the network
+— it identifies a range of houses. The house number is the host —
+it identifies the specific house on that street.
+
+The split between network and host is determined by something
+called the subnet mask. A subnet mask is a 32-bit value where
+each bit is either 1 — meaning the corresponding bit in the address
+belongs to the network — or 0 — meaning it belongs to the host.
+
+Modern networks use a notation called CIDR — Classless Inter-Domain
+Routing. Instead of writing the subnet mask out in dotted decimal,
+we just write the number of network bits after a slash. So
+192.168.1.10 with a mask of 255.255.255.0 is written as
+192.168.1.10/24.
+
+Twenty-four means the first twenty-four bits are the network, and
+the remaining eight are the host."
+
+[SLIDE 4 — Common prefix lengths]
+
+SPEAK:
+"Here are the common prefix lengths you will see in the wild.
+
+A /8 has sixteen million addresses. That was the classic Class A
+block — huge, and mostly historical.
+
+A /16 has sixty-five thousand addresses. Class B, also largely
+historical.
+
+A /24 has two hundred and fifty-six addresses. That is the most
+common size for a small LAN. Your home Wi-Fi is almost certainly a
+/24.
+
+A /25 halves that, giving a hundred and twenty-eight.
+
+A /30 has four addresses, two of which are usable — usually used for
+point-to-point links between routers.
+
+And a /32 is just a single address — used for loopback interfaces and
+specific host routes.
+
+The important thing to understand is not the numbers themselves,
+but the concept: the prefix tells you where the network portion ends
+and the host portion begins."
+
+[PAUSE]
+
+[SLIDE 5 — Why two fewer usable hosts]
+
+SPEAK:
+"One common point of confusion. Every subnet reserves two addresses.
+So a /24 with two hundred and fifty-six total addresses has only
+two hundred and fifty-four that can be assigned to actual machines.
+
+Why? Because the first address — which is all host bits set to zero
+— is the network address. It identifies the network itself. You
+cannot assign it to a host, because it is the "name" of the
+subnet.
+
+And the last address — with all host bits set to one — is the
+broadcast address. A packet sent to that address goes to every host
+on the subnet. It is used for things like DHCP Discover, which we
+will see later this week.
+
+So of two hundred and fifty-six addresses, two are reserved, and
+two hundred and fifty-four are usable."
+
+[SLIDE 6 — Private ranges]
+
+SPEAK:
+"Because IPv4 addresses are scarce, RFC 1918 reserves three ranges
+for private use. These addresses are never routed on the public
+internet. Every home router, corporate network, and cloud
+environment uses one of them.
+
+The ranges are:
+
+10.0.0.0 through 10.255.255.255 — that is the /8 block, sixteen
+million addresses. Used for large private networks.
+
+172.16.0.0 through 172.31.255.255 — the /12 block, one million
+addresses. Used by some cloud providers and enterprises.
+
+192.168.0.0 through 192.168.255.255 — the /16 block, sixty-five
+thousand addresses. Used by almost every home router and small
+office network.
+
+When a packet with a private source address leaves a network, NAT
+at the router rewrites the address to a public one. When the
+reply comes back, NAT translates it back. That is why private
+addresses work fine for internal communication, even though
+packets with those addresses cannot traverse the internet directly.
+
+In our labs, we will use 192.168.x.0/24 ranges. The main network of
+our VMs is often 10.0.2.0/24, which is what VirtualBox's NAT uses."
+
+[SLIDE 7 — Special addresses]
+
+SPEAK:
+"A few more addresses worth knowing.
+
+127.0.0.1 is the loopback address. Every machine can reach itself
+at that address. The entire 127.0.0.0/8 block is reserved for this.
+When you ping 127.0.0.1, your packets never leave your machine.
+
+0.0.0.0 is a special address with two meanings. As a source
+address, it means "this machine, on any interface" — used during
+boot before the interface has an address. As a destination or bind
+address, it means "any address" — when a service binds to 0.0.0.0,
+it is announcing that it is listening on every interface.
+
+255.255.255.255 is the limited broadcast address. Packets sent to
+it go to every host on the local network. DHCP uses this, as we
+will see.
+
+And 169.254.x.x is the link-local range. Addresses here are
+assigned automatically when DHCP fails. If you ever see a
+169.254 address on an interface, that is a strong signal that
+something is wrong with your DHCP setup."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+An IPv4 address is a 32-bit number, split into a network portion
+and a host portion.
+
+The split is determined by the subnet mask, written in CIDR
+notation as a prefix length after a slash.
+
+The most common prefix in small networks is /24, giving two hundred
+and fifty-four usable addresses.
+
+Private ranges from RFC 1918 — 10.0.0.0/8, 172.16.0.0/12,
+192.168.0.0/16 — are used inside every network and are translated to
+public addresses at network boundaries by NAT.
+
+Special addresses: 127.0.0.1 loopback, 0.0.0.0 "any", 255.255.255.255
+local broadcast, 169.254 link-local.
+
+In the next video, we will learn the tools for inspecting and
+diagnosing all of this on a real Linux system — ip, ss, ping, and
+traceroute."
+
+[END OF VIDEO 10.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.4 — ip, ss, ping, and traceroute                           ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Networking Tools — ip, ss, ping, traceroute"]
+
+SPEAK:
+"Welcome back. In the last video we learned what IP addresses are.
+Now let's learn how to see them, change them, and diagnose problems
+with them. Linux has a compact set of networking tools, and every
+administrator uses them daily.
+
+The most important is a command called simply ip. It replaces a
+whole suite of older tools — ifconfig, route, arp — with a single
+modern interface."
+
+[PAUSE]
+
+[SLIDE 2 — The ip command]
+
+SPEAK:
+"Here are the subcommands of ip that you will use most.
+
+ip addr — shows every interface and its addresses. You can
+abbreviate this as ip a.
+
+ip addr show eth0 — shows only one interface. Useful on machines
+with many interfaces.
+
+ip link — shows the state of every interface, including its MAC
+address and whether it is up or down.
+
+ip route — shows the routing table, which tells the kernel where
+to send packets destined for different destinations.
+
+ip neigh — shows the neighbor cache, which maps IP addresses to
+MAC addresses on the local network. This replaces the arp command."
+
+[PAUSE]
+
+[SLIDE 3 — Reading ip addr output]
+
+SPEAK:
+"Let me show you what ip addr output typically looks like, so you
+can read it.
+
+Each interface gets a block. In the block for one interface, you
+will see a few lines.
+
+The first line starts with a number, the interface name, and some
+flags in angle brackets. Then the MTU — maximum transmission unit
+— and the qdisc, which is the queuing discipline the kernel uses
+to manage outbound packets.
+
+The second line starts with link/ether and shows the MAC address —
+the hardware address of the interface.
+
+And then one or more lines starting with inet or inet6. Inet
+lines are IPv4; inet6 are IPv6. This is where the actual IP
+address lives.
+
+Let me point out the specific values. After inet comes the address
+in CIDR notation — for example, 10.0.2.15/24. Then a broadcast
+address. Then the word global or link — global means routable on
+the internet; link means only valid on the local link. Then the
+word dynamic or static — dynamic means DHCP assigned this address;
+static means it was configured manually. And finally the interface
+name.
+
+So a line like inet 10.0.2.15/24 brd 10.0.2.255 scope global
+dynamic enp0s3 tells us almost everything we need: this interface
+has address 10.0.2.15, mask /24, broadcast 10.0.2.255, on the
+enp0s3 interface, and it was assigned by DHCP."
+
+[SLIDE 4 — The ss command]
+
+SPEAK:
+"Now let's talk about ss — the modern replacement for netstat.
+
+ss shows the sockets — the network endpoints — that your system is
+using. Most commonly, you will use it to see what is listening.
+
+The flags you will use: dash-t for TCP, dash-u for UDP, dash-l for
+listening sockets only, dash-n for numeric addresses instead of
+resolved names, dash-p for process information, dash-a for all
+sockets.
+
+The most common invocation is sudo ss -tlnp. Let me decode that:
+TCP sockets, listening only, numeric addresses, with process
+information. It shows every service that is listening for
+incoming connections on your machine.
+
+The output has columns: state, receive queue, send queue, local
+address and port, peer address and port, and process info.
+
+Let me point out something important in the local address column.
+If a service is listening on 0.0.0.0, it accepts connections on
+every interface — including the loopback and any external network
+interface. That is what you want for a public-facing service.
+
+If a service is listening on 127.0.0.1, it only accepts
+connections from the same machine. This is common for databases
+and internal services that should not be exposed to the network.
+It is a security best practice.
+
+And if a service is listening on a specific address — say,
+192.168.1.5 — it only accepts connections on that interface. Useful
+when you have multiple interfaces and want to restrict which one
+a service uses.
+
+When you are diagnosing a network problem, ss -tlnp is your first
+tool. If a service is not listening at all, then nothing downstream
+matters. If it is listening on the wrong address, that is usually
+the problem."
+
+[PAUSE]
+
+[SLIDE 5 — The ping command]
+
+SPEAK:
+"ping is the simplest possible connectivity test. It sends ICMP
+Echo Request packets and waits for Echo Replies.
+
+The basic form is just ping followed by an address or hostname.
+Without any flags, it will ping forever until you press Ctrl+C.
+Use dash-c to specify a count, and dash-i to control the interval.
+
+When you ping by IP — like ping 8.8.8.8 — you are testing the
+network path only. If you get replies, the network is working. If
+you do not, the problem is at the network level.
+
+When you ping by hostname — like ping google.com — you are testing
+both the network path and DNS resolution. If the IP ping works but
+the hostname ping fails, the problem is DNS.
+
+The response time printed after each reply tells you how fast the
+network is. A local subnet reply should be under a millisecond. An
+internet reply is typically ten to a hundred milliseconds, depending
+on distance.
+
+One caveat: ICMP is very often blocked by firewalls. So a lack of
+ping reply does not necessarily mean the host is down. It might
+just mean ICMP is blocked. Always cross-check with an attempt to
+reach the actual service you care about."
+
+[SLIDE 6 — traceroute and tracepath]
+
+SPEAK:
+"traceroute (or its modern replacement, tracepath) shows you the
+path your packets take from your machine to a destination.
+
+The mechanism is clever. traceroute sends packets with increasing
+TTL values — starting at 1, then 2, then 3, and so on. Every
+router that receives a packet decrements the TTL. When TTL hits
+zero, the router drops the packet and sends back an ICMP 'Time
+Exceeded' message, revealing its own address.
+
+So the first packet, with TTL 1, gets dropped by the first router.
+We learn that router's address. The second packet, with TTL 2,
+gets dropped by the second router. And so on, until we reach the
+destination.
+
+The output shows each hop's address and the round-trip time. If
+you see three asterisks for a hop, that means the router did not
+respond to the ICMP — some routers are configured to not respond.
+That is not necessarily a problem.
+
+tracepath is a simpler variant that does not require root
+privileges. It uses UDP instead of ICMP, and it discovers the path
+the same way.
+
+And mtr — the combined ping-traceroute — gives you a live updating
+view. It is an excellent tool for diagnosing network latency
+problems, because it shows you the packet loss and latency at
+every hop in the path."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+The ip command is the modern replacement for ifconfig, route, and
+arp. Use ip addr, ip link, ip route, and ip neigh.
+
+ss shows sockets. Use ss -tlnp to see what is listening, on which
+address, and in which process.
+
+ping tests connectivity. By IP, it tests the network. By hostname,
+it also tests DNS.
+
+traceroute reveals the path packets take. It uses TTL manipulation
+to discover each hop. mtr is a modern variant that combines ping
+and traceroute.
+
+In the next video, we look at how network configuration is managed
+in modern Ubuntu using Netplan."
+
+[END OF VIDEO 10.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.5 — Network Configuration in Linux                         ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Network Configuration in Linux"]
+
+SPEAK:
+"Welcome to the fifth video of Week 10. Now that we know how to
+inspect the network, let's learn how to configure it.
+
+There are several ways a Linux system can be configured for
+networking, and it depends on the distribution and the version.
+On modern Ubuntu, the primary tool is called Netplan. Let's look at
+that first."
+
+[PAUSE]
+
+[SLIDE 2 — Netplan]
+
+SPEAK:
+"Netplan is Ubuntu's declarative network configuration layer,
+introduced in Ubuntu 18.04. It reads YAML configuration files
+from /etc/netplan/, and it generates the actual configuration
+for the underlying network daemon — usually systemd-networkd, or
+NetworkManager.
+
+Why Netplan? Because it decouples the configuration interface from
+the implementation. Before Netplan, if you wanted to switch from
+systemd-networkd to NetworkManager, you would have to rewrite all
+your configuration. With Netplan, you write in a single format, and
+Netplan generates whichever format the backend needs.
+
+A Netplan config file is YAML. Let me show you the shape.
+
+The top level is a `network:` key. Inside it, a `version: 2`, and
+then a section called `ethernets:`. Inside that, one key per
+interface name — for example, enp0s3. And inside each interface,
+the configuration.
+
+For a DHCP interface, it is just `dhcp4: true`.
+
+For a static interface, you specify `addresses:` as a list, `routes:`
+as a list of routing entries, and `nameservers:` as a list of
+addresses.
+
+After editing the file, run sudo netplan apply to apply the
+configuration immediately."
+
+[PAUSE]
+
+[SLIDE 3 — A warning about YAML]
+
+SPEAK:
+"One important warning about YAML. YAML is whitespace-sensitive.
+Indentation defines the structure. You must use spaces — never
+tabs. A single misaligned character will cause Netplan to reject
+the file.
+
+And here is the more dangerous part: if you are connected over SSH,
+a bad Netplan configuration can lock you out. You will have no way
+to fix it without physical or remote console access.
+
+So always use `sudo netplan try` first, instead of `sudo netplan
+apply`. The `try` command applies the configuration, but keeps it
+only for 120 seconds. If you do not confirm within that time, it
+rolls back automatically. This gives you a safety net — you can
+test the configuration and confirm it works before it becomes
+permanent.
+
+If you have not lost your SSH session after 100 seconds, run
+`sudo netplan apply` to make the change permanent. If you did lose
+it, wait — the rollback will happen, and you will get your
+connection back."
+
+[SLIDE 4 — The three things every interface needs]
+
+SPEAK:
+"Regardless of how you configure your network — DHCP, static, or
+something more exotic — every functional interface needs three
+things.
+
+First, an IP address and prefix. Where the machine lives on the
+network.
+
+Second, a default gateway. The router that will forward packets
+to destinations outside the local network.
+
+Third, DNS servers. The resolvers that will translate hostnames
+into IP addresses.
+
+If any of these three is missing, the machine is broken in a
+specific way.
+
+No IP address → the machine cannot talk to anything.
+
+An IP but no gateway → the machine can talk to other hosts on the
+same subnet, but nothing else. You can ping your neighbor, but not
+the internet.
+
+An IP and a gateway but no DNS → you can reach the internet by IP
+address, but not by hostname. So ping 8.8.8.8 works, but ping
+google.com fails."
+
+[PAUSE]
+
+[SLIDE 5 — A diagnostic order]
+
+SPEAK:
+"Here is the diagnostic order I want you to memorize. When a
+machine "has no internet", check these in order.
+
+First: ip addr. Does the interface have an IP address? If not, the
+problem is at the address assignment layer. Maybe DHCP failed, or
+maybe the interface is down.
+
+Second: ip route. Is there a default route? If not, the machine
+does not know where to send off-subnet traffic.
+
+Third: cat /etc/resolv.conf. Are there nameservers? If not, DNS
+resolution will fail.
+
+Fourth: ping 8.8.8.8. Can we reach the internet at all, by IP? If
+this fails, the network path is broken — gateway, firewall, or
+upstream issue.
+
+Fifth: ping google.com. Can we resolve names? If this fails but
+the previous step succeeded, DNS is the problem.
+
+Each step in this order isolates one layer. By going through them
+in order, you can pinpoint exactly where the problem lies."
+
+[SLIDE 6 — The routing table]
+
+SPEAK:
+"Let me finish with a look at the routing table, because it is
+central to how packets actually get where they are going.
+
+Look at it with ip route.
+
+A typical output has at least two lines.
+
+One is the default route. It starts with the word default, then
+says via followed by the gateway's IP address, then dev followed by
+the interface name. This is the route used for any packet whose
+destination does not match a more specific route. It is the "last
+resort" for the kernel.
+
+The other line is the local subnet route. It looks like
+10.0.2.0/24 dev enp0s3, and might be followed by proto kernel and
+scope link. This says: "anything in the 10.0.2.0/24 network is
+directly reachable via enp0s3, without a router". These packets
+go straight onto the wire.
+
+There might also be a line for the loopback interface, and any
+other routes — VPN routes, additional subnets, and so on.
+
+The kernel consults this table for every outbound packet. It picks
+the most specific match — the route with the longest prefix. If
+nothing matches, the default route is used. If there is no default
+route, the packet is dropped with "Network is unreachable"."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+On modern Ubuntu, network configuration is done with Netplan.
+Configuration files live in /etc/netplan/, in YAML format.
+
+Every interface needs an IP, a gateway, and DNS servers. Missing any
+one of them breaks the machine in a specific way.
+
+The diagnostic order: ip addr → ip route → resolv.conf →
+ping 8.8.8.8 → ping google.com. Each step isolates a layer.
+
+The routing table is what actually determines where packets go. The
+default route is the fallback; more specific routes take precedence.
+
+In the next video — video 10.6 — we introduce the main topic of the
+week: DHCP. What it is, why we need it, and what it delivers to a
+client."
+
+[END OF VIDEO 10.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.6 — DHCP — What It Is and Why We Need It                   ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "DHCP — What It Is and Why"]
+
+SPEAK:
+"Welcome to the sixth video of Week 10. We now arrive at the heart
+of this week's material: DHCP — the Dynamic Host Configuration
+Protocol.
+
+Here is the question that motivates everything we will discuss.
+You walk into a coffee shop with your laptop. You connect to their
+Wi-Fi. Within seconds, you are on the internet. How did that work?
+
+You did not type an IP address. You did not configure a subnet
+mask. You did not enter a gateway. You did not specify DNS servers.
+Yet somehow, your laptop knew all of these things.
+
+The answer is DHCP."
+
+[PAUSE]
+
+[SLIDE 2 — The problem DHCP solves]
+
+SPEAK:
+"Now, for a small home network, you could imagine configuring IP
+addresses manually. Two laptops, a phone, a printer — a couple of
+devices, and you just assign each one a number.
+
+But consider a real network. An office with five hundred employees.
+Each employee has a laptop, a phone, and possibly a second device.
+Plus printers, video conference systems, IoT sensors, security
+cameras, guest Wi-Fi. Devices get plugged in and unplugged. People
+move between floors. Employees change. Devices get replaced.
+
+Managing five hundred static IP assignments by hand is not
+feasible. It is not even close to feasible. And it is not just the
+quantity — it is the fact that a device that moves between networks
+needs to be reconfigured, that the network administrator has to
+track every assignment, that address conflicts have to be
+diagnosed.
+
+DHCP solves all of this. It automates address assignment. It
+distributes all the network settings a device needs. It manages a
+pool of addresses and reclaims them from devices that leave."
+
+[SLIDE 3 — What DHCP actually delivers]
+
+SPEAK:
+"Most people think of DHCP as 'give me an IP address'. But the real
+value is that it delivers the <em>entire</em> configuration the
+client needs to function on the network.
+
+A typical DHCP response includes:
+
+A usable IP address, on the correct subnet.
+
+The subnet mask — so the client knows which addresses are local
+and which are remote.
+
+The default gateway — so the client knows where to send off-subnet
+traffic.
+
+One or more DNS servers — the resolvers that will translate
+hostnames into IP addresses.
+
+A lease duration — how long the client may keep the address before
+renewing.
+
+And optionally many more — search domains, NTP servers, TFTP boot
+servers, VoIP settings, and so on. There are hundreds of defined
+DHCP options. Only a few dozen are commonly used, but the protocol
+is designed to carry just about anything an administrator wants to
+distribute."
+
+[PAUSE]
+
+[SLIDE 4 — Three ways the server decides]
+
+SPEAK:
+"How does the server decide what address to give each client?
+There are three strategies.
+
+Dynamic. The server picks any free address from its configured pool
+and assigns it. This is by far the most common case. Every Wi-Fi
+network you join is doing this. The client has no say in which
+address it gets, and it may get a different address next time.
+
+Automatic. Similar to dynamic, but the server remembers the address
+it gave to a particular client, and tries to give the same one next
+time. From the client's perspective, it is still "as long as the
+server says". But the address is stable in practice.
+
+Manual, or reservation. The administrator explicitly binds a
+specific address to a specific MAC address. When that client calls
+in, it gets the reserved address. This is used for servers,
+printers, and any device that needs a stable, predictable address
+while still being managed by DHCP.
+
+You will choose between these based on the device and the context.
+Most clients want dynamic. Servers and infrastructure want
+reservations. Some deployments want automatic, for reasons of
+auditing or simplicity."
+
+[SLIDE 5 — DHCP uses broadcast]
+
+SPEAK:
+"Let me pause on one subtle point that is central to how DHCP
+works.
+
+When a client joins a network, it has no IP address. It does not
+know the DHCP server's address. So how does it talk to the server?
+
+The answer is broadcast.
+
+The client sends its DHCP packets to the broadcast address
+255.255.255.255 at the IP layer, and to the MAC broadcast address
+FF:FF:FF:FF:FF:FF at the Link layer. Every device on the local
+network receives the packet. Only the DHCP servers respond.
+
+This is why DHCP is described as a local network service. A DHCP
+request does not cross a router by default — the broadcast is
+limited to the local subnet.
+
+In larger enterprise networks, where the DHCP server is not on the
+same physical subnet as the clients, we use a DHCP relay agent. A
+relay agent is configured on a router, and it forwards DHCP packets
+between the client's subnet and the server's subnet. The server
+needs to know which subnet the request came from, so it can pick
+an address from the right scope.
+
+We will not cover relay agents in detail this week, but it is worth
+knowing that 'DHCP is broadcast' is only half the story in a real
+enterprise network."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+DHCP automates network configuration. Every device that joins a
+network without a pre-existing IP uses it.
+
+DHCP delivers the entire configuration: IP, mask, gateway, DNS
+servers, lease duration, and options.
+
+The server can assign addresses dynamically, automatically, or by
+explicit reservation.
+
+DHCP uses UDP, and the initial client messages are broadcast, since
+the client does not yet have an address.
+
+In the next video, we will look at the actual handshake — the DORA
+process — in detail."
+
+[END OF VIDEO 10.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.7 — DORA — The DHCP Handshake                              ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The DORA Process"]
+
+SPEAK:
+"Welcome to the seventh video of Week 10. Now we get to the actual
+protocol flow: DORA.
+
+DORA is an acronym for the four messages exchanged between client
+and server when a lease is established. Discover, Offer, Request,
+Acknowledge.
+
+It is one of the classic handshakes in networking, and it is worth
+knowing in detail, because it appears everywhere — in every DHCP
+conversation, in every network course, in every job interview that
+touches networking."
+
+[PAUSE]
+
+[SLIDE 2 — Big picture]
+
+SPEAK:
+"Here is the big picture. The client has no address. It does not
+know who the server is. So there is a broadcast boom, the servers
+respond, the client picks one, and the server finalizes.
+
+Then the client is on the network. Every subsequent communication
+uses the assigned address.
+
+Let me walk through the four steps one at a time."
+
+[SLIDE 3 — Step 1: Discover]
+
+SPEAK:
+"Step one is DHCP Discover.
+
+The client has no IP address. It sends a UDP packet from 0.0.0.0
+port 68 — the DHCP client port — to 255.255.255.255 port 67 — the
+DHCP server port.
+
+The packet is essentially a broadcast shout: 'Is there a DHCP
+server out there? I need an address.'
+
+The packet contains the client's MAC address, which the server
+needs in order to assign a lease. It may also contain a requested
+hostname, a client identifier, and some options that indicate
+what the client would like.
+
+Every device on the local network receives the broadcast. Only the
+DHCP servers process it. Non-DHCP devices simply discard the
+packet."
+
+[PAUSE]
+
+[SLIDE 4 — Step 2: Offer]
+
+SPEAK:
+"Step two is DHCP Offer.
+
+A DHCP server that can serve this request picks an available
+address from its pool, and responds with a DHCPOFFER packet.
+
+The offer contains:
+- The proposed IP address.
+- The subnet mask.
+- The lease duration.
+- Identification of which server is making the offer.
+- Commonly, the default gateway and DNS servers as well.
+
+If there are multiple DHCP servers on the network, the client may
+receive multiple offers — one per server. It will pick one of them
+in the next step.
+
+In a well-run network, multiple servers are often used for
+redundancy. They are configured with non-overlapping pools, so that
+they do not hand out duplicate addresses."
+
+[SLIDE 5 — Step 3: Request]
+
+SPEAK:
+"Step three is DHCP Request.
+
+The client picks one offer — maybe the first, maybe based on its
+own logic — and sends a DHCPREQUEST packet saying: 'I accept the
+offer from <em>this specific server</em>, and I want to use
+<em>this specific address</em>.'
+
+This packet is also broadcast. Why? Two reasons.
+
+First, the client may not yet have a confirmed address, so it
+cannot send unicast packets.
+
+Second, by broadcasting the Request, the client reaches every DHCP
+server that sent an offer. The servers that were not selected
+immediately learn that their offer was declined, and can release
+the address back into their pools for other clients.
+
+If the client's Request reaches a server that did not make an
+offer — this happens in some corner cases — that server responds
+with a DHCPNAK, telling the client to start over. NAK stands for
+Negative Acknowledgment."
+
+[PAUSE]
+
+[SLIDE 6 — Step 4: Acknowledge]
+
+SPEAK:
+"Step four is DHCP Acknowledge — often written DHCPACK.
+
+The selected server sends a DHCPACK packet confirming the lease.
+This packet repeats all the configuration details — address, mask,
+gateway, DNS servers, lease duration, and any other options — so
+the client has everything in one place.
+
+Once the client receives the ACK, it assigns the address to its
+interface. The lease timer starts running. The client can now
+communicate on the network with the assigned address.
+
+That is the complete DORA exchange. Four packets, from a fresh
+client to a fully configured one."
+
+[SLIDE 7 — After DORA: renewals]
+
+SPEAK:
+"After a lease is active, the client needs to periodically renew
+it, so that the address does not expire and get reassigned to
+someone else.
+
+The renewal process is much simpler than DORA — just two packets
+instead of four.
+
+At fifty percent of the lease duration, the client unicasts a
+DHCPREQUEST directly to the server that gave it the lease. If the
+server is still operational, it responds with a DHCPACK. The lease
+is extended for a fresh full duration. The client never went
+through Discover or Offer.
+
+If the first renewal fails — maybe the server is down — the client
+waits until eighty-seven point five percent of the lease duration,
+and tries again. This time it broadcasts, because the original
+server is unreachable and any DHCP server can potentially take
+over. This second attempt is sometimes called 'rebinding'.
+
+If that also fails and the lease actually expires, the client must
+stop using the address. It cannot legally continue with the
+expired address, because the server may have assigned it to
+someone else. So the client goes through a fresh DORA from the
+beginning."
+
+[SLIDE 8 — Why 50% and 87.5%?]
+
+SPEAK:
+"Those two numbers — fifty percent and eighty-seven point five —
+come from RFC 2131. They are called T1 and T2.
+
+The reasoning is: give the client two chances to renew, in the
+first half of the lease and again near the end, but do not spam the
+server during the beginning of the lease when everything is fine.
+
+If the lease is twenty-four hours, the client will try to renew at
+twelve hours, and again at twenty-one hours, and if all else fails,
+start over at twenty-four hours.
+
+This means that a server can be down for a few hours, and clients
+will still try to renew at the end of the lease, giving the
+administrator time to fix the server before clients lose their
+addresses.
+
+It is a pretty elegant design, and it has been working well for
+decades."
+
+[SLIDE 9 — Summary]
+
+SPEAK:
+"To summarize.
+
+DORA is the four-message handshake: Discover, Offer, Request,
+Acknowledge.
+
+Discover is a broadcast from the client, asking for a server.
+
+Offer is a response from a server, proposing an address.
+
+Request is a broadcast from the client, accepting one specific
+offer.
+
+Acknowledge is a confirmation from the server, completing the
+lease.
+
+After the lease is active, renewals use a simpler two-packet
+exchange at T1 — fifty percent — and T2 — eighty-seven point five
+percent — of the lease duration.
+
+If a renewal fails and the lease expires, the client starts over
+from DORA.
+
+In the next video, we will look at leases, scopes, and
+reservations in detail — the vocabulary you need to configure a
+DHCP server."
+
+[END OF VIDEO 10.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.8 — Leases, Scopes & Reservations                          ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Leases, Scopes & Reservations"]
+
+SPEAK:
+"Welcome back. We now know the mechanics of DHCP. Let's build up
+the vocabulary an administrator uses to actually configure a
+server. These three concepts — leases, scopes, and reservations —
+are the meat of any DHCP configuration."
+
+[PAUSE]
+
+[SLIDE 2 — Leases]
+
+SPEAK:
+"A lease is the contract between the client and the server: 'You
+may use this IP address for this duration, starting now.'
+
+Leases are what make DHCP dynamic. Without leases, the server would
+have no way to reclaim addresses from devices that have left the
+network. With leases, an address is automatically returned to the
+pool if the client stops renewing.
+
+Choosing the right lease duration is a genuine design decision.
+
+Short leases — minutes to hours — are used in environments where
+devices come and go rapidly, like a coffee shop Wi-Fi or a
+conference network. The trade-off is more renewal traffic and more
+churn on the server.
+
+Medium leases — twelve to twenty-four hours — are the default for
+most office and home networks. Stable enough for regular users,
+flexible enough to reclaim addresses when devices leave.
+
+Long leases — days to weeks — are used for servers, printers, and
+embedded devices. The device is expected to stay online
+continuously, so there is no reason to force it to renew often. The
+downside is that address pool exhaustion is harder to recover from,
+because addresses are held longer."
+
+[SLIDE 3 — Scopes]
+
+SPEAK:
+"A scope is the pool of addresses a DHCP server is allowed to
+assign, together with the settings that go with them.
+
+A scope typically has five parts:
+
+The address range — for example, 192.168.1.100 to 192.168.1.200.
+
+The subnet mask — for example, 255.255.255.0.
+
+The router, or gateway — for example, 192.168.1.1.
+
+The DNS servers — for example, 1.1.1.1 and 8.8.8.8.
+
+The lease duration — for example, twelve hours.
+
+Now here is an important point. The range in the scope is almost
+never the entire subnet.
+
+Why? Because some addresses on the subnet are used by fixed
+devices — servers, printers, network equipment — that need stable
+addresses. If the DHCP server were handing out those addresses to
+random clients, chaos would ensue.
+
+So the standard practice is to structure the subnet like this:
+The first part of the subnet — say, 192.168.1.1 through 192.168.1.99
+— is reserved for static configuration. The middle part —
+192.168.1.100 through 192.168.1.200 — is the DHCP dynamic pool. And
+the rest — 192.168.1.201 through 192.168.1.254 — is spare, kept
+for future use.
+
+Gateways, DNS servers, printers, and infrastructure devices live
+below the pool. They are configured statically. The DHCP server
+never assigns them to anyone else.
+
+Each DHCP server has its own way of specifying this — the syntax
+varies — but the concept is universal."
+
+[PAUSE]
+
+[SLIDE 4 — Reservations]
+
+SPEAK:
+"Some devices need to have a stable address, but the administrator
+does not want to configure it statically on the device itself. This
+is common for printers, network-attached storage, lab equipment,
+and even servers.
+
+For these, we use reservations.
+
+A reservation binds a specific IP address to a specific MAC
+address. When the DHCP server receives a request from that MAC
+address, it always hands out the reserved address — even if the
+address is technically outside the dynamic pool.
+
+Reservations have one big advantage over configuring static
+addresses on the device: centralization. If you later change your
+subnet, or add a new DHCP option, or move to a new DHCP server, you
+change it in one place — the server — rather than logging into
+every device and reconfiguring it.
+
+They also give you a central record of which MAC is on which IP.
+That is invaluable for auditing and troubleshooting. If you see
+traffic from a suspicious IP address, you can look it up in the
+DHCP server's leases file and see exactly which device it was."
+
+[SLIDE 5 — DHCP server software choices]
+
+SPEAK:
+"Let me briefly mention the main DHCP server software you will
+encounter.
+
+ISC dhcpd is the classic. It has been around for decades. It is
+well-tested, feature-complete, and widely deployed. Its config
+format is baroque but powerful.
+
+Kea DHCP is ISC's modern replacement. It uses JSON configuration,
+has a REST API, supports hooks for extending behavior, and is
+designed for modern environments like cloud and containers.
+
+dnsmasq is the lightweight option. It combines DHCP, DNS, and
+TFTP in one tiny daemon. Its configuration is trivial. It runs on
+routers, in embedded systems, and in small labs.
+
+And systemd-networkd can act as a DHCP server for very simple
+cases, though it is not really designed for that role.
+
+For our lab this week, we will use dnsmasq. It is small, easy to
+configure, and it handles both DHCP and DNS for our lab network in
+one daemon.
+
+In real production environments, you would likely use Kea or ISC
+dhcpd. But the concepts — scopes, options, reservations — carry
+over directly. dnsmasq is a great tool for learning."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+A lease is the time-limited grant of an address to a client.
+Choosing a lease duration depends on how stable the client
+population is.
+
+A scope is the pool of addresses plus the associated settings. The
+scope is usually smaller than the subnet, leaving room for
+statically-configured devices.
+
+A reservation binds a specific IP to a specific MAC address.
+Centralizes the record of which device has which address.
+
+DHCP servers: dnsmasq for small networks and labs, ISC dhcpd and
+Kea for enterprise deployments.
+
+In the next video, we move to the labs. We will start with network
+diagnostics — using the tools from section 10.4 to inspect our VM's
+network configuration."
+
+[END OF VIDEO 10.8 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.9 — Deep Lab: Network Diagnostics                          ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Network Diagnostics"]
+
+SPEAK:
+"Welcome to the first practical lab of Week 10. In this video we
+will use the tools we have learned to inspect the network
+configuration of our Ubuntu VM, verify that DHCP is working, and
+diagnose two deliberate failures.
+
+Make sure your VM is running and logged in. Let's get started."
+
+[SCREENCAST — terminal]
+
+SPEAK:
+"First, let's see our addresses.
+
+ip addr
+
+You should see at least one interface with an inet line — an IPv4
+address. In my VM, the interface is enp0s3 and the address is
+10.0.2.15 with a /24 mask.
+
+Notice the word dynamic on that line. That tells us the address
+was assigned by DHCP — not configured manually. And notice the
+default gateway's address — in my case 10.0.2.2 — is part of the
+VirtualBox NAT network.
+
+Let me have you take note of two things. Your interface name.
+And your IP address. You will need both for the rest of this lab.
+
+Next, let's see the routes.
+
+ip route
+
+Look for a line starting with the word default. That is your
+default gateway. Note the address after 'via' — that is where
+packets go when they are destined outside your local subnet.
+
+Also look for a line with your subnet in CIDR notation. That is
+your local route — traffic for that subnet goes directly onto the
+wire.
+
+Now let's see the DNS servers.
+
+cat /etc/resolv.conf
+
+You should see at least one entry starting with 'nameserver'.
+These are the resolvers your machine will query for DNS lookups."
+
+[PAUSE]
+
+[SCREENCAST — journalctl]
+
+SPEAK:
+"Now let's confirm the DORA actually happened. We will look at the
+DHCP client's logs.
+
+journalctl -u systemd-networkd --since '1 hour ago' | grep -i dhcp
+
+Depending on your system, the DHCP client may be systemd-networkd,
+or NetworkManager, or isc-dhcp-client. On a fresh Ubuntu Server
+install, it is usually systemd-networkd.
+
+You should see log lines related to DHCP. Look for the four
+messages — Discover, Offer, Request, Ack. The exact wording may
+vary, but the sequence should be visible.
+
+If you do not see anything, try 'journalctl -b | grep -i dhcp'.
+That will show everything since boot."
+
+[SCREENCAST — ss]
+
+SPEAK:
+"Now let's see what is listening on this machine.
+
+sudo ss -tlnp
+
+The flags decode as: TCP sockets, listening only, numeric
+addresses, with process information.
+
+On my VM, I see sshd listening on port 22. Let me point out the
+local address column.
+
+For sshd it shows 0.0.0.0:22 — meaning it accepts connections on
+every interface. That is what we want for a server. If it showed
+127.0.0.1:22, we would only be able to SSH from the machine
+itself, which would be useless for a remote server.
+
+Notice the difference. If you install a service and it is not
+reachable from another machine, the first thing to check is which
+address it is listening on."
+
+[PAUSE]
+
+[SCREENCAST — ping diagnostics]
+
+SPEAK:
+"Now let's run a connectivity test, one layer at a time.
+
+ping -c 3 127.0.0.1
+
+This pings our loopback. It is essentially free — the packets do
+not leave the machine. If this fails, something is very seriously
+wrong.
+
+ping -c 3 10.0.2.2
+
+Replace 10.0.2.2 with your actual gateway address. This pings the
+gateway on the local subnet. This tests that we can talk to the
+router.
+
+ping -c 3 1.1.1.1
+
+This pings a well-known public DNS server by IP address. This
+tests that our packets can actually reach the internet.
+
+ping -c 3 google.com
+
+This pings the same server by hostname. This tests DNS resolution.
+
+If all four succeed, everything is fine. If the first three
+succeed but the fourth fails, DNS is broken. If the first two
+succeed but the last two fail, the gateway or upstream routing is
+the problem."
+
+[SCREENCAST — tracepath]
+
+SPEAK:
+"Now let's trace the path to the internet.
+
+tracepath 1.1.1.1
+
+You should see the path from your VM, through your VM's gateway
+(the VirtualBox NAT gateway), and out to the public internet. Each
+line is one hop.
+
+In a VirtualBox NAT environment, the first hop is typically the
+VirtualBox NAT gateway at 10.0.2.2. Subsequent hops are the actual
+internet routers.
+
+If a hop shows asterisks instead of an address, that hop did not
+respond to the ICMP. This is common and usually not a problem — it
+just means the router is configured to not send back ICMP
+messages."
+
+[SCREENCAST — ip neigh]
+
+SPEAK:
+"One more command before we do the deliberate failure test.
+
+ip neigh
+
+This shows the ARP table — the mapping your machine has learned
+between IP addresses and MAC addresses on the local subnet. You
+should see at least one entry for your gateway.
+
+The state field will usually show REACHABLE for entries that have
+been used recently, or STALE for ones that have not been used in a
+while."
+
+[PAUSE]
+
+[SCREENCAST — deliberate DNS failure]
+
+SPEAK:
+"Now let's deliberately break DNS and see what happens.
+
+First, back up the current resolv.conf.
+
+sudo cp /etc/resolv.conf /etc/resolv.conf.backup
+
+Now replace it with a bad nameserver — one that will never respond.
+
+sudo sh -c 'echo "nameserver 192.0.2.1" > /etc/resolv.conf'
+
+The address 192.0.2.1 is part of TEST-NET-1, a documentation
+range that is guaranteed to be unroutable. So name resolution will
+time out.
+
+Let's test. First, ping by IP:
+
+ping -c 2 1.1.1.1
+
+That should still work. We only broke DNS, not the network.
+
+Now ping by hostname:
+
+ping -c 2 google.com
+
+That should fail — with what error? Wait a few seconds for it. The
+message will be 'Temporary failure in name resolution' or something
+similar. That is the DNS client giving up.
+
+Now let's restore the file.
+
+sudo cp /etc/resolv.conf.backup /etc/resolv.conf
+
+And verify:
+
+ping -c 2 google.com
+
+It should be working again."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we used ip, ss, ping, and tracepath to inspect the
+network configuration of our VM and to run diagnostics.
+
+We confirmed that DHCP assigned our address, our gateway, and our
+DNS servers.
+
+We looked at the DHCP handshake in the logs.
+
+We saw which services are listening, and on which addresses.
+
+We tested connectivity layer by layer.
+
+And we deliberately broke DNS — and then fixed it — to see how
+a name-resolution problem manifests, and to confirm that it is
+distinct from a network-level problem.
+
+What you should take away from this lab is the diagnostic
+sequence. When a network problem happens, go through the layers
+in order. It will get you to the answer faster than guessing."
+
+[END OF VIDEO 10.9]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 10.10 — Deep Lab: A Lightweight DHCP Server                   ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Configuring a DHCP Server"]
+
+SPEAK:
+"Welcome to the final video of Week 10. In this video we will
+install and configure dnsmasq to act as a DHCP server for a lab
+subnet.
+
+We will use a separate host-only network interface, so that we do
+not conflict with VirtualBox's own DHCP server on the NAT network.
+
+Let's get started."
+
+[SCREENCAST — the safety warning]
+
+SPEAK:
+"First, a strong warning. Do not run your own DHCP server on the
+VirtualBox NAT network. VirtualBox itself runs a DHCP server on
+that network, and the two would conflict. The result could be loss
+of network connectivity for your VM.
+
+So we will use a host-only network interface — a second interface
+that is set up as a separate isolated network between the VM and
+the host.
+
+Let me set that up first. I will shut down the VM and add the
+second adapter in the VirtualBox settings."
+
+[SCREENCAST — VirtualBox settings — brief]
+
+SPEAK:
+"In the VM's Network settings, I have added a second adapter of
+type Host-Only Adapter. This adapter creates an isolated virtual
+network that only the VM and the host can reach.
+
+Now I boot the VM back up."
+
+[SCREENCAST — ip addr]
+
+SPEAK:
+"After booting, let's look at our interfaces.
+
+ip addr
+
+I see a new interface — enp0s8 — with no IPv4 address assigned.
+Or possibly an auto-assigned 169.254 link-local address, which
+means the client tried to get one and failed. Either way, no
+proper address.
+
+Let's fix that by configuring it statically.
+
+sudo nano /etc/netplan/01-netcfg.yaml
+
+I need to add a section for enp0s8. The file should have both
+enp0s3 with DHCP, and enp0s8 with a static address of
+192.168.56.1/24.
+
+Save and exit. Now apply.
+
+sudo netplan apply
+ip addr show enp0s8
+
+You should now see 192.168.56.1/24 on the interface."
+
+[PAUSE]
+
+[SCREENCAST — installing dnsmasq]
+
+SPEAK:
+"Now let's install dnsmasq.
+
+sudo apt update
+sudo apt install dnsmasq
+
+Dnsmasq comes with a default configuration that serves DNS on
+interface-specific settings. We will override that in a moment."
+
+[SCREENCAST — config file]
+
+SPEAK:
+"Now let's create our configuration.
+
+sudo nano /etc/dnsmasq.d/lab-dhcp.conf
+
+I will paste in the config I prepared. Let me walk through it line
+by line.
+
+The first two lines restrict dnsmasq to a single interface — enp0s8.
+The 'bind-interfaces' directive tells dnsmasq to actually bind to
+that interface, rather than listening on all interfaces and then
+filtering.
+
+The next line disables the DNS part of dnsmasq by setting port to
+zero. We only want the DHCP part in this lab.
+
+Then we have the DHCP range. That defines the pool of addresses
+available for dynamic assignment: 192.168.56.100 through
+192.168.56.200, on the subnet 192.168.56.0/24, with a twelve-hour
+lease.
+
+Then we have two DHCP options. Option 3 is the router (the
+gateway) — I set it to 192.168.56.1, which is this machine's own
+address. In a real network, this would be your actual router.
+Option 6 is the DNS servers — I set them to 1.1.1.1 and 8.8.8.8,
+which are well-known public resolvers.
+
+And finally, I added a commented-out dhcp-host line for a static
+reservation — we will uncomment and use that in step eight.
+
+Save and exit."
+
+[SCREENCAST — starting dnsmasq]
+
+SPEAK:
+"Now let's restart dnsmasq and check its status.
+
+sudo systemctl restart dnsmasq
+systemctl status dnsmasq
+
+The service should be running. If it is not, we can look at the
+journal:
+
+journalctl -u dnsmasq -n 50
+
+Common reasons dnsmasq fails: a syntax error in the config file,
+or a conflict on the interface — if you already have a DNS server
+running on port 53 of the same interface, dnsmasq cannot bind.
+
+But in our case, we disabled DNS on dnsmasq, so that should not be
+an issue."
+
+[PAUSE]
+
+[SCREENCAST — testing with a second VM]
+
+SPEAK:
+"Now let's test with a client. I have a second Ubuntu VM that is
+attached to the same host-only network. I will boot it and see
+what happens.
+
+On the client, let's look at its network.
+
+ip addr
+
+You should see an inet address in the 192.168.56.100 to
+192.168.56.200 range. Let me check mine — yes, 192.168.56.101.
+
+ip route
+
+The default route should go via 192.168.56.1 — that is the
+gateway we told the client to use.
+
+cat /etc/resolv.conf
+
+The nameservers should be 1.1.1.1 and 8.8.8.8 — the ones we
+specified.
+
+All three of these — IP, gateway, DNS — were delivered by our
+DHCP server. That is what DHCP does. Without it, the client would
+have no configuration at all."
+
+[SCREENCAST — watching the DORA]
+
+SPEAK:
+"Now let's watch the DORA in real time.
+
+On the server, follow the logs.
+
+sudo journalctl -u dnsmasq -f
+
+On the client, force a renewal by restarting the network.
+
+sudo netplan apply
+
+On the server, you should see the four DORA messages. The client
+asking for an address. The server offering one. The client
+requesting it. The server acknowledging.
+
+That is a complete DORA exchange. And you built it."
+
+[PAUSE]
+
+[SCREENCAST — adding a reservation]
+
+SPEAK:
+"Now let's add a static reservation. First, find the client's MAC
+address.
+
+On the client:
+
+ip link show enp0s8
+
+Look for the 'link/ether' line. That is the MAC address. Note it
+down.
+
+Back on the server, edit the config file and uncomment the
+dhcp-host line, replacing the MAC address with the client's MAC,
+and choosing an address like 192.168.56.10.
+
+sudo nano /etc/dnsmasq.d/lab-dhcp.conf
+
+Restart dnsmasq:
+
+sudo systemctl restart dnsmasq
+
+Force the client to renew:
+
+on the client: sudo netplan apply
+
+Now on the client, check the address:
+
+ip addr show enp0s8
+
+The client should now have 192.168.56.10 — the reserved address,
+not a random one from the pool."
+
+[SLIDE — cleanup]
+
+SPEAK:
+"Let's clean up.
+
+sudo systemctl stop dnsmasq
+sudo systemctl disable dnsmasq
+sudo rm /etc/dnsmasq.d/lab-dhcp.conf
+sudo apt purge dnsmasq -y
+sudo apt autoremove -y
+
+And if you do not plan to use the host-only interface, you can
+remove the second adapter from VirtualBox's settings.
+
+That restores your VM to its pre-lab state."
+
+[SLIDE — What you built]
+
+SPEAK:
+"Let me emphasize what you just built.
+
+You configured a DHCP server. You defined a scope — an address
+pool, subnet, lease duration, and options. You watched DORA
+happen in real time. You added a reservation. You served addresses
+to a real client machine.
+
+That is not a simulation. You did what network administrators do
+every day in real offices and data centers.
+
+The specific software — dnsmasq — is one of several choices. In
+enterprise environments you would use Kea or ISC dhcpd. But the
+concepts — scopes, options, leases, reservations, DORA — carry
+over directly. You have learned DHCP at the level where it
+actually matters."
+
+[SLIDE — Week 10 wrap-up]
+
+SPEAK:
+"That wraps up Week 10. We covered a lot of ground.
+
+We started with package management — how software gets onto a
+Linux system safely. Then we moved to networking fundamentals:
+IP addressing, subnet masks, private ranges, CIDR notation.
+
+We learned the tools — ip, ss, ping, traceroute — for inspecting
+and diagnosing a network.
+
+We looked at network configuration with Netplan.
+
+And then we dove deep into DHCP: what it is, what it delivers,
+how the DORA handshake works, and how to configure a server.
+
+Please complete the written homework assignment for this week. It
+combines conceptual questions, package management practice, and a
+DHCP lab where you will build your own server with reservations.
+
+Next week — Week 11 — we continue Phase 2 with one of the most
+important services on any network: DNS. We will look at how
+hostnames are resolved, how the DNS hierarchy works, and we will
+deploy our own DNS server.
+
+See you then.
+
+Until then — keep exploring."
+
+[END OF VIDEO 10.10 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 10
+═══════════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~148 minutes of raw footage
+After editing and trimming: ~115–125 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

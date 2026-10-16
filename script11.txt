@@ -1,0 +1,1696 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 11 — DNS – Domain Name System
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  ten short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the third week of Phase 2. Students are expected to have
+  completed Week 9 (users, permissions, systemd) and Week 10 (packages,
+  networking basics, DHCP). Their VMs should have a working DHCP server
+  configured on a host-only network from the Week 10 lab.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.1 — Why DNS Matters                                        ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "DNS – Domain Name System" + course name]
+
+SPEAK:
+"Welcome to Week 11 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week we built a DHCP server. We learned how devices get their
+IP addresses, their gateway, and their DNS servers automatically.
+But we left one question hanging. What actually answers those DNS
+queries?
+
+That answer is DNS — the Domain Name System. And this week, we are
+going to build one of the most important services on any network: an
+authoritative DNS server."
+
+[PAUSE]
+
+[SLIDE 2 — The problem: names versus numbers]
+
+SPEAK:
+"Let me start with a very basic question. When you type a name into
+your browser — say, github.com — where does that name come from?
+And what makes it work?
+
+The browser needs to connect to a server. The server has an IP
+address. But you did not type an IP address. You typed a name.
+
+Somewhere, that name has to be translated into a number. That
+translation is DNS. And it happens many times a second, invisibly,
+on every device that uses the internet."
+
+[PAUSE]
+
+[SLIDE 3 — Why not just use IP addresses?]
+
+SPEAK:
+"Here is the obvious question: why do we need names at all? Why not
+just type IP addresses everywhere?
+
+Well, first, because names are stable. GitHub's IP addresses have
+changed many times over the years — the company moved servers, changed
+cloud providers, added content delivery networks. But github.com has
+always pointed to the right place. If you had hardcoded the IP address
+into your bookmarks ten years ago, the bookmark would be dead today.
+
+Second, names are memorable. You remember google.com. You do not
+remember whatever the current IPv4 address is.
+
+Third, names are flexible. A single name can point at multiple
+addresses for load balancing. It can point at a mail server for
+mail delivery. It can redirect to another name. All of these are
+things an IP address cannot do.
+
+Fourth, names are hierarchical — and this is the deep design principle
+behind DNS. The namespace is organized as a tree. That structure is
+what makes it possible for the system to scale to hundreds of millions
+of domains without any single server knowing everything."
+
+[SLIDE 4 — The three design ideas that make DNS work]
+
+SPEAK:
+"So DNS has three big design ideas, and I want you to keep them in
+mind as we go through the week.
+
+The first is hierarchy. The DNS namespace is a tree. The root is a
+dot. Below it are top-level domains — com, org, ps — and below those
+are registered domains, and below those are subdomains. The crucial
+part: each level only needs to know about the next level down.
+
+The second is distribution. Each part of that tree is served by many
+independent servers, spanning the globe. There is no single point of
+failure.
+
+The third is caching. Every answer comes with a lifetime. Resolvers
+near you cache the answers. Millions of queries for the same name
+never need to leave your ISP's network, because the answer was already
+cached."
+
+[PAUSE]
+
+[SLIDE 5 — What DNS carries besides IP addresses]
+
+SPEAK:
+"One more thing before we move on. DNS is often called the phone book
+of the internet, but that undersells it. A modern DNS zone can carry
+many different kinds of records.
+
+It can carry IPv4 addresses — A records. IPv6 addresses — AAAA
+records. Aliases — CNAME records. Mail routing information — MX
+records. Nameserver delegation — NS records. Service discovery — SRV
+records. Anti-spam policy — TXT records. And reverse lookups from IP
+back to hostname — PTR records.
+
+In this week's labs, we will set up all the important ones — A, CNAME,
+MX, NS, SOA, and PTR — so by the end of the week you will have touched
+the entire surface of practical DNS administration."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+DNS is the system that translates human-readable names into IP
+addresses and everything else networks need.
+
+It works because of three ideas: hierarchy, distribution, and caching.
+
+The hierarchy is an inverted tree. Distribution means many servers
+serve each level. Caching means answers are stored close to whoever
+asked.
+
+And DNS carries much more than just IP addresses — a rich set of
+record types for a rich set of purposes.
+
+In the next video, we look at the hierarchy in detail — the root
+servers, the TLD servers, and the authoritative servers that actually
+answer your queries."
+
+[END OF VIDEO 11.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.2 — The DNS Hierarchy                                       ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The DNS Hierarchy"]
+
+SPEAK:
+"Welcome back. In this video, we look at the shape of the DNS
+namespace — the tree that everything else is built on.
+
+I want you to picture an inverted tree. At the very top is a single
+point — a dot — which is called the root. Everything else hangs below
+that."
+
+[PAUSE]
+
+[SLIDE 2 — The tree]
+
+SPEAK:
+"Let's take a specific name and walk down the tree.
+
+Consider www.example.com followed by a trailing dot. That trailing
+dot is the root itself. Then reading from right to left, we have com —
+a top-level domain. Then example — a second-level domain, registered
+by whoever owns the site. Then www — a host name, often just a
+subdomain.
+
+DNS names are read right to left, from most general to most specific.
+That ordering is what makes the tree structure work."
+
+[PAUSE]
+
+[SLIDE 3 — The three tiers]
+
+SPEAK:
+"There are three layers of servers in the DNS hierarchy, and they
+have very different jobs.
+
+At the top are the root servers. There are thirteen logical root
+servers — named from a.root-servers.net through m.root-servers.net.
+Each one is actually a cluster of hundreds of physical machines
+distributed all over the world, sharing the same address by a
+technique called anycast. What do the root servers know? They know
+where the top-level domain servers are. They do not know anything
+about individual domains. They just delegate — 'for com, go ask
+these servers.'
+
+The second layer is the TLD servers. The .com TLD servers are run by
+a registry called Verisign. The .org TLD is run by PIR. The .ps TLD
+is run by the Palestinian registry. What do the TLD servers know?
+They know which DNS servers are authoritative for each domain
+registered under them. For example, the .com servers know that
+example.com's nameservers are at such-and-such addresses. Again,
+they delegate — they do not store the actual A records.
+
+The third layer is the authoritative servers. These are run by the
+domain owner — by you, if you own a domain. They hold the actual
+records. When someone asks for the IPv4 address of www.example.com,
+the authoritative server for example.com is the one that gives
+the answer."
+
+[SLIDE 4 — Delegation is the secret]
+
+SPEAK:
+"Now, the reason this whole design works is a concept called
+delegation, and it is worth pausing on it because it is the secret
+sauce of DNS.
+
+The root servers do not know how to reach www.example.com. They only
+know who runs .com. The .com servers do not know how to reach
+www.example.com. They only know who runs example.com. And the
+example.com servers know everything about their zone.
+
+Each layer only knows about the next layer down. That is what makes
+it possible for one root cluster of machines to serve the entire
+internet. If the root servers had to know about every domain, they
+would be crushed under the load immediately. But they do not — they
+just delegate.
+
+And the same thing works for subdomains. If example.com sets up
+subdomain.dev.example.com on entirely separate servers, the .com
+registry does not care. The parent zone just adds a delegation — an
+NS record — saying 'for subdomain, ask those servers.' Below that
+point, the parent zone is no longer involved."
+
+[PAUSE]
+
+[SLIDE 5 — The NS records carry the delegations]
+
+SPEAK:
+"Delegations are stored in NS records. An NS record says: 'for this
+zone, the authoritative servers are those ones.' At the top of every
+zone file, you will find a set of NS records pointing at the
+nameservers that serve it.
+
+In a real deployment, you will have at least two nameservers per
+zone — for redundancy. Some registrars require it. If one server is
+down, the other still serves the zone.
+
+We will build exactly this pattern in this week's lab — an NS record
+pointing at our own BIND9 server. Same concept, smaller scale."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+The DNS namespace is an inverted tree. The root is a dot. Top-level
+domains sit below it. Registered domains below those. Subdomains
+below those.
+
+Three layers of servers: root servers, TLD servers, and authoritative
+servers. Each one only knows about the layer below it.
+
+Delegation is the mechanism that makes this scale — the root does
+not know about individual domains, only about TLDs. The TLDs do not
+know about individual hosts, only about which servers are
+authoritative for each domain.
+
+Delegations are expressed as NS records.
+
+In the next video, we follow a single query down through the
+hierarchy — the resolution process."
+
+[END OF VIDEO 11.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.3 — How a Lookup Works: Recursive vs Iterative             ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Resolution — Recursive & Iterative Queries"]
+
+SPEAK:
+"Welcome to the third video of Week 11. We know the hierarchy. Now
+let's walk through what happens when a client actually asks for a
+name.
+
+This is one of the most important mental models in this entire
+course, so I want to walk it slowly."
+
+[PAUSE]
+
+[SLIDE 2 — Two kinds of queries]
+
+SPEAK:
+"There are two fundamentally different kinds of DNS queries. Do not
+confuse them — this distinction is on every DNS exam.
+
+A recursive query says: 'give me the final answer or tell me it does
+not exist.' The client trusts the resolver to do all the work. Do
+whatever queries you need, take whatever time you need, but come
+back with the final result.
+
+An iterative query says: 'give me the best answer you have right
+now, even if that is only a referral.' The server does not do any
+legwork. If it does not have the answer, it points the client at
+someone who might.
+
+Now for the key point. The client — your laptop, your phone,
+whatever — sends a recursive query. The resolver — the DNS service
+you configured on your browser or your OS — does the iterative
+queries. That is the division of labor."
+
+[PAUSE]
+
+[SLIDE 3 — Walking through a cold lookup]
+
+SPEAK:
+"Let's walk through a lookup for www.example.com on a device that has
+never resolved it.
+
+Step one. The browser needs to reach www.example.com. It calls the
+system's stub resolver — that is whatever library or daemon handles
+DNS on the local machine. The stub resolver is not authoritative for
+anything. It just forwards queries upstream.
+
+Step two. The stub resolver sends a recursive query to the resolver
+configured for this machine. That might be your ISP's resolver, or
+a public resolver like 1.1.1.1 — Cloudflare — or 8.8.8.8 — Google.
+The message says: 'Please resolve www.example.com for me.'
+
+Step three. The recursive resolver checks its cache. No entry. So
+it starts the iterative hunt.
+
+Sub-step three-a. It sends an iterative query to a root server.
+The root server does not have the answer. But it knows who runs
+com. It sends back a referral — the list of .com nameservers.
+
+Sub-step three-b. The resolver picks one of the .com nameservers and
+sends another iterative query. Again — no direct answer. But the
+.com server knows who runs example.com. It sends back the NS records
+for the example.com zone — the addresses of its authoritative
+servers.
+
+Sub-step three-c. The resolver now sends a query directly to the
+authoritative server for example.com. This time, the adversary
+actually knows the answer. It sends back the A record for
+www.example.com — the IPv4 address.
+
+Step four. The resolver caches the answer with its TTL, then sends
+it back to the stub resolver, which sends it back to the browser.
+
+Step five. The browser opens a connection to that IP address and
+fetches the page."
+
+[SLIDE 4 — Warm vs cold lookups]
+
+SPEAK:
+"Let me give you the timing intuition.
+
+A cold lookup — meaning the resolver had no cache entry — takes
+somewhere between fifty and two hundred milliseconds. That is four
+network round-trips: one to root, one to TLD, one to authoritative,
+and one back to the client.
+
+A warm lookup — meaning the resolver has the answer cached —
+takes under a millisecond. No network hops at all.
+
+Now here is the wild part. On a typical home network, virtually
+every DNS lookup is warm. You visit the same sites repeatedly.
+Your resolver keeps a cache. Almost every answer is served from
+memory.
+
+This is why the enormous scale of the internet works. Every
+resolver in the world caches aggressively. The root servers, the
+TLD servers — they get queried constantly, but the answers they
+give never change, so those answers are cached persistently around
+the world."
+
+[PAUSE]
+
+[SLIDE 5 — What a referral looks like]
+
+SPEAK:
+"One more detail that will help you when you start using dig.
+
+A referral from the root or TLD server is not really an error. It
+is a legitimate DNS response — it just does not contain the final
+record. The resolver is expected to see the referral and follow it.
+
+In dig output, you will see this expressed as a response status of
+NOERROR but with an empty ANSWER section and a non-empty AUTHORITY
+section. That AUTHORITY section contains the NS records for the
+next zone down. Those are the referral.
+
+And if you ever see a response with status NXDOMAIN, that means the
+name was genuinely not found. It is not a referral — it is a
+definitive 'this does not exist.'"
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Clients send recursive queries — give me the final answer.
+
+Resolvers send iterative queries — give me the best answer you have,
+even if that is a referral.
+
+A cold lookup follows a chain from root → TLD → authoritative → back
+to the client. It takes 50 to 200 milliseconds.
+
+A warm lookup comes from cache. It takes under a millisecond.
+
+This caching is what makes DNS scale to the entire planet.
+
+In the next video, we look at the actual record types that zones
+contain. This is where DNS stops being conceptual and becomes
+concrete."
+
+[END OF VIDEO 11.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.4 — Resource Record Types                                   ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Resource Record Types"]
+
+SPEAK:
+"Welcome to the fourth video of Week 11. Now we look at the actual
+data that DNS stores. Everything in DNS is a resource record — an
+RR, for short. And there are roughly a dozen record types you need
+to know.
+
+Let me start with the shape of every record."
+
+[PAUSE]
+
+[SLIDE 2 — The generic format]
+
+SPEAK:
+"A DNS resource record has five fields: name, TTL, class, type, and
+data.
+
+Name is the domain name the record is for. TTL is the time-to-live
+in seconds — how long this record may be cached. Class is almost
+always IN, for internet. And I should note that in modern zone files,
+the class is nearly always omitted — IN is implied. Type is A,
+AAAA, CNAME, MX, and so on. And data is whatever the type calls for.
+
+The record is written as a single logical line, though you can break
+lines with parentheses for long records like SOA."
+
+[PAUSE]
+
+[SLIDE 3 — The common record types]
+
+SPEAK:
+"Let's take them one at a time.
+
+A records map a name to an IPv4 address. This is the single most
+common record type. You will write dozens of them in the lab.
+
+AAAA records — that is four A's — map a name to an IPv6 address.
+They exist because IPv6 addresses are 128-bit, four times the size
+of IPv4 addresses. The name is a joke — AAAA is bigger than A.
+
+CNAME records create an alias. They say 'this name is really that
+other name, go look up that.' They are useful for the classic
+www-to-web redirect or for repointing one hostname to another.
+
+MX records describe mail routing. They tell the internet where to
+deliver email for a domain. They carry a priority number — lower
+numbers are more preferred.
+
+NS records declare the nameservers for a zone. Every zone begins
+with at least one.
+
+SOA is the Start of Authority record. Every zone has exactly one.
+We will look at it in detail in a moment.
+
+PTR records are for reverse lookups — mapping IP addresses back to
+names.
+
+TXT records are free-form text. They are used for anti-spam policy,
+for domain ownership verification, and for anything else where you
+need to store a short string.
+
+And SRV records describe services — a combination of host, port,
+priority, and weight. Used heavily in unified communications and
+in cloud service discovery."
+
+[SLIDE 4 — SOA in detail]
+
+SPEAK:
+"Let me spend some time on SOA, because it is the record that
+declares a zone exists — and it is the record most beginners get
+wrong.
+
+The SOA contains six fields. The first is the primary nameserver —
+the master server where this zone lives.
+
+The second is the administrative email address, with the @ symbol
+replaced by a dot. So admin at example dot com becomes
+admin.example.com in the SOA. This is a historical quirk — the @
+sign was already used for something else in an earlier version of
+the master file format.
+
+Then there are five numbers. The serial number. The refresh
+interval. The retry interval. The expire interval. And the minimum.
+
+Let me give you the rule for each one.
+
+The serial number is a version for the zone. Every time you change
+anything in the zone file, you must increment the serial. If you
+forget, and this zone has secondary servers, they will not pick up
+the change. Common convention is to use a date plus a two-digit
+counter.
+
+The refresh interval says how often secondary servers should poll
+the primary for changes. An hour is typical.
+
+The retry interval says how long to wait after a failed poll before
+trying again. Around half an hour is typical.
+
+The expire interval says how long a secondary may continue serving
+the zone without ever reaching the primary. If this elapses, the
+secondary must stop answering — better to return an error than to
+serve stale data indefinitely. One week is typical.
+
+And the minimum, in modern practice, is the negative caching TTL.
+When a resolver asks for a name that does not exist, the 'not found'
+answer is cached for this duration."
+
+[PAUSE]
+
+[SLIDE 5 — The CNAME trap]
+
+SPEAK:
+"Now let me talk about a rule that surprises almost every beginner.
+
+A CNAME record cannot coexist with any other record at the same
+name. If you have a CNAME at www.example.com, you cannot also have
+an A record or an MX record at www.example.com. This is a hard rule
+in DNS — not a suggestion.
+
+The reason is that a CNAME says 'this name is really that other
+name.' If there were other records at the same name, what would
+they mean? If the name is really somewhere else, everything has to
+go through that redirection.
+
+The practical consequence: you cannot put a CNAME at the apex of a
+zone. The apex has an SOA and NS records. Adding a CNAME there would
+violate the rule. If you see a zone file where the apex has a CNAME,
+the zone is broken.
+
+BIND will reject such a zone with an error message that says
+something like 'CNAME and other data at the same name.' If you see
+that, that is what is going on."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Every DNS record has a name, TTL, class, type, and data.
+
+Common record types: A, AAAA, CNAME, MX, NS, SOA, PTR, TXT, SRV.
+
+SOA declares the zone and its operating parameters. It contains six
+fields, all of which matter. Never forget to increment the serial
+when you edit the zone.
+
+CNAMEs cannot coexist with any other data at the same name. This is
+why they cannot appear at the apex of a zone.
+
+In the next video, we will take all of this and build an actual zone
+file."
+
+[END OF VIDEO 11.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.5 — Zones & Zone Files                                      ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Zones & Zone Files"]
+
+SPEAK:
+"Welcome to the fifth video of Week 11. So far, we have looked at
+DNS abstractly. In this video, we get concrete. We will look at the
+zone file format — the text file that is literally the source of
+truth for a DNS zone.
+
+A zone file is a text file that lists a zone's records. It is what
+you edit, what you validate, and what BIND9 reads."
+
+[PAUSE]
+
+[SLIDE 2 — Zone vs domain]
+
+SPEAK:
+"Before we go further, one clarification that trips up beginners.
+
+A domain is a subtree of the DNS namespace. It is a pure concept.
+
+A zone is a domain minus whatever has been delegated to child zones.
+It is what an authoritative server actually controls.
+
+For example, example.com is a domain. If example.com delegates
+subdomain.dev.example.com to a different set of servers, then the
+zone served by the example.com servers contains everything under
+example.com EXCEPT subdomain.dev.example.com — because that part has
+been handed off.
+
+That is why we say 'authoritative for the zone whose apex is
+example.com.' Not for the whole domain. For the zone — the part
+that has not been delegated away."
+
+[PAUSE]
+
+[SLIDE 3 — The structure of a zone file]
+
+SPEAK:
+"A zone file is organized in a specific way. Let me walk through the
+structure.
+
+At the top, you typically have two directives. TTL sets a default
+time-to-live for all records that do not have their own TTL. And
+ORIGIN sets the domain that gets appended to any relative name in
+the file.
+
+Then come the records. Every zone begins with an SOA record — one
+per zone, as we discussed.
+
+Then NS records. Every zone has at least one NS record declaring
+its nameservers. In production, you always have at least two.
+
+Then optionally MX records for mail. Then A and AAAA records for
+individual hosts. Then CNAME records for aliases. And any
+delegations to sub-zones.
+
+Comments start with a semicolon and continue to the end of the
+line."
+
+[SLIDE 4 — Trailing dots matter]
+
+SPEAK:
+"Now the single most common source of beginner bugs. Trailing dots.
+
+A name that ends with a dot — like ns1.example.com, followed by a
+dot — is a fully qualified domain name. It is absolute. There is
+no ambiguity.
+
+A name that does NOT end with a dot — like ns1.example.com — is
+relative. It gets the current origin appended to it.
+
+So if you write in a zone file with origin example.com:
+
+ns1.example.com     (no trailing dot)
+
+...BIND will interpret this as ns1.example.com.example.com, which
+is almost certainly not what you wanted.
+
+But if you write:
+
+ns1             (no trailing dot)
+
+...that is a relative name, and BIND appends the origin, giving you
+ns1.example.com. Which might be what you wanted.
+
+The rule I want you to remember: when you mean an absolute name,
+put a dot at the end. When you mean a relative name, do not. It is
+a two-character detail that causes a lot of confusion."
+
+[SLIDE 5 — A sample zone file]
+
+SPEAK:
+"Let me show you what a simple zone file looks like. This is the
+one we will build in the lab later this week.
+
+TTL is set to one hour.
+
+Or, at the top, we have the SOA record. The @ symbol means 'the
+current origin' — so at the top of this file, it means lab.local.
+
+Then NS records pointing at ns1 and ns2.
+
+Then an MX record for mail routing.
+
+Then A records for the hostnames: ns1, ns2, mail, www, db.
+
+Then a CNAME from web to www.
+
+And a wildcard A record for anything that is not otherwise defined.
+
+Notice the trailing dots throughout. Every fully qualified name ends
+with a dot. Every relative name does not. That is the discipline."
+
+[PAUSE]
+
+[SLIDE 6 — The serial increment rule]
+
+SPEAK:
+"One more thing before we finish this video. The serial.
+
+The serial in the SOA is a version number for the zone. Every single
+time you change a zone file, you must increment the serial.
+
+Why? Because secondaries pull from the primary by asking 'what is
+your serial?' If the serial is the same as last time, the secondary
+assumes nothing has changed and does not pull. If the serial is
+higher, the secondary pulls the whole zone.
+
+So if you edit a record and forget to increment the serial, and this
+is a primary with secondaries, your change may never propagate.
+
+On a single-server lab setup — like what we are about to build —
+the change applies immediately regardless. But build the discipline
+of incrementing the serial anyway. It is a habit that will save you
+on real infrastructure.
+
+Common convention: use the date in YYYYMMDD format, followed by a
+two-digit counter — 01 for the first change of the day, 02 for the
+second, and so on. That way, you can always tell when a zone was
+last modified by looking at the serial."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+A zone is a domain minus any delegated sub-zones.
+
+A zone file is a text file listing records. It has directives at the
+top, then SOA, then NS, then the actual records.
+
+Trailing dots separate fully qualified names from relative names.
+Get this right.
+
+The serial in the SOA must be incremented on every change.
+
+In the next video, we look at reverse zones — the mirror image of
+forward zones, used for reverse lookups."
+
+[END OF VIDEO 11.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.6 — Reverse Zones & PTR Records                             ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Reverse Zones & PTR Records"]
+
+SPEAK:
+"Welcome to the sixth video of Week 11. So far we have been mapping
+names to addresses. Now we flip the direction — mapping addresses
+back to names.
+
+This is called a reverse lookup. And in this video, we will see why
+it matters and how it works."
+
+[PAUSE]
+
+[SLIDE 2 — Why reverse lookups exist]
+
+SPEAK:
+"Let me start with why reverse lookups exist, because it is not
+obvious.
+
+Imagine you are reading a web server access log. Every line begins
+with an IP address — the address of the client that made the request.
+Unless those IPs have reverse lookups, the log is essentially
+unreadable to a human being. '10.20.30.45 requested /index.html' is
+not nearly as useful as 'alice-laptop.example.com requested
+/index.html.'
+
+That is the first use case: making logs readable.
+
+The second is spam filtering. When a mail server receives a message,
+it can look up the reverse DNS of the sending IP. If the reverse
+does not match the domain in the sender's address, and often if the
+forward lookup on the reverse name does not match the IP, then the
+message is very likely spam, or at least from a poorly-configured
+mail server. Many mail servers reject mail outright in this case.
+
+This is called forward-confirmed reverse DNS — FCrDNS. Both forward
+and reverse must match for the check to pass.
+
+Third use case: diagnostics. When you run traceroute across the
+internet, every hop shows the reverse name of the router — if it
+has one. Makes the diagnostic output much more useful.
+
+And fourth: some legacy systems used reverse DNS for coarse access
+control. Rare in modern systems, but you will see it in older
+networks."
+
+[PAUSE]
+
+[SLIDE 3 — The in-addr.arpa domain]
+
+SPEAK:
+"So how does a reverse lookup actually work? This is where the
+clever part comes in.
+
+DNS names are hierarchical with the most significant part LAST.
+example.com — the most significant label is com, and it is at the
+end.
+
+IP addresses are hierarchical with the most significant part FIRST.
+192.168.56.20 — the most significant octet is 192, and it is at the
+start.
+
+To make reverse DNS work, we have to reverse the IP address. The
+IPv4 address 192.168.56.20 becomes — read from right to left —
+20.56.168.192. And then we append a special domain called
+in-addr.arpa.
+
+So the reverse domain for 192.168.56.20 is:
+20.56.168.192.in-addr.arpa.
+
+This is a real domain in the DNS hierarchy — under the .arpa TLD,
+which is reserved for internet infrastructure. The IP address
+registries delegate portions of it to whoever owns the corresponding
+IP blocks.
+
+When your mail server wants to check the reverse of 192.168.56.20,
+it sends a PTR-type query for 20.56.168.192.in-addr.arpa. And the
+answer is the hostname that corresponds to that IP."
+
+[SLIDE 4 — A reverse zone file]
+
+SPEAK:
+"Let me show you what a reverse zone file looks like. This is the
+mirror image of a forward zone.
+
+The origin is the reverse of the network — for 192.168.56.0, that
+would be 56.168.192.in-addr.arpa.
+
+The SOA record looks identical to the forward SOA — same primary
+nameserver, same administrative email, same six numbers.
+
+The NS records point at the same nameservers.
+
+And then the PTR records. Each PTR record has an owner name that is
+just the last octet of the address. So for 192.168.56.1, the owner
+name is just 1. For 192.168.56.20, the owner is 20. BIND appends
+the origin, making it 20.56.168.192.in-addr.arpa.
+
+And the data of the PTR record is the hostname — www.lab.local with
+a trailing dot, in full."
+
+[PAUSE]
+
+[SLIDE 5 — The forward-confirmed reverse DNS pattern]
+
+SPEAK:
+"So here is what forward-confirmed reverse DNS looks like in
+practice.
+
+You have a host, say mail.example.com at 192.168.56.10.
+
+For forward-confirmed reverse DNS to work, you need:
+A forward A record: mail.example.com → 192.168.56.10.
+A reverse PTR record: 192.168.56.10 → mail.example.com.
+
+When a mail server checks, it looks up the reverse of the sending
+IP. If it gets mail.example.com, then it looks up the forward of
+mail.example.com. If it gets 192.168.56.10 — matching the original
+IP — then the check passes.
+
+This bidirectional check is what prevents spammers from just
+pointing any random PTR at your mail server. Both directions have
+to agree.
+
+If you ever set up a mail server, this is one of the most common
+reasons mail gets rejected. It is not obvious from the sender's side
+— the mail server logs just say 'rejected: reverse DNS lookup failed'
+or something similar. You have to know to check your PTR records."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Reverse lookups map IP addresses back to hostnames. They matter for
+logs, mail filtering, diagnostics, and some access controls.
+
+Reverse lookups use the in-addr.arpa domain — IPv4 octets reversed,
+plus in-addr.arpa.
+
+A reverse zone file has an SOA, NS records, and PTR records. Each
+PTR record maps a single IP back to a hostname.
+
+Forward-confirmed reverse DNS means both directions agree. This is
+what mail servers check — and if either direction is missing or
+wrong, mail is rejected.
+
+In the next video, we look at caching, TTL, and a technique called
+forwarding — and then we move to the tools and labs."
+
+[END OF VIDEO 11.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.7 — Caching, TTL & Forwarding                               ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Caching, TTL & Forwarding"]
+
+SPEAK:
+"Welcome back. We saw earlier that caching is one of the three key
+ideas that makes DNS scale. In this video, we look at caching and
+TTL more carefully, and at a related technique called forwarding."
+
+[PAUSE]
+
+[SLIDE 2 — TTL, the cache lifetime]
+
+SPEAK:
+"Every DNS record has a TTL — a time-to-live in seconds. When a
+resolver caches a record, it remembers it for at most that long.
+After the TTL expires, the record must be re-fetched from the
+authoritative servers.
+
+This is a trade-off. A high TTL means fewer queries to authoritative
+servers, but changes propagate more slowly — old cached answers stick
+around. A low TTL means changes propagate fast, but the authoritative
+server gets hammered with queries.
+
+What are realistic values?
+
+Very low TTLs — thirty to sixty seconds — are used during planned
+migrations. You want to be able to shift an IP and have all resolvers
+pick up the change quickly.
+
+Medium TTLs — five minutes to an hour — are the standard for most
+production services. This is the sweet spot for common workloads.
+
+High TTLs — several hours, up to a day — are used for records that
+almost never change. Nameserver delegation records, MX records that
+point to stable infrastructure. These can afford to be cached for a
+long time."
+
+[PAUSE]
+
+[SLIDE 3 — The migration trick]
+
+SPEAK:
+"Here is a practical tip that every serious site operator knows.
+
+If you are about to move a service to a new IP address — a database
+migration, a server relocation, a cloud provider change — do not
+just change the A record. Instead:
+
+Step one: two days before the change, lower the TTL of the affected
+record to something very small — say, sixty seconds. Now all
+resolvers around the world will start using sixty-second caching.
+
+Step two: wait two days. During this time, every resolver expires
+its old cached copy and starts caching with the new short TTL.
+
+Step three: make the change. Flip the A record to the new IP address.
+Because all resolvers are now caching with short TTLs, the change
+propagates around the world in about a minute.
+
+Step four: a day later, raise the TTL back up. Everything is stable
+again, and the authoritative servers get fewer queries.
+
+Without this trick, if your TTL was originally, say, twelve hours,
+your change might take up to twelve hours to fully propagate.
+During that window, some users hit the old address and some hit the
+new one. If the old server is being decommissioned, that is a bad
+experience."
+
+[SLIDE 4 — Negative caching]
+
+SPEAK:
+"One subtle aspect of TTL: DNS also caches the ABSENCE of a record.
+
+If you ask for a name that does not exist, the resolver remembers
+the NXDOMAIN response. How long? For the duration specified in the
+SOA's Minimum field — remember the sixth number we discussed
+earlier.
+
+This is called negative caching.
+
+Why is it important? Because if it did not exist, a nonexistent
+name would trigger a full iterative walk through the hierarchy
+every single time someone asked for it. That would waste enormous
+resources on the internet — all for a name that everyone agrees is
+not there.
+
+But it also has a gotcha. If you are creating a new subdomain, and
+some resolver has cached an NXDOMAIN for that name from before it
+existed, that resolver will keep returning 'not found' until its
+negative cache expires. New names can take a few minutes to become
+visible everywhere — that is the reason."
+
+[PAUSE]
+
+[SLIDE 5 — Forwarding]
+
+SPEAK:
+"Now let's talk about forwarding.
+
+Not every DNS server needs to be a full recursive resolver. Do the
+iterative walk from root to TLD to authoritative yourself? That is
+a lot of network traffic for every uncached name.
+
+A forwarding resolver is a simpler model. It takes incoming
+recursive queries and forwards them to an upstream resolver — say
+Cloudflare's 1.1.1.1, or Google's 8.8.8.8, or your ISP's resolver.
+It does not do the iterative walk itself. It just passes the query
+through and returns whatever comes back.
+
+This is the standard model for small networks. Your home router
+forwards DNS to your ISP. Your corporate gateway forwards DNS to
+an internal resolver.
+
+Now, there is a hybrid form called forward first, which means: try
+forwarding, but if that fails, do the fallback recursion. This is
+useful when your upstream resolver might be unavailable."
+
+[SLIDE 6 — Configuring forwarders in BIND9]
+
+SPEAK:
+"In BIND9, forwarding is configured in the options block. Let me
+describe the shape.
+
+You list your forwarders — a set of IP addresses for upstream
+resolvers.
+
+You choose forward only, which means never do your own recursion,
+always defer upstream.
+
+Or forward first, which means try forwarding and fall back if it
+fails.
+
+In our lab, we will use forwarders to 1.1.1.1 and 8.8.8.8 for
+public names, but our own zone lab.local will be served
+authoritatively from our own BIND9."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+TTL controls how long a resolver caches an answer. Trade freshness
+against load.
+
+Lower the TTL before a planned migration so the change propagates
+quickly.
+
+Negative caching remembers 'this name does not exist' for the SOA
+minimum duration.
+
+Forwarding is a simpler alternative to full recursion — hand off
+queries to an upstream resolver.
+
+In the next video, we move to the tools: dig, nslookup, and host.
+This is where we start using all of this in practice."
+
+[END OF VIDEO 11.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.8 — dig, nslookup, host                                     ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Querying DNS: dig, nslookup, host"]
+
+SPEAK:
+"Welcome to the eighth video of Week 11. In this video, we look at
+the tools you use every day to query DNS. There are three main ones,
+and each has strengths.
+
+Make sure your lab VM is running. We will do some queries later. But
+first, let's understand what the tools do."
+
+[PAUSE]
+
+[SLIDE 2 — dig]
+
+SPEAK:
+"dig stands for Domain Information Groper, and it is the professional
+tool. When you need to debug something — when a name will not
+resolve or you need to see the full response — dig is what you will
+reach for.
+
+The command is simple: dig followed by a name. By default, it
+queries for A records.
+
+The output has several sections.
+
+The HEADER section shows the query metadata — the response status,
+the flags, the query count.
+
+The QUESTION section restates what you asked for.
+
+The ANSWER section contains the actual records that answer your
+query.
+
+Optionally, an AUTHORITY section — usually when the answer is a
+referral rather than a final answer, or when the server gives
+authoritative data.
+
+And an ADDITIONAL section with extra information.
+
+At the bottom, dig tells you which server answered, how long the
+query took, and various other useful details.
+
+Let me point out a few fields specifically. status NOERROR means
+success. NXDOMAIN means name does not exist. SERVFAIL means the
+server failed to answer — usually a configuration problem.
+
+The flags line — 'qr rd ra' in a typical response — means: query
+response, recursion desired, recursion available. If you see 'aa',
+the server was authoritative for that name."
+
+[PAUSE]
+
+[SLIDE 3 — Useful dig variations]
+
+SPEAK:
+"Here are the variations you will use most.
+
+dig with a type — MX, NS, TXT, AAAA — asks for that specific record
+type.
+
+dig with -x followed by an IP address performs a reverse lookup.
+
+dig @8.8.8.8 — the @ sign lets you specify which server to query.
+Useful when you want to compare answers from different resolvers.
+
+dig +short gives you just the answer — no headers, no extra output.
+Useful in scripts.
+
+dig +trace is the most powerful debugging tool. It walks the
+hierarchy from the root servers down, showing every step. When a
+name fails to resolve and you need to know exactly where, this is
+the command.
+
+dig +noall +answer suppresses everything except the answer records."
+
+[SLIDE 4 — nslookup]
+
+SPEAK:
+"nslookup is the older cousin. It predates dig and has an
+interactive mode.
+
+The one-shot form: nslookup followed by a name. It returns a
+readable answer.
+
+The interactive mode is entered by running nslookup with no
+arguments. Inside, you can set the server, set the query type, and
+run multiple queries.
+
+You will see the phrase 'Non-authoritative answer' in the output
+quite often. This does not mean the answer is wrong. It means the
+answer came from a cache rather than directly from the
+authoritative server. Which is fine — caches are how DNS works.
+
+You can bypass this by querying an authoritative server directly:
+nslookup example.com ns1.example.com."
+
+[PAUSE]
+
+[SLIDE 5 — host]
+
+SPEAK:
+"host is the simplest of the three. It gives you a brief,
+human-readable answer.
+
+host example.com prints the IPv4 and IPv6 addresses, and any MX
+records, all in two or three lines.
+
+host 93.184.216.34 does a reverse lookup — because if you give it an
+IP address instead of a name, that is what it assumes you want.
+
+For simple queries — 'what is the address of this name?' — host is
+the fastest to type and the easiest to read. When you need to see
+the full DNS response, use dig."
+
+[SLIDE 6 — Which to use?]
+
+SPEAK:
+"Here is a quick decision guide.
+
+For debugging and any time you need the full response — use dig.
+
+For interactive exploration and one-off queries — use nslookup.
+
+For quick scripts that need terse output — use host.
+
+In the labs this week, we will use mostly dig because our queries
+will be about verifying that our own BIND9 server is answering
+correctly — and dig gives us the most information."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+dig is the professional's tool. Full detail, many options, ideal for
+debugging.
+
+nslookup is interactive and old-school but works well for one-off
+queries.
+
+host is brief and simple. Good for scripts and quick checks.
+
+All three send standard DNS queries. They differ only in how much
+output they show you and what they assume about your intent.
+
+In the next video, we start the labs. We will install BIND9 and
+configure it as a recursive resolver with forwarding."
+
+[END OF VIDEO 11.8 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.9 — Deep Lab: Installing and Configuring BIND9              ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Installing & Configuring BIND9"]
+
+SPEAK:
+"Welcome to the first practical lab of Week 11. In this video, we
+install BIND9 — the reference DNS server — and configure it as a
+working recursive resolver for our lab network.
+
+Make sure your VM is up. Ideally, your Week 10 host-only interface
+enp0s8 should be at 192.168.56.1, on the same network we set up for
+DHCP.
+
+Let's get started."
+
+[SCREENCAST — install]
+
+SPEAK:
+"First, install the packages.
+
+sudo apt update
+sudo apt install bind9 bind9utils bind9-doc dnsutils -y
+
+The bind9 package contains the server itself. bind9utils gives us
+the zone validation tools and other utilities. bind9-doc has the
+documentation. And dnsutils installs dig and nslookup, which we
+will use for testing."
+
+[PAUSE]
+
+[SCREENCAST — look at the layout]
+
+SPEAK:
+"Before we configure anything, let's understand the layout.
+
+ls /etc/bind/
+
+You will see several files. named.conf is the main configuration.
+named.conf.options contains global options. named.conf.local is
+where you declare your own zones. named.conf.default-zones has the
+standard zones — localhost, 127.0.0.1 reverse, and the root hints.
+
+The names 'named' and 'bind' are historical. The BIND daemon is
+called named — short for 'name daemon.' Do not let the two words
+confuse you. BIND is the software package, named is the running
+server process."
+
+[SCREENCAST — configure options]
+
+SPEAK:
+"Now let's configure the global options.
+
+sudo nano /etc/bind/named.conf.options
+
+I want to show you what should be in there. We need to configure:
+the listening interfaces, the recursion policy, and the forwarders.
+
+Here is the block I am going to write.
+
+We listen on all interfaces — listen-on any. This is fine for our
+lab. In a production system, you would restrict this to the
+interfaces you actually want to serve.
+
+We allow recursion only from the lab network and localhost — that
+is the allow-recursion directive. This is CRITICAL. If you do not
+set this, your server becomes an open resolver, which means anyone
+on the internet can use it to attack third parties. You will be
+blacklisted within hours. So always set allow-recursion.
+
+We forward unresolved queries to 1.1.1.1 and 8.8.8.8. These are
+well-known public resolvers. In our lab, we use them for anything
+that is not in our lab.local zone.
+
+And we enable DNSSEC validation — the auto setting tells BIND to
+trust the root's DNSSEC keys, which is what every production
+resolver does.
+
+Save the file with Ctrl+O, Enter, then exit with Ctrl+X."
+
+[SCREENCAST — validate the config]
+
+SPEAK:
+"Before we restart, let's validate the whole config tree.
+
+sudo named-checkconf
+
+No output means everything is syntactically correct. If you get an
+error, it will tell you which file and which line. Fix it before
+proceeding — BIND will refuse to start with an invalid config."
+
+[SCREENCAST — restart]
+
+SPEAK:
+"Now restart the service.
+
+sudo systemctl restart named
+sudo systemctl status named
+
+The status should show 'active running.' If not, check the journal
+with journalctl -u named -n 50. That will tell you why the server
+refused to start.
+
+Let's also confirm it is listening.
+
+sudo ss -tlnp | grep :53
+
+You should see listeners on UDP port 53 and TCP port 53. BIND
+serves UDP for normal queries and TCP for large responses — which
+happens for DNSSEC, for zone transfers, and for responses that
+exceed a single UDP packet."
+
+[PAUSE]
+
+[SCREENCAST — test]
+
+SPEAK:
+"Let's run a test query against the local server.
+
+dig @127.0.0.1 example.com A
+
+You should see a NOERROR response with an A record in the ANSWER
+section. If you get SERVFAIL, check the journal again. If you get a
+timeout, something is blocking the query — likely the
+allow-recursion ACL, or a firewall.
+
+Let me try a few more queries to make sure forwarding works."
+
+[SCREENCAST — digging from a client]
+
+SPEAK:
+"If you have a second VM on the same host-only network, let's test
+from there.
+
+On the client, edit the Netplan configuration to point DNS at our
+BIND9 server. If you are using the same setup as last week, the
+file is /etc/netplan/01-netcfg.yaml.
+
+Add 192.168.56.1 as the first nameserver — before any public
+resolvers.
+
+Apply and check.
+
+sudo netplan apply
+cat /etc/resolv.conf
+
+The first nameserver line should be 192.168.56.1.
+
+Now run a query — but this time do not specify @127.0.0.1. Let dig
+use the system default.
+
+dig example.com A
+
+This query goes through the client's stub resolver, to our BIND9
+server, which forwards it to 1.1.1.1, gets the answer, and returns
+it to the client.
+
+You have built a working recursive resolver."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we installed BIND9, configured it as a recursive
+resolver with forwarding, restricted recursion to our lab network,
+and verified that both local queries and remote queries work.
+
+That is a complete, functional recursive DNS server. It is exactly
+the kind of setup that sits inside thousands of corporate networks
+around the world.
+
+But this is only half of the story. The recursive resolver handles
+names it can forward. The interesting part — the part that makes
+your server special — is when it becomes authoritative for its own
+zone.
+
+That is the next lab."
+
+[END OF VIDEO 11.9]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 11.10 — Deep Lab: Building lab.local                           ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Authoritative Zone for lab.local"]
+
+SPEAK:
+"Welcome to the final video of Week 11. Now comes the main event.
+We are going to create an authoritative zone for lab.local — a
+forward zone, a reverse zone, and all the record types that matter.
+By the end of this video, we will have a working internal DNS setup
+for our lab network.
+
+Let's get to work."
+
+[SCREENCAST — create the forward zone]
+
+SPEAK:
+"First, the forward zone file.
+
+sudo nano /etc/bind/db.lab.local
+
+Let me walk you through what I am going to paste in.
+
+At the top, TTL and origin directives. TTL is one hour. Origin is
+lab.local.
+
+Then the SOA record. It has those six fields we discussed: primary
+nameserver, admin email — with a dot instead of an @ — and then
+serial, refresh, retry, expire, and minimum.
+
+Then NS records pointing at ns1 and ns2 — both in our zone.
+
+Then an MX record for the mail host.
+
+Then A records: ns1 on .1, ns2 on .2, mail on .10, www on .20, db
+on .30.
+
+Then a CNAME from web to www.
+
+And a wildcard A record — star dot lab dot local resolving to .99
+— to catch any name that is not otherwise defined.
+
+Save with Ctrl+O, exit with Ctrl+X."
+
+[SCREENCAST — create the reverse zone]
+
+SPEAK:
+"Now the reverse zone file.
+
+sudo nano /etc/bind/db.192.168.56
+
+The origin is 56.168.192.in-addr.arpa — the first three octets of
+our network reversed, plus in-addr.arpa.
+
+Same SOA. Same NS records.
+
+Then PTR records. Note the shape — the owner name is just the last
+octet. So for 192.168.56.1, we write just 1. For .10, just 10. And
+so on. BIND appends the origin to make the full name.
+
+Each PTR record's data is the corresponding hostname with a
+trailing dot.
+
+Save and exit."
+
+[PAUSE]
+
+[SCREENCAST — validate]
+
+SPEAK:
+"Before we tell BIND about these zone files, we validate them.
+
+sudo named-checkzone lab.local /etc/bind/db.lab.local
+
+You should see 'loaded serial' and 'OK'. If not, read the error
+carefully. The most common issue is a missing trailing dot, or a
+mismatched parenthesis in the SOA block.
+
+Same for the reverse zone.
+
+sudo named-checkzone 56.168.192.in-addr.arpa /etc/bind/db.192.168.56
+
+Both should say OK."
+
+[SCREENCAST — declare the zones]
+
+SPEAK:
+"Now let's declare the zones in named.conf.local.
+
+sudo nano /etc/bind/named.conf.local
+
+We add two zone blocks. One for lab.local, one for the reverse zone.
+Both are type master — meaning this server is the primary
+authoritative server for them.
+
+Both specify file, pointing at our zone files.
+
+Both have allow-update none — meaning no dynamic updates. You have
+to edit the files and reload to make changes.
+
+Save, exit."
+
+[SCREENCAST — reload]
+
+SPEAK:
+"Validate the whole config, then reload.
+
+sudo named-checkconf
+sudo systemctl reload named
+
+And check the journal to see the zones load.
+
+sudo journalctl -u named -n 20 --no-pager
+
+You should see two lines saying the zones are loaded with their
+serial numbers. If you do not see them, there is a problem — the
+reload failed, or the zone files were rejected."
+
+[PAUSE]
+
+[SCREENCAST — verify]
+
+SPEAK:
+"Now let's verify. This is the moment of truth.
+
+First, a forward lookup for www.lab.local.
+
+dig @127.0.0.1 www.lab.local A
+
+Expected: an A record for 192.168.56.20, and aa — authoritative
+answer — in the flags.
+
+Now the CNAME.
+
+dig @127.0.0.1 web.lab.local A
+
+Expected: a CNAME pointing to www.lab.local, then an A record for
+192.168.56.20.
+
+Now the MX record.
+
+dig @127.0.0.1 lab.local MX
+
+Expected: 10 mail.lab.local.
+
+Now the reverse lookup.
+
+dig @127.0.0.1 -x 192.168.56.20
+
+Expected: www.lab.local.
+
+And finally, the wildcard.
+
+dig @127.0.0.1 anything.lab.local A
+
+Expected: 192.168.56.99 — because it fell through to the wildcard.
+
+All five queries working means our zone is complete."
+
+[PAUSE]
+
+[SCREENCAST — client test]
+
+SPEAK:
+"Let's also test from the client machine.
+
+On the client, the nameserver should already be pointing at our
+BIND9 server — 192.168.56.1. Run:
+
+dig www.lab.local
+
+No @ symbol — just use the default resolver. The client sends the
+query to BIND9, BIND9 answers authoritatively, and the client gets
+the answer.
+
+We now have a complete internal DNS setup. Any machine on our lab
+network can resolve lab.local names against our own server."
+
+[SCREENCAST — break-and-fix]
+
+SPEAK:
+"One last exercise. Let's break it and see what happens.
+
+Open db.lab.local again. Delete the trailing dot from one of the
+NS record entries — so ns1.lab.local becomes ns1.lab.local without
+the final dot.
+
+Save and validate:
+
+sudo named-checkzone lab.local /etc/bind/db.lab.local
+
+It should report an error. Read the error message. It likely says
+something like 'bad owner name' or 'not a fully qualified name.'
+
+Now try to reload:
+
+sudo systemctl reload named
+sudo journalctl -u named -n 30 --no-pager
+
+The zone will fail to load, and BIND will keep serving the previous
+version — OR refuse to serve it, depending on the situation. Either
+way, the journal tells you what happened.
+
+Fix the file — put the dot back. Validate again — OK. Reload.
+
+And verify:
+
+dig @127.0.0.1 www.lab.local A
+
+Everything works again.
+
+That is the workflow. Edit → validate → reload → check journal.
+Never skip validation. On a production name server for a public
+domain, skipping validation can take the whole site down."
+
+[SLIDE — What you built]
+
+SPEAK:
+"So what did you build?
+
+You built an authoritative DNS server for your own internal domain.
+It holds a forward zone with A, MX, NS, CNAME, and SOA records. It
+holds a reverse zone with PTR records. It responds authoritatively
+to queries, and it forwards everything else to public resolvers.
+
+That is exactly the setup you would find in thousands of small
+businesses and home labs around the world. But more importantly, you
+learned the mechanics — how to write a zone file, how to validate
+it, how to load it, and how to debug it when something goes wrong.
+
+BIND9 is the reference implementation. It is not the only DNS server
+— dnsmasq, PowerDNS, NSD, Knot DNS, and others exist. But if you
+know BIND9, you can learn any of them in an afternoon. The concepts
+are universal."
+
+[SLIDE — Week 11 wrap-up]
+
+SPEAK:
+"That wraps up Week 11. We covered a lot of ground.
+
+We started with why DNS exists — sticky names, memorable names,
+flexible names, hierarchical names.
+
+We looked at the hierarchy — root servers, TLD servers,
+authoritative servers — and how delegation lets the whole thing
+scale.
+
+We walked through resolution — recursive queries from clients,
+iterative queries between servers, and the caching that makes it all
+cheap.
+
+We covered the record types: A, AAAA, CNAME, MX, NS, SOA, PTR, TXT,
+SRV.
+
+We looked at zones, zone files, trailing dots, and the serial
+increment rule.
+
+We looked at reverse zones and the in-addr.arpa domain.
+
+We looked at TTL, negative caching, and forwarding.
+
+We looked at the tools: dig, nslookup, host.
+
+And we built a working DNS server: BIND9 with an authoritative zone
+for lab.local, plus a reverse zone.
+
+Please complete the written homework assignment for this week. It
+combines conceptual questions with query analysis on the public
+internet and a substantial lab where you extend your zone files with
+new hosts.
+
+Next week — Week 12 — we continue Phase 2 with HTTP. We will deploy
+a web server with Nginx, learn the HTTP protocol, and set up virtual
+hosts and a reverse proxy. See you then.
+
+Until then — keep exploring."
+
+[END OF VIDEO 11.10 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 11
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~161 minutes of raw footage
+After editing and trimming: ~125–135 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

@@ -1,0 +1,1777 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 7 — Memory Management & Virtual Memory
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  eleven short videos.
+• Each video is designed to be between 10 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.1 — Why Virtual Memory Matters                              ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Memory Management & Virtual Memory"]
+
+SPEAK:
+"Welcome to Week 7 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+We are now six weeks into the theory phase. We have built up a stack
+of abstractions: the OS as resource manager, processes, threads, the
+synchronization primitives that keep concurrent code correct, the
+scheduler that decides who runs, and the deadlock problem that locking
+creates.
+
+Today we tackle the abstraction that sits underneath all of them:
+virtual memory. Every process you have ever run has its own private
+view of memory. Every load and store the CPU executes goes through a
+translation table. Every page fault that fires is a silent negotiation
+between hardware and kernel.
+
+By the end of this week, you will understand exactly how that
+translation works, why it is necessary, and what tools in Linux let
+you observe it in action."
+
+[PAUSE]
+
+[SLIDE 2 — A process thinking it has all of memory]
+
+SPEAK:
+"Start with a thought experiment. Every process that runs on your
+machine — the shell, the browser, the compiler, the game — believes
+it has a large, private, contiguous block of memory all to itself.
+
+It believes that address zero belongs to its code segment. That the
+heap can grow up whenever it wants. That the stack grows down from
+some high address. That no other process can touch any of it.
+
+But of course, this is not true. There is one physical RAM chip. There
+are dozens of processes. They cannot all own address zero
+simultaneously.
+
+So somebody has to lie to each process. And that somebody is the
+operating system, working together with a piece of hardware called the
+MMU — the Memory Management Unit.
+
+This entire week is about how that lie works."
+
+[PAUSE]
+
+[SLIDE 3 — Three problems we need to solve]
+
+SPEAK:
+"Before we look at the solution, let's be very clear about the three
+problems we are solving.
+
+Problem one: isolation. Without virtual memory, a buggy program could
+read or write another program's memory simply by using the right
+address. There would be no hardware check to stop it. One buggy
+process could corrupt every other running process.
+
+Problem two: fragmentation. If each process needs one contiguous block
+of RAM, then free memory becomes fragmented over time. A process that
+needs a hundred megabytes might be unable to fit even if the total
+free memory is five hundred megabytes, because the free space is
+scattered in smaller chunks.
+
+Problem three: flexibility. Programs would need to know at load time
+how much heap and stack they would need. Shared libraries would need
+duplicate copies in RAM. Paging to disk would be impossible.
+
+Virtual memory solves all three. It gives each process isolation, it
+eliminates fragmentation, and it gives programs freedom to grow,
+share, and be swapped to disk."
+
+[SLIDE 4 — The key idea]
+
+SPEAK:
+"So here is the key idea. We introduce a layer of indirection between
+the addresses a program uses and the physical addresses of RAM.
+
+The addresses a program sees are called virtual addresses. They are
+not real. They exist only in the program's imagination.
+
+The kernel maintains a translation table — the page table — that maps
+each virtual address to a physical address. The hardware MMU consults
+this table on every single memory access, and performs the
+translation in silicon.
+
+Crucially: the translation is not one-to-one with physical memory. The
+size of a virtual address space is independent of physical RAM size.
+A process can have a hundred gigabytes of virtual address space on a
+machine with only four gigabytes of RAM. That is possible because the
+kernel can leave most of the virtual address space unmapped, and
+bring pages in from disk on demand.
+
+This is the whole trick. Everything this week builds on this one
+idea."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize this first video.
+
+Real programs believe they have a large, private, contiguous block of
+memory. That belief is a lie maintained by the operating system.
+
+We maintain it by introducing a layer of indirection between virtual
+addresses and physical addresses. The kernel owns the translation
+table. The hardware performs the translation on every access.
+
+Virtual memory solves three problems: isolation, fragmentation, and
+flexibility.
+
+In the next video, we will look at the simplest approach to
+translation — contiguous allocation with base and limit registers.
+It is not what modern systems use, but it shows us the fundamental
+mechanism in its simplest form."
+
+[END OF VIDEO 7.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.2 — Contiguous Allocation & Fragmentation                   ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Contiguous Allocation & Fragmentation"]
+
+SPEAK:
+"Welcome back. Now that we know why we need memory translation, let's
+look at the simplest way to implement it: giving each process one
+contiguous block of physical memory, and using two registers to
+translate.
+
+This is the design that early systems used, and understanding it makes
+the more advanced designs much easier to reason about."
+
+[PAUSE]
+
+[SLIDE 2 — Base and limit registers]
+
+SPEAK:
+"Here is the design. Each process has two registers associated with
+it: a base register and a limit register.
+
+The base register contains the physical address where the process's
+memory begins. The limit register contains the size of the process's
+memory region.
+
+When the CPU wants to access a virtual address V — say, the address
+of a variable in memory — it does this in hardware, in just a few
+nanoseconds.
+
+First: check that V is less than the limit. If V is out of bounds,
+the CPU raises a trap — that is a segmentation fault, and the kernel
+kills the process.
+
+Second: add V to the base register. The result is the physical address.
+
+Third: use that physical address to actually access RAM.
+
+That is the whole mechanism. Three simple steps. Every memory access
+in the process goes through it."
+
+[PAUSE]
+
+[SLIDE 3 — What it buys us]
+
+SPEAK:
+"Two things. First: isolation. A process cannot reach outside its
+block, because the hardware refuses any address beyond its limit.
+Process A cannot read or write process B's memory — the addresses
+belonging to B are simply unreachable.
+
+Second: it is cheap. Two registers, two comparisons, one addition.
+The whole translation costs essentially nothing.
+
+So why doesn't every modern system use this? The answer is in the
+next slide."
+
+[SLIDE 4 — The fragmentation problem]
+
+SPEAK:
+"The problem is that contiguous allocation requires each process to
+have one single contiguous block of physical memory.
+
+Imagine a system with one gigabyte of RAM. Two hundred and fifty
+megabytes are being used by process A. Two hundred by process B. Three
+hundred by process C. Together, that is seven hundred and fifty, so
+two hundred and fifty megabytes are free — scattered in the gaps
+between them.
+
+Now suppose process D starts and needs a hundred and fifty megabytes.
+Can it fit? No. Not as a single contiguous block, because the largest
+free chunk might only be eighty megabytes.
+
+You have free memory — more than enough, in fact — but you cannot use
+it. This is called external fragmentation.
+
+And notice: it is not a rare condition. It happens constantly on any
+realistic system that uses contiguous allocation. Every process
+launch and exit reshapes the free space into smaller, less useful
+chunks."
+
+[PAUSE]
+
+[SLIDE 5 — Compaction]
+
+SPEAK:
+"There is one obvious fix, called compaction. The kernel periodically
+pauses all processes, moves them together, and consolidates the free
+memory into one large block.
+
+On a system with a few processes this works. But consider a modern
+machine with ten gigabytes of memory in use across a hundred running
+processes. Compaction means copying ten gigabytes of data. Every time.
+And after moving the data, you have to fix up every pointer in every
+process — table entries, heap references, everything. It is slow,
+complex, and disruptive.
+
+In practice, nobody uses compaction. Instead, we abandon the
+assumption that a process needs contiguous memory. That single change
+leads directly to the two techniques we will see in the next videos:
+segmentation and paging."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Contiguous allocation uses two registers — base and limit — to
+translate virtual addresses to physical ones. It is fast and it gives
+us isolation.
+
+But it requires each process to occupy one contiguous block of
+physical memory, and that leads to external fragmentation — free
+memory that is not usable because it is scattered in small pieces.
+
+Compaction is the theoretical fix, but it is too slow for systems with
+gigabytes of memory.
+
+In the next video, we will look at the first great breakthrough:
+segmentation."
+
+[END OF VIDEO 7.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.3 — Segmentation                                            ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Segmentation"]
+
+SPEAK:
+"Welcome to the third video of Week 7.
+
+Contiguous allocation treats the entire address space of a process as
+one big block. But that does not reflect how programs actually use
+memory. An address space has several distinct regions — code, data,
+heap, stack — with very different growth patterns.
+
+Segmentation is the idea of treating each of those regions separately.
+Instead of one base and one limit, we keep a table of base and limit
+pairs — one per segment."
+
+[PAUSE]
+
+[SLIDE 2 — The mechanism]
+
+SPEAK:
+"With segmentation, a virtual address is interpreted as two fields.
+High bits are the segment number. Low bits are the offset within that
+segment.
+
+When the CPU sees a virtual address, it does the following.
+
+First, it extracts the segment number from the high bits.
+
+Second, it looks up that segment number in the segment table — a data
+structure the kernel maintains in memory, with one entry per segment.
+
+Third, each segment table entry contains a base and a limit. The
+hardware checks that the offset is less than the limit. If not, trap.
+
+Fourth, the hardware computes the physical address as base plus
+offset.
+
+That is the whole translation. It looks a lot like contiguous
+allocation, but applied per-segment instead of for the whole process."
+
+[PAUSE]
+
+[SLIDE 3 — What segmentation gets us]
+
+SPEAK:
+"Segmentation gives us three things that contiguous allocation does
+not.
+
+First: each segment can grow independently. The heap can expand
+without pushing around the rest of the process. If the heap segment
+grows from one megabyte to two megabytes, we just update its limit,
+and possibly move it to a larger free region — but the code and data
+segments stay exactly where they are.
+
+Second: sharing is easy. If two processes run the same binary, their
+code segments can point to the same physical base. There is one copy
+of the code in RAM, and both processes are mapped to it. This is
+called a shared code segment, and it is why five instances of bash
+running on a machine do not take five times the memory.
+
+Third: protection is per-segment. The kernel can mark segment zero —
+the code — as read-only. It can mark segment one — the data — as
+read-write. If a rogue program tries to write to its code segment,
+the hardware refuses."
+
+[SLIDE 4 — But it is not enough]
+
+SPEAK:
+"Segmentation is a real improvement. But it does not solve
+fragmentation — it just moves the problem.
+
+Each segment is still a variable-sized contiguous block of physical
+memory. When the kernel needs to place a segment into RAM, it has to
+find a free region large enough to hold it. Over time, those free
+regions become fragmented again.
+
+If a process's heap needs to grow from one megabyte to two, and no
+free two-megabyte region exists, the kernel has to move the entire
+heap to a new location. This is expensive — the same compaction
+problem we saw with contiguous allocation, just at the segment level.
+
+Segmentation also introduces a new kind of fragmentation: segments
+vary in size, so the average amount of wasted space in a free region
+is larger than you might expect. Small segments leave small holes,
+and small holes are useless for large segments.
+
+So while segmentation is a genuine improvement, it is not the final
+answer."
+
+[PAUSE]
+
+[SLIDE 5 — The transition]
+
+SPEAK:
+"Both contiguous allocation and segmentation have the same underlying
+flaw. They both assume that memory regions must be variable-sized,
+flexible, and contiguous.
+
+What if we gave that up? What if we cut everything into the same
+size? What if we cut the address space into fixed-size chunks, and
+physical memory into the same-size chunks, and said that any chunk
+can go anywhere?
+
+Then there is no concept of a 'large enough free region.' Any free
+chunk will do. The fragmentation problem vanishes entirely.
+
+This is exactly what paging does. It is the design that every modern
+operating system uses. We will look at it in the next video."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Segmentation gives each logical region of a program its own base and
+limit, in a table called the segment table. Virtual addresses are
+split into a segment number and an offset.
+
+This lets regions grow independently, makes code sharing easy, and
+gives per-segment protection.
+
+But segments still have to be contiguous in physical memory, so
+fragmentation persists — just at a different level.
+
+The next design cuts memory into fixed-size units and lets them live
+anywhere. That design is paging, and it is what every modern operating
+system actually uses."
+
+[END OF VIDEO 7.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.4 — Paging — The Big Idea                                   ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Paging — The Big Idea"]
+
+SPEAK:
+"Welcome to the fourth video of Week 7.
+
+Paging is the single most important idea in modern memory management.
+It is what every real operating system uses, and it eliminates the
+fragmentation problem that plagued the two previous approaches.
+
+The idea is beautifully simple: instead of dividing memory into
+variable-sized regions, divide it into fixed-size chunks. Chunks in
+the virtual address space are called pages. Chunks in physical memory
+are called frames. A page can go into any frame — they do not need
+to be adjacent, they do not need to be in any particular order, they
+just need to exist."
+
+[PAUSE]
+
+[SLIDE 2 — The size of a page]
+
+SPEAK:
+"The standard page size on modern x86-64 Linux is four kilobytes.
+That is two to the twelfth power bytes — four thousand and ninety-six
+bytes exactly.
+
+Some systems use larger pages. x86-64 supports two-megabyte pages
+and even one-gigabyte pages, and we will see in a few videos why you
+might want those. But four kilobytes is the baseline.
+
+Because the page size is a power of two, the splitting and combining
+of addresses becomes just bit operations."
+
+[PAUSE]
+
+[SLIDE 3 — Splitting the virtual address]
+
+SPEAK:
+"When the CPU sees a thirty-two-bit virtual address on a system with
+four-kilobyte pages, it splits it into two parts.
+
+The low twelve bits are the offset. This is the position within the
+page. Because pages are four kilobytes, the offset uses exactly
+twelve bits, and it goes through translation unchanged.
+
+The high twenty bits are the virtual page number, or VPN. This is the
+part the kernel translates.
+
+The translation is: look up the VPN in the page table, get back a
+physical frame number, and combine it with the offset to get the
+physical address.
+
+Let me give you a concrete example. Say the virtual address is
+0x12345678. In binary, that is a bunch of bits. The low twelve bits —
+that is 0x678 — are the offset. The high bits — 0x12345 — are the VPN.
+The MMU looks up VPN 0x12345 in the page table and finds, say, PFN
+0x0ABCD. The physical address becomes 0x0ABCD678.
+
+The offset is preserved exactly. The VPN is replaced. That is the
+whole mechanism."
+
+[SLIDE 4 — The page table]
+
+SPEAK:
+"The page table is where the VPN-to-PFN mapping is stored. It is an
+array indexed by virtual page number. Each entry contains a physical
+frame number, plus some flag bits: a valid bit to indicate whether
+the page is currently in RAM, a dirty bit to track whether it has
+been modified, and permission bits for read and write access."
+
+[PAUSE]
+
+[SLIDE 5 — The price of paging]
+
+SPEAK:
+"There is one important cost to paging, and you should be very aware
+of it.
+
+Every single memory access the CPU makes now requires two accesses:
+first to the page table to find out where the page is, then to the
+actual memory location.
+
+That means, in principle, paging doubles the cost of every memory
+operation. Every load instruction, every store instruction, every
+instruction fetch — every one of them is now twice as slow.
+
+That is clearly unacceptable. The solution is a small, fast hardware
+cache called the TLB, and it is the subject of the next video. For
+now, just remember that this is the price paging would cost if we did
+not have a TLB."
+
+[SLIDE 6 — Why paging wins]
+
+SPEAK:
+"Despite that cost, paging wins because of what it solves.
+
+First: it completely eliminates external fragmentation. Any free
+frame will do. The kernel does not have to search for a large enough
+contiguous block, because pages are all the same size. A free frame
+is a free frame.
+
+Second: memory sharing becomes trivial. If two processes want to share
+a page of memory, they simply map that page to the same physical
+frame. Their page tables each have an entry pointing to the same PFN.
+Sharing is a matter of having two pointers pointing to the same
+place.
+
+Third: pages map naturally to disk storage. A page is a fixed-size
+unit, so it can be written out to disk and read back in one
+operation. This is what makes swapping and demand paging possible.
+
+Fourth: the address space can be sparse. The virtual address space
+of a process can be huge, with most of it never being used. Only the
+pages that are actually touched need to exist in physical memory.
+Unmapped pages cost nothing."
+
+[SLIDE 7 — Page size trade-off]
+
+SPEAK:
+"One design decision worth noting: page size.
+
+Smaller pages, like four kilobytes, waste less memory inside each
+page. If a program needs five kilobytes of memory, it gets two pages
+of four kilobytes each — the second page is only one kilobyte used,
+so three kilobytes are wasted. That is called internal fragmentation,
+and small page sizes keep it small.
+
+But smaller pages mean more page table entries. On a large address
+space, the page table becomes enormous. And because the page table
+is consulted on every access, a larger table means more TLB pressure
+and more cache misses.
+
+Larger pages, like two megabytes, solve this. A single entry covers
+five hundred times as much memory. The page table is tiny. TLB
+pressure is lower.
+
+But internal fragmentation grows — a program using five kilobytes
+of a two-megabyte page wastes almost two megabytes.
+
+Real systems use a mix. The kernel picks the page size based on the
+allocation — small pages for small objects, huge pages for large ones.
+Linux, for example, uses transparent huge pages for allocations larger
+than two megabytes."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+Paging cuts memory into fixed-size chunks. Virtual chunks are called
+pages, physical chunks are called frames. Any page can go into any
+frame, eliminating external fragmentation.
+
+A virtual address splits into a virtual page number and an offset.
+The MMU replaces the VPN with a physical frame number and keeps the
+offset.
+
+The page table stores the mapping. It is an array indexed by VPN.
+
+Paging costs us a second memory access per operation, which is why
+paging would be slow without the TLB — our next topic.
+
+In the next video, we will look at the TLB, and how it makes paging
+almost free."
+
+[END OF VIDEO 7.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.5 — The TLB                                                 ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Page Tables & the TLB"]
+
+SPEAK:
+"Welcome back. In the last video, we ended on a problem. Paging, in
+its purest form, doubles the cost of every memory access. That would
+make it unusable in practice.
+
+The solution is a hardware cache called the Translation Lookaside
+Buffer, or TLB for short. It is small, fast, and it is what makes
+paging feasible on real hardware."
+
+[PAUSE]
+
+[SLIDE 2 — The TLB in one picture]
+
+SPEAK:
+"The TLB is a small cache that stores recent virtual-to-physical
+translations. For our purposes, think of it as a little lookup table
+with just a few dozen to a few thousand entries.
+
+Each entry has three things: a virtual page number, a physical frame
+number, and some flag bits.
+
+The TLB is not indexed by address like a normal array. It is
+content-addressable memory — implemented directly in silicon. You
+hand it a virtual page number, and it either has that entry or it
+does not. It answers in a single CPU cycle.
+
+This is critically important. If the TLB were just a memory array,
+looking it up would itself require a translation, and we would have
+an infinite regress. The hardware designers avoid that by making the
+TLB physically a set of compare-and-match circuits, not memory."
+
+[SLIDE 3 — Hit and miss]
+
+SPEAK:
+"Here is what happens on every memory access.
+
+The CPU splits the virtual address into a VPN and an offset. Then it
+looks up the VPN in the TLB.
+
+Case one: the translation is in the TLB. This is called a TLB hit.
+The CPU immediately gets the PFN, combines it with the offset, and
+proceeds. Total cost: one or two cycles. Essentially free.
+
+Case two: the translation is not in the TLB. This is called a TLB
+miss. The CPU walks the page table in memory, finds the entry, uses
+it, and — crucially — caches it in the TLB for next time. Then it
+proceeds. Total cost: maybe two hundred to five hundred nanoseconds.
+
+The key number: thanks to cache locality — programs access a small
+working set of pages repeatedly — the TLB hit rate on real workloads
+is typically above ninety-nine percent. That means the expensive
+page-table walk happens only rarely, and the common case is the fast
+one."
+
+[PAUSE]
+
+[SLIDE 4 — Context switches and the TLB]
+
+SPEAK:
+"There is one subtlety we need to talk about: context switches.
+
+The TLB contains translations that are correct only for the current
+process. When process A is running, its TLB entries map A's virtual
+addresses. When we switch to process B, those entries become wrong —
+B's virtual pages are different, and if we did nothing, B would
+silently use A's old translations. That would be catastrophic.
+
+So on a context switch, the hardware has two choices.
+
+Option one: flush the entire TLB. Every entry is invalidated. When B
+starts running, the TLB is empty, and it pays the cost of page-table
+walks until it fills up again. Simple, but expensive.
+
+Option two: tag each TLB entry with an Address Space Identifier — an
+ASID. Every entry remembers which address space it belongs to.
+Context switches do not need to flush, because B's virtual addresses
+and A's virtual addresses are already distinguished by the ASID.
+This is what modern CPUs use. On x86-64 the mechanism is called
+Process Context Identifiers, or PCIDs."
+
+[SLIDE 5 — How the TLB interacts with caching]
+
+SPEAK:
+"A subtle point. Modern CPUs actually have two levels of caching:
+the TLB, and the normal data cache.
+
+When the CPU reads a piece of memory, it uses the TLB to translate
+the address, then it reads the data from the data cache. Both caches
+are consulted on every access.
+
+Because the TLB cache and data cache have consistent contents, they
+work together to make memory accesses fast. Data that is not in the
+data cache goes to RAM. Translations that are not in the TLB go to
+the page table.
+
+Programs that touch many pages with poor temporal locality — like
+scanning a large array with a poor access pattern — thrash the TLB.
+This is called TLB thrashing, and it can be a real performance
+problem for data-intensive workloads. The fix is usually to use
+huge pages, which reduce the number of TLB entries needed to cover
+the working set."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+The TLB is a hardware cache of recent virtual-to-physical
+translations. It has a few dozen to a few thousand entries, and it
+answers lookups in a single cycle.
+
+On a TLB hit — which is more than ninety-nine percent of accesses —
+the translation is essentially free. On a miss, the CPU walks the
+page table and caches the result.
+
+On a context switch, the TLB must either be flushed or tagged with
+ASIDs. Modern CPUs use ASIDs, so context switches do not empty the
+TLB.
+
+The TLB is one of the most important pieces of hardware in the
+translation pipeline. Without it, paging would be too slow to use."
+
+[END OF VIDEO 7.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.6 — Multi-Level Page Tables                                 ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Multi-Level Page Tables"]
+
+SPEAK:
+"Welcome to the sixth video of Week 7.
+
+We now understand the basic mechanism: paging uses a page table to
+translate virtual page numbers to physical frame numbers, and the
+TLB caches recent translations.
+
+But there is a practical problem with the page table itself. On a
+64-bit system, the virtual address space is enormous. If we tried to
+build a flat page table with one entry for every possible 4 KB page,
+it would be astronomical in size. It would take more memory than most
+machines have, and it would need to exist before the process even
+touched a single byte.
+
+The solution is multi-level paging. It uses a tree of small page
+tables, and only creates the branches that are actually needed."
+
+[PAUSE]
+
+[SLIDE 2 — Why we need a tree]
+
+SPEAK:
+"Let me put some numbers on it. A 64-bit virtual address on x86-64
+uses forty-eight bits for addressing — that gives two hundred and
+fifty-six terabytes of address space. At four kilobytes per page,
+that is sixty-four billion pages.
+
+A flat page table with one eight-byte entry per page would take five
+hundred and twelve gigabytes. Just for the page table. Per process.
+Before the process has done anything.
+
+Clearly, this does not work. We need a data structure that is
+proportional to what is actually used, not to the theoretical maximum."
+
+[SLIDE 3 — Multi-level translation]
+
+SPEAK:
+"The solution is to break the page table into a hierarchy. On x86-64,
+the standard is four levels.
+
+A virtual address is split into five fields: four nine-bit indices,
+used to navigate the tree, and a twelve-bit offset, used to index
+within the final page.
+
+The four nine-bit indices are called PGD, PUD, PMD, and PTE. In the
+kernel these are the page global directory, page upper directory,
+page middle directory, and page table entry.
+
+To translate a virtual address, the CPU reads the top-level PGD
+entry, follows it to a PUD table, reads the PUD entry, follows it to
+a PMD table, reads the PMD entry, follows it to a PTE table, and
+reads the final physical frame number.
+
+That is four dependent memory accesses, plus one more for the actual
+data. Five memory accesses for something that, without paging, would
+be one. That would be catastrophic."
+
+[PAUSE]
+
+[SLIDE 4 — The TLB saves the day]
+
+SPEAK:
+"But — this is where the TLB comes back in. The TLB caches the final
+leaf translations. Once a translation is cached, we do not walk the
+tree again. The four-level walk happens only on a TLB miss, which is
+rare.
+
+Also, the intermediate levels of the tree are themselves cached in
+the CPU's normal data caches. So even a page-table walk is usually
+cached at every level except the leaf.
+
+The result: multi-level paging costs very little in practice, because
+the expensive full walk is so rare."
+
+[SLIDE 5 — The elegant part]
+
+SPEAK:
+"Now here is the elegant part that makes multi-level paging really
+practical.
+
+If a region of the virtual address space is unused, we do not need to
+allocate the page tables for it. The upper-level entry just says 'no
+mapping here,' and the entire subtree below it does not exist.
+
+Consider a process that only uses ten megabytes of its two hundred
+and fifty-six terabyte address space. With a flat page table, we
+would allocate entries for all sixty-four billion pages, most of
+them unused.
+
+With multi-level paging, we only allocate the paths through the tree
+that lead to actually-used pages. That is a tiny fraction of the
+tree. Memory usage scales with what the process actually touches, not
+with what it could theoretically touch.
+
+This is the key insight. Sparse address spaces cost almost nothing."
+
+[SLIDE 6 — Huge pages]
+
+SPEAK:
+"There is one further optimization. If a region of the address space
+is a large contiguous block — say a hundred megabytes of buffer — we
+do not need a leaf page for every four-kilobyte chunk. We can use a
+huge page.
+
+A huge page is a single page table entry that covers a much larger
+region. On x86-64, the standard huge page size is two megabytes, and
+newer CPUs support one-gigabyte pages.
+
+Huge pages reduce the depth of the tree — you stop early — and they
+reduce the number of TLB entries needed. A single two-megabyte entry
+covers five hundred and twelve times as much memory as a four-kilobyte
+entry. For workloads that access large contiguous regions, huge pages
+are a massive win.
+
+Linux enables huge pages automatically for large allocations through
+a mechanism called Transparent Huge Pages. Applications do not need
+to do anything special — the kernel detects when a large allocation
+would benefit from a huge page and uses one."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+A flat page table for a modern 64-bit address space would be
+astronomically large — hundreds of gigabytes just for the table. That
+is impossible.
+
+Multi-level paging breaks the table into a tree of small tables.
+x86-64 uses four levels, indexed by four chunks of the virtual
+address.
+
+Only the branches of the tree that lead to actually-used pages are
+allocated. Sparse address spaces cost almost nothing.
+
+A full walk requires four dependent memory accesses, but the TLB
+caches the result, so walks are rare.
+
+Huge pages further reduce the tree depth and TLB pressure for large
+contiguous allocations.
+
+In the next video, we will look at demand paging — the mechanism
+that lets a process have an address space much larger than physical
+RAM."
+
+[END OF VIDEO 7.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.7 — Demand Paging & Page Faults                             ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Demand Paging & Page Faults"]
+
+SPEAK:
+"Welcome to the seventh video of Week 7.
+
+We have been assuming that a process's pages are all in RAM. But of
+course, that is impossible. Address spaces are much larger than RAM.
+And a process rarely touches more than a small subset of its address
+space at any moment.
+
+Demand paging makes this possible. It loads pages into RAM only when
+they are actually accessed. Until then, they live on disk — in a
+swap file or in an executable file."
+
+[PAUSE]
+
+[SLIDE 2 — Page fault mechanism]
+
+SPEAK:
+"Here is what happens when a program touches a page that is not in
+RAM.
+
+The CPU translates the address, and finds the page table entry marked
+as not-present. It raises a page fault exception. This traps into the
+kernel.
+
+The kernel then does five things.
+
+First: it checks whether the access is legitimate. Is this page
+actually mapped in the process's address space? If not, the process
+gets a segmentation fault.
+
+Second: it finds a free physical frame. If none is free, it evicts a
+page to create room — we will talk about eviction in the next video.
+
+Third: it reads the page from disk into the frame. This involves
+scheduling a disk I/O, and blocking the process while it waits.
+
+Fourth: it updates the page table entry to mark the page as present
+and to point to the new physical frame number.
+
+Fifth: it returns from the trap. The CPU re-executes the faulting
+instruction. This time the translation succeeds, and the process
+continues normally."
+
+[SLIDE 3 — Why demand paging works]
+
+SPEAK:
+"The reason this is so effective is that most programs have strong
+temporal and spatial locality. When they access memory, they access
+a small working set of nearby pages repeatedly.
+
+A typical program spends most of its time in a small fraction of its
+code — a few hot loops, a few frequently-called functions — and it
+operates on a small subset of its data. Vast regions of the address
+space sit unused for seconds or minutes at a time.
+
+Demand paging exploits this. It only loads the pages that are
+actually being used right now. Everything else stays on disk. As the
+program's working set changes, the kernel adjusts which pages are
+resident, bringing in what is needed and evicting what is no longer
+being touched."
+
+[PAUSE]
+
+[SLIDE 4 — The cost of a page fault]
+
+SPEAK:
+"Now I want to give you the numbers, because they drive everything
+else in memory management.
+
+A normal memory access on modern hardware takes about a hundred
+nanoseconds — a cache miss going to DRAM.
+
+A TLB hit is about a nanosecond. Essentially free.
+
+A TLB miss with a full page table walk in RAM is maybe two hundred
+to five hundred nanoseconds.
+
+A page fault where the page is on a solid-state disk takes about
+fifty to a hundred thousand nanoseconds — that is fifty to a hundred
+microseconds.
+
+A page fault where the page is on a spinning hard disk takes about
+five to ten million nanoseconds — that is five to ten milliseconds.
+
+So a page fault from disk is roughly fifty thousand times slower than
+a normal memory access.
+
+Let me put that in perspective. If even one in a thousand memory
+accesses causes a page fault, the effective access time becomes
+something like a hundred nanoseconds times zero point nine nine nine,
+plus fifty thousand nanoseconds times zero point zero zero one — so
+the average access goes from a hundred nanoseconds to fifty-one
+hundred nanoseconds. The system becomes fifty times slower.
+
+That is why the page replacement algorithm matters so much. Keeping
+the working set in RAM is the single most important thing memory
+management does."
+
+[SLIDE 5 — What pages can be non-resident]
+
+SPEAK:
+"There are several different kinds of 'not in RAM' pages, and the
+kernel handles each one differently.
+
+File-backed pages are pages of a memory-mapped file. If the file
+has not been read yet, the page faults the kernel reads the file
+contents from disk. Later, if the page is evicted, it can be read
+back from the same file — no separate swap file needed.
+
+Anonymous pages are pages with no backing file — heap allocations,
+stack frames. If they are evicted, they must be written to a swap
+file, because otherwise their contents would be lost.
+
+Copy-on-write pages are shared with another mapping. When written to,
+they fault, and the kernel makes a private copy. This is how fork
+works efficiently.
+
+All three kinds of faults reuse the same mechanism, but the kernel
+takes a different path for each. Understanding them all is the
+essence of understanding virtual memory in a modern kernel."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Demand paging loads pages into RAM only when they are touched. Pages
+that are not in RAM trigger a page fault, which the kernel handles
+by loading the page from disk.
+
+The page fault mechanism involves five steps: check the access,
+find a free frame, read the page from disk, update the page table,
+and retry the instruction.
+
+Demand paging works because programs have strong locality — they
+touch a small working set of pages repeatedly.
+
+But page faults are expensive — fifty thousand times slower than a
+normal memory access. Keeping the working set in RAM is critical.
+
+In the next video, we will look at the algorithms that decide which
+pages to evict."
+
+[END OF VIDEO 7.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.8 — Page Replacement Algorithms                             ║
+║  Target duration: ~20 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Page Replacement Algorithms"]
+
+SPEAK:
+"Welcome to the eighth video of Week 7.
+
+Now we come to the heart of memory management: the algorithm that
+decides which page to evict when we need a free frame but there is
+none. This is the page replacement problem, and it has been studied
+for over fifty years — since before Unix existed.
+
+We measure algorithms in a standard way. We take a reference string
+— a sequence of page accesses — and count how many faults occur as
+we process it with a fixed number of frames. Fewer faults, better
+algorithm."
+
+[PAUSE]
+
+[SLIDE 2 — FIFO]
+
+SPEAK:
+"The first algorithm is First In, First Out — FIFO. It is the
+simplest one.
+
+Keep the resident pages in a queue ordered by when they were loaded.
+When you need to evict, throw out the one at the front — the oldest.
+
+It is trivial to implement. On modern hardware it is one or two lines
+of code. And on many workloads, it works fine.
+
+But it has a nasty property. It can evict a page that has been used
+constantly since it arrived, simply because it arrived first. If your
+program has a hot loop over page five, but page five was loaded ten
+thousand accesses ago, FIFO will evict it — even though page five is
+being accessed every few instructions.
+
+And it has an even worse property: Belady's anomaly. This is a
+genuine anomaly, discovered in 1969. With more physical frames, FIFO
+sometimes produces MORE page faults. Adding more memory makes the
+system slower. That is deeply counter-intuitive and impossible to
+justify."
+
+[SLIDE 3 — Belady's anomaly example]
+
+SPEAK:
+"Let me show you the concrete example.
+
+Reference string: one, two, three, four, one, two, five, one, two,
+three, four, five. With three frames, FIFO produces nine faults. With
+four frames, FIFO produces ten faults.
+
+More memory, more faults. This is what makes FIFO unusable in
+practice for anything other than toy systems.
+
+LRU does not have this problem. Let me explain why."
+
+[SLIDE 4 — LRU]
+
+SPEAK:
+"LRU — Least Recently Used — is the algorithm most people first learn.
+On eviction, choose the page that has not been accessed for the
+longest time.
+
+The reasoning: if you have not touched a page in a long time, you
+probably will not touch it soon. So evict it in favor of something
+you have used more recently.
+
+LRU has no Belady's anomaly. This is not an accident. It is because
+LRU is what is called a stack algorithm. If you increase the number
+of frames, the set of resident pages always contains the previous
+set as a subset. You can never make things worse by adding memory.
+Formally, LRU's behavior is monotone with respect to frame count.
+
+But LRU has a different problem: implementing it exactly requires
+updating a data structure — a linked list or an ordered tree — on
+every single memory access. On a machine doing a billion memory
+accesses per second, that is a billion data structure updates per
+second. That overhead dwarfs the benefit. Real systems do not
+implement true LRU.
+
+We approximate it instead. That is the next algorithm."
+
+[SLIDE 5 — Optimal]
+
+SPEAK:
+"Optimal, also called Belady's algorithm, says: evict the page that
+will be used furthest in the future. If you know the future access
+pattern, this gives the minimum possible number of faults.
+
+Of course, we do not know the future. Optimal is not implementable.
+It is a theoretical optimum.
+
+But it is extremely valuable, because it gives us a benchmark. When
+we compare our real algorithms — our approximations — to Optimal, we
+can see how much we are losing. If a real algorithm gets within ten
+percent of Optimal on a workload, we say it is doing well.
+
+In the reference string we have been using, Optimal produces nine
+faults. LRU produces twelve. FIFO produces fifteen. So LRU is closer
+to Optimal than FIFO. That ranking generalizes to real workloads."
+
+[SLIDE 6 — Clock]
+
+SPEAK:
+"Here is the algorithm real systems use. It is called Clock, or the
+Second-Chance algorithm.
+
+The idea is: use a single bit — the accessed bit in the page table
+entry — to approximate LRU. The accessed bit is set by the hardware
+on every access, and the kernel can clear it periodically.
+
+Arrange the resident pages around a circle, like a clock face, and
+keep a hand that points at one of them.
+
+When you need to evict, look at the page under the hand.
+
+If its accessed bit is one, clear it and move the hand forward. This
+page has been used recently — give it another chance.
+
+If its accessed bit is zero, evict that page. It has not been
+accessed since the last time we cleared bits, so it is a good victim.
+
+The name Second-Chance comes from this: pages get a second chance
+if their accessed bit is set. Only when you have gone all the way
+around the circle without finding a page with a clear bit do you
+really have to evict something.
+
+Clock costs essentially nothing per access — the hardware sets a
+single bit, and the kernel only reads and modifies bits during the
+replacement decision. It is not quite as good as LRU, but it is
+close, and it is fast enough to be used in every real kernel."
+
+[SLIDE 7 — Modern enhancements]
+
+SPEAK:
+"Clock is a starting point. Real kernels use variants that incorporate
+more signals.
+
+The dirty bit — indicating that the page has been modified — tells
+the kernel that a clean page is a better victim than a dirty page,
+because evicting a dirty page requires a slow disk write while
+evicting a clean page does not.
+
+The reference bit count or aging counter, tracked over multiple
+sweeps, gives a finer-grained estimate of how recently a page was
+used.
+
+Active and inactive lists: pages that are accessed recently are kept
+in the active list, and pages that fall out of that are moved to the
+inactive list. When memory pressure builds, the kernel evicts from
+the inactive list first.
+
+Linux uses a sophisticated multi-generational LRU that combines all
+of these ideas. Windows, macOS, and the BSDs use their own variants.
+But every one of them is rooted in Clock, and Clock is rooted in LRU,
+and LRU is rooted in the simple intuition that recently-used pages
+are likely to be used again."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+Page replacement algorithms choose which page to evict when a page
+fault occurs and no free frame exists.
+
+FIFO is simple but evicts recently-used pages by mistake, and it
+suffers from Belady's anomaly — more frames can mean more faults.
+
+LRU is the ideal — evict the least recently used — but it is too
+expensive to implement exactly.
+
+Optimal is the theoretical minimum. It is not implementable, but it
+gives us a benchmark.
+
+Clock approximates LRU using a single accessed bit and a sweeping
+hand. It is what every real operating system uses.
+
+Modern kernels layer on top of Clock: they also track whether pages
+are dirty, whether they have been accessed across multiple sweeps,
+and whether they are on active or inactive lists. The result is
+sophisticated but still recognizable as an LRU approximation."
+
+[END OF VIDEO 7.8 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.9 — Thrashing & the Working Set                             ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Thrashing & the Working Set"]
+
+SPEAK:
+"Welcome to the ninth video of Week 7.
+
+We now have the mechanisms: paging, the TLB, multi-level page tables,
+demand paging, and page replacement. In this video, we look at what
+happens when those mechanisms fail — when the system is running more
+processes than its memory can support.
+
+This failure mode is called thrashing, and on old systems it could
+make a machine effectively unusable for minutes at a time."
+
+[PAUSE]
+
+[SLIDE 2 — What thrashing looks like]
+
+SPEAK:
+"The symptoms are striking. The disk activity spikes — the drive
+light is solidly on. The CPU utilization is low — often under five
+percent. The system feels frozen. You type a character and it appears
+half a minute later, if at all.
+
+But if you look at the process list, everything seems fine. Every
+process is in the running state, or in the waiting state, but nothing
+has crashed. Nothing is obviously wrong.
+
+The problem is that every process is spending almost all its time
+waiting for page faults. It executes a few instructions, faults on
+a page that was evicted, waits for that page to come back from disk,
+executes a few instructions, and faults on the next page.
+
+The CPU is idle because no process has anything it can execute — they
+are all waiting for I/O to complete."
+
+[SLIDE 3 — The death spiral]
+
+SPEAK:
+"And here is the truly perverse part. The OS is designed to keep the
+CPU busy. So when the scheduler sees the CPU idle, it does what any
+reasonable scheduler would do. It runs more processes.
+
+But those additional processes also have working sets that need to
+fit in RAM. So they push more pages into eviction, which means more
+page faults, which means more disk I/O, which means the CPU stays
+idle.
+
+The scheduler sees even more idle CPU. It runs even more processes.
+And so on.
+
+The system has entered a positive feedback loop — a death spiral. It
+is doing more and more of the actions that harm it, in an attempt to
+fix a problem that those very actions are making worse. This is
+thrashing."
+
+[PAUSE]
+
+[SLIDE 4 — The working-set model]
+
+SPEAK:
+"The fix is called the working-set model. The idea is to explicitly
+track the pages each process is actually using at any given time —
+its working set — and to give it enough frames to hold that working
+set.
+
+There are several ways to define the working set. The classic
+definition is based on time: the pages accessed in the last Δ
+seconds. That is empirical, measurable, and it matches the intuition
+that recent accesses predict future accesses.
+
+Once the kernel has an estimate of each process's working set size,
+it can make a better decision. Instead of just running more
+processes when the CPU is idle, it can check whether those processes
+will actually fit in RAM.
+
+If the total demand exceeds available physical memory, the kernel
+swaps an entire process out to disk, freeing its frames for other
+processes. The swapped-out process waits until memory pressure
+subsides. This is called a controlled swap, and it prevents the
+death spiral."
+
+[SLIDE 5 — How Linux does it]
+
+SPEAK:
+"Linux does not implement the classic working-set model, but it uses
+the same idea.
+
+The kernel tracks, for each memory-mapped region of each process,
+which pages are hot and which are cold. It maintains active and
+inactive lists.
+
+When memory pressure builds, the kernel first reclaims pages from
+the inactive list — those that have not been accessed recently. Only
+if that is not enough does it consider evicting active pages.
+
+The kernel also tracks the frequency of page faults. If page fault
+rate climbs past a threshold, the kernel interprets that as a signal
+that a process is thrashing, and it may throttle allocations for
+that process, or even invoke the OOM killer — the out-of-memory
+killer, which terminates the process that is using the most memory.
+
+The OOM killer is the ultimate backstop. When the system simply
+cannot keep up with memory pressure, something has to give. Rather
+than let the entire system freeze, the kernel picks one process and
+kills it. This is ugly, but it is better than catastrophic failure
+of the whole system."
+
+[SLIDE 6 — Preventing thrashing in your own programs]
+
+SPEAK:
+"Preventing thrashing is not just the kernel's job. As a programmer,
+you can help.
+
+First: reduce your working set. If you can traverse data structures
+with better cache locality — using arrays instead of linked lists,
+iterating in memory order — your program touches fewer pages.
+
+Second: if you must allocate a large data structure, use huge pages
+if your platform supports it. On Linux, this happens automatically
+for allocations above two megabytes, but you can also request them
+explicitly with <code>madvise</code>.
+
+Third: prefer streaming through data over random access. Sequential
+access has better cache behavior and better working set behavior than
+random access.
+
+Fourth: do not allocate memory you do not use. Every page you allocate
+is a page that must eventually be managed, and if it is touched but
+not useful, you are wasting frames that could hold useful pages.
+
+Programs that follow these rules thrash less, even on memory-
+constrained systems."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Thrashing happens when processes do not have enough frames to hold
+their working sets. Every memory access becomes a page fault, the CPU
+is idle, and the system effectively freezes.
+
+The death spiral: the scheduler sees idle CPU, runs more processes,
+which makes memory pressure worse, which makes the CPU idler.
+
+The working-set model tracks how much memory each process needs and
+adjusts the load accordingly. Linux implements the same idea with
+active/inactive lists and the OOM killer.
+
+As a programmer, you can reduce thrashing by improving locality,
+using huge pages for large allocations, preferring streaming over
+random access, and avoiding unnecessary allocations.
+
+In the next video, we move to the practical side. We will look at how
+Linux exposes virtual memory through tools like free, vmstat, and
+/proc/meminfo."
+
+[END OF VIDEO 7.9 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.10 — Touch Lab: Reading Linux Memory Statistics             ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Reading Linux Memory Statistics"]
+
+SPEAK:
+"Welcome to the practical side of Week 7. In this video we are going
+to see virtual memory in action on our Ubuntu VM. The tools we will
+use are the three you would use to diagnose any real memory problem
+on a Linux server: free, vmstat, and /proc/meminfo.
+
+By the end of this video, you will know exactly which numbers to look
+at, which ones to ignore, and how to tell whether a system is under
+memory pressure.
+
+Make sure your Ubuntu VM is running and you are logged in. Let's get
+started."
+
+[SCREENCAST — the free command]
+
+SPEAK:
+"First, let's look at the simplest tool: free.
+
+free -h
+
+The -h flag means human-readable. Bytes are shown as gigabytes or
+megabytes instead of raw numbers.
+
+Let me explain each column carefully, because this is where beginners
+get confused.
+
+'total' is the total physical RAM on the machine.
+
+'used' is the memory currently being used by processes. It does not
+include cache.
+
+'free' is the memory that is completely unused — not holding anything
+at all.
+
+'shared' is memory used by shared memory segments and tmpfs.
+
+'buff/cache' is the page cache. This is the kernel's disk cache. It
+is reclaimable — the kernel can drop any of it at any moment if a
+process needs the space.
+
+And finally 'available' is the number that actually matters. It is
+the amount of memory that is realistically available to processes
+without triggering swap. It equals free plus reclaimable cache.
+
+So if you look at 'free' and see something small, do not panic. On
+Linux, 'free' is often near zero because the kernel uses all spare
+memory for caching. The number you want to watch is 'available'."
+
+[PAUSE]
+
+[SCREENCAST — vmstat]
+
+SPEAK:
+"Second tool: vmstat.
+
+vmstat 1 5
+
+This runs vmstat with a one-second interval, five times. You will see
+five rows of data, each representing one second of system activity.
+
+Let me walk through the columns that matter for memory.
+
+'r' is the number of runnable processes. If this is consistently
+higher than the number of CPUs, you have CPU pressure.
+
+'b' is the number of blocked processes. These are usually waiting
+for I/O — disk or network.
+
+'swpd' is how much swap is currently in use.
+
+'si' is swap-in rate — pages being brought back from swap. If this
+is nonzero for any sustained period, the system is under memory
+pressure and the kernel is paging things in.
+
+'so' is swap-out rate — pages being written to swap. Nonzero means
+real memory pressure.
+
+'bi' and 'bo' are block in and block out — disk I/O rates.
+
+And then the CPU usage breakdown at the end.
+
+The signal for memory pressure is nonzero si and so. Sustained si
+means pages that were paged out are being needed again. Sustained so
+means the kernel has decided it cannot keep something in RAM and is
+moving it out. Both are strong indicators that your system is memory-
+constrained."
+
+[PAUSE]
+
+[SCREENCAST — /proc/meminfo]
+
+SPEAK:
+"Third tool: /proc/meminfo. This gives you everything the kernel knows
+about memory, in one file.
+
+Let me show you the most important fields.
+
+grep -E 'MemTotal|MemFree|MemAvailable|Buffers|Cached|SwapTotal|SwapFree|Dirty|Writeback' /proc/meminfo
+
+MemTotal and MemFree are obvious. MemAvailable is the same as the
+'available' column in free.
+
+Buffers and Cached are the two parts of the page cache. Buffers is
+disk metadata, Cached is file contents.
+
+SwapTotal and SwapFree tell you how much swap is available.
+
+Dirty is the number of pages that have been modified in memory but
+not yet written back to disk. High dirty counts mean the kernel is
+delaying writeback. This is fine for a moment, but sustained high
+dirty values can cause latency spikes when the writeback finally
+happens.
+
+Writeback is the number of pages currently being written to disk.
+Sustained nonzero values suggest I/O pressure."
+
+[SCREENCAST — creating memory pressure]
+
+SPEAK:
+"Let's see memory pressure in action. I want to be careful here — we
+do not want to actually cause system problems, so we will use a
+short, bounded experiment.
+
+If you have stress-ng installed, you can use it. Otherwise, we will
+do something lighter.
+
+stress-ng --vm 1 --vm-bytes 500M --timeout 20s
+
+This starts one VM worker that allocates five hundred megabytes and
+keeps it for twenty seconds. Not enough to cause problems on a
+machine with two gigabytes or more, but enough to see the numbers
+move.
+
+While that runs, open another terminal and run:
+
+watch -n 1 'grep -E "MemAvailable|SwapFree|Dirty" /proc/meminfo'
+
+You will see MemAvailable drop. If the workload fits in RAM, it will
+come back up after the twenty seconds. If it exceeds RAM, you will
+see SwapFree drop and si/so in vmstat become nonzero.
+
+On my VM with four gigabytes of RAM, five hundred megabytes does not
+cause swapping. Let me show you what happens if I push it higher.
+
+stress-ng --vm 1 --vm-bytes 3G --timeout 20s
+
+Now watch /proc/meminfo and vmstat in the other window. You should see
+SwapFree drop, si and so become nonzero, and the system become less
+responsive as it swaps.
+
+Do not do this on a production machine. On a VM that you own, it is
+safe and educational."
+
+[SCREENCAST — cleaning up]
+
+SPEAK:
+"Let's make sure everything is cleaned up.
+
+kill any stress-ng processes:
+pkill stress-ng
+
+And verify the memory usage has returned to baseline:
+grep -E 'MemAvailable|SwapFree' /proc/meminfo
+vmstat 1 2
+
+If everything went fine, available memory returns to what it was and
+si/so go back to zero."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we used three tools to look at Linux memory from three
+different angles.
+
+free -h gives you the top-level overview: total, used, free, cache,
+and available.
+
+vmstat gives you the rate of activity: swap-in, swap-out, block I/O,
+and CPU usage.
+
+/proc/meminfo gives you the raw numbers, including the dirty and
+writeback counts that indicate how much is queued for disk.
+
+Combined, these three tools let you diagnose almost any memory issue
+you will encounter on a real Linux system.
+
+In the next video, we go to the algorithmic side: we will build a
+page-replacement simulator in Python and compare FIFO, LRU, and
+Optimal on the classic textbook reference string."
+
+[END OF VIDEO 7.10]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 7.11 — Touch Lab: Simulating Page Replacement                 ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Simulating Page Replacement Algorithms"]
+
+SPEAK:
+"Welcome to the final video of Week 7. In this video, we are going
+to write a Python simulator that reproduces the classic page
+replacement experiments from the textbook.
+
+The goal is simple: to watch FIFO, LRU, and Optimal produce different
+fault counts on the same reference string, and to see Belady's
+anomaly with our own eyes.
+
+This is the last theory lab before the midterm. Take it seriously —
+the concepts here are the kind of things exam questions love to
+target."
+
+[SCREENCAST — create the script]
+
+SPEAK:
+"First, create the script file.
+
+nano pagerepl.py
+
+Paste in the code I am showing. It has three simulation functions,
+one for each algorithm, and a main that runs them on the same
+reference string.
+
+Let me walk you through the structure.
+
+simulate_fifo keeps a list of pages in memory, in arrival order. When
+it needs to evict, it pops the first element — the oldest — and
+appends the new one.
+
+simulate_lru keeps a dictionary of when each page was last used. On
+eviction, it finds the page with the smallest last-used timestamp
+and evicts that.
+
+simulate_optimal simulates perfect knowledge. On eviction, it scans
+ahead in the reference string to find the next use of each resident
+page. The page whose next use is furthest in the future gets evicted.
+
+All three track the number of page faults and print a step-by-step
+trace.
+
+Save and exit."
+
+[SCREENCAST — run it]
+
+SPEAK:
+"Now run it.
+
+python3 pagerepl.py
+
+The output shows the classic reference string: seven, zero, one, two,
+zero, three, zero, four, and so on. That is twenty page accesses.
+
+With three frames, FIFO produces fifteen page faults. LRU produces
+twelve. Optimal produces nine.
+
+Let me pause on those numbers. FIFO is the worst. LRU is middle.
+Optimal is best. That is the classic ranking, and it generalizes to
+virtually all workloads.
+
+But look carefully at the trace. You can see exactly which accesses
+fault and which are hits. Notice that LRU and FIFO sometimes agree
+and sometimes differ. On this reference string, LRU has three fewer
+faults — that is not a huge difference, but on real workloads the
+gap can be much larger."
+
+[SCREENCAST — Belady's anomaly]
+
+SPEAK:
+"Now let me show you the fascinating part: Belady's anomaly.
+
+Change the reference string at the top of the script. Replace it with:
+one, two, three, four, one, two, five, one, two, three, four, five.
+That is the classic example from the textbook.
+
+Run with three frames.
+
+python3 pagerepl.py
+
+FIFO produces nine faults. Now change the number of frames to four
+and run again.
+
+python3 pagerepl.py
+
+FIFO produces ten faults. Ten is more than nine. With more physical
+frames, FIFO produces MORE page faults.
+
+This is Belady's anomaly. It is genuinely counter-intuitive, and it
+is the reason FIFO is never used in real systems.
+
+Let me show you that LRU does not have this problem. Change the
+algorithm to LRU and run with three frames. Then with four frames.
+You will see the fault count go down — from ten to eight. Adding
+memory helps, as you would expect."
+
+[SCREENCAST — exploring further]
+
+SPEAK:
+"Let me show you one more experiment. I want to demonstrate what
+happens with poorly-locality workloads.
+
+Change the reference string to random numbers. I will use Python's
+random module.
+
+Actually, let me tell you what happens before we run it. With random
+page accesses and three frames, the fault rate approaches the number
+of available pages. If there are ten distinct pages and three frames,
+and access is uniformly random, then almost every access is a miss.
+The reason is that there is no locality — there is no correlation
+between what was just used and what will be used next.
+
+Now use a cyclic reference string — something like zero, one, two,
+three, zero, one, two, three — and you will see a very different
+result. With three frames and four distinct pages in the cycle, every
+access is a fault. This is the classic worst case for LRU — the
+working set is one page larger than available memory, so LRU
+constantly evicts exactly the page that is needed next.
+
+But if you use four frames for four pages, LRU produces only four
+faults — one per page, then all hits. That is the ideal case."
+
+[SLIDE — Why this matters]
+
+SPEAK:
+"Let me connect this back to real systems.
+
+Everything we have simulated happens in real Linux kernels, just with
+much more sophisticated algorithms and much more data. Real kernels
+have to make the same decisions — which page to evict — on real
+workloads with millions of pages, in nanoseconds.
+
+The classical algorithms are the foundation. Real systems layer on
+top of them:
+
+- They use the accessed bit for approximate recency, like Clock.
+- They use the dirty bit to prefer evicting clean pages.
+- They track working set size to avoid thrashing.
+- They use per-cgroup accounting to enforce memory limits.
+
+But the underlying question is always the same. Which page should go?
+And the answer is always some variant of: the one that has not been
+used in the longest time, and that we do not believe will be used
+soon."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we built a full page-replacement simulator.
+
+We watched FIFO, LRU, and Optimal produce different fault counts on
+the classic reference string — fifteen, twelve, and nine
+respectively.
+
+We reproduced Belady's anomaly: FIFO going from nine faults to ten
+when we added another frame.
+
+And we explored how workload shape — random, cyclic, local — affects
+the behavior of the algorithms.
+
+The main takeaway is that page replacement is a real, measurable
+problem with concrete algorithms and a rich set of trade-offs. The
+next time you configure a database or a virtual machine, remember
+that the memory subsystem behind those configurations is doing
+exactly what we have been simulating here."
+
+[SLIDE — Week 7 wrap-up]
+
+SPEAK:
+"That wraps up Week 7. We covered the whole memory management
+pipeline: virtual addresses and translation, the base-and-limit
+model, segmentation, paging, page tables, the TLB, multi-level
+paging, demand paging, page-replacement algorithms, and thrashing.
+
+This is a lot of material. Do not try to memorize everything. Try
+instead to build the mental picture: the OS maintains a translation
+table per process. The hardware uses it on every access. When the
+table says 'not present,' the kernel brings the page in from disk.
+When memory fills up, the kernel chooses a victim to evict.
+
+Every part of this week's material is a detail on top of that one
+story.
+
+Please complete the written homework assignment for this week. It
+is substantial — a mix of conceptual questions, numerical exercises
+on page replacement, and lab work on your VM.
+
+Next week is Week 8. It is the last theory week before the midterm.
+We will cover file systems, I/O, and then you will take the midterm
+exam. Start reviewing now — the exam covers all of Weeks 1 through
+7, and it is worth twenty percent of your final grade.
+
+See you next week."
+
+[END OF VIDEO 7.11 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 7
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~168 minutes of raw footage
+After editing and trimming: ~135–145 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

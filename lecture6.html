@@ -1,0 +1,1478 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 6: Deadlocks</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 6</span>
+            <span class="violet"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-clock"></i> Theory + Touch Lab</span>
+        </div>
+
+        <h1>Deadlocks</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> — Chapter 32 (Concurrency Bugs), Chapter 32
+            continued through practical exercises &amp; <em>Operating System Concepts</em> — Silberschatz, Chapter 8.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#what">6.1 · What is a Deadlock?</a>
+            <a href="#coffman">6.2 · Coffman's Conditions</a>
+            <a href="#rag">6.3 · Resource Allocation Graphs</a>
+            <a href="#prevention">6.4 · Prevention</a>
+            <a href="#avoidance">6.5 · Avoidance — Banker's Algorithm</a>
+            <a href="#detection">6.6 · Detection &amp; Recovery</a>
+            <a href="#philosophers">6.7 · Dining Philosophers Revisited</a>
+            <a href="#lab-banker">6.8 · Lab: Banker's Algorithm Script</a>
+            <a href="#lab-diag">6.9 · Lab: Diagnosing Threads</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 6.1 WHAT IS A DEADLOCK?                                      -->
+        <!-- ============================================================ -->
+        <h2 id="what"><i class="fas fa-skull-crossbones"></i> 6.1 · What is a Deadlock?</h2>
+
+        <p>
+            In Week 4 we built up a stack of synchronization primitives — mutexes, semaphores, and condition
+            variables — and we used them to solve the correctness problems that concurrency creates. We also closed
+            that week with a warning: <em>deadlocks are the classic failure mode of locking</em>. Now it is time to
+            take that warning seriously.
+        </p>
+
+        <p>
+            A <strong>deadlock</strong> is a situation in which a set of threads are all waiting for events that can
+            only be caused by another thread in the same set. Because every thread in the set is waiting, none of
+            them can proceed. Nobody can make the first move. The set is stuck forever.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>The defining feature of a deadlock:</strong> it is not slow progress, it is not starvation, and
+            it is not a livelock. It is a permanent standstill. Nothing that the kernel or the applications do will
+            break it without external intervention. The only way forward is if someone kills a thread — from the
+            <em>outside</em> — or the whole machine reboots.
+        </div>
+
+        <h3>The simplest example: two threads, two locks</h3>
+
+        <p>
+            Imagine two threads, A and B, and two mutexes, <code>L1</code> and <code>L2</code>. Both threads need
+            both locks to do their work. Their code looks like this:
+        </p>
+
+        <pre><code>/* Thread A */                    /* Thread B */
+pthread_mutex_lock(&amp;L1);          pthread_mutex_lock(&amp;L2);
+   /* work with resource 1 */        /* work with resource 2 */
+pthread_mutex_lock(&amp;L2);          pthread_mutex_lock(&amp;L1);
+   /* work with resource 2 */        /* work with resource 1 */
+pthread_mutex_unlock(&amp;L2);        pthread_mutex_unlock(&amp;L1);
+pthread_mutex_unlock(&amp;L1);        pthread_mutex_unlock(&amp;L2);</code></pre>
+
+        <p>
+            Notice the danger: <strong>Thread A acquires L1 then L2. Thread B acquires L2 then L1.</strong> This is
+            the classic <em>opposite order</em> — the single most common way to create a deadlock in real code.
+            Now watch what happens if the scheduler interleaves them just one way:
+        </p>
+
+        <!-- SVG: two-thread deadlock timeline -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg"
+                aria-label="Two-thread deadlock timeline">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#f472b6" text-anchor="middle"
+                    font-weight="700">A classic deadlock — both threads wait forever</text>
+
+                <!-- Thread A column -->
+                <text x="140" y="60" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Thread A</text>
+
+                <rect x="40" y="80" width="200" height="32" rx="6" fill="rgba(59, 130, 246, 0.22)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="140" y="101" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">lock(L1) — acquired</text>
+
+                <rect x="40" y="130" width="200" height="32" rx="6" fill="rgba(245, 158, 11, 0.22)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="140" y="151" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">lock(L2) — BLOCKS</text>
+
+                <text x="140" y="190" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">waiting for L2…</text>
+
+                <!-- Thread B column -->
+                <text x="680" y="60" font-family="Inter" font-size="13" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Thread B</text>
+
+                <rect x="580" y="80" width="200" height="32" rx="6" fill="rgba(16, 185, 129, 0.22)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="680" y="101" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">lock(L2) — acquired</text>
+
+                <rect x="580" y="130" width="200" height="32" rx="6" fill="rgba(245, 158, 11, 0.22)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="680" y="151" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">lock(L1) — BLOCKS</text>
+
+                <text x="680" y="190" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">waiting for L1…</text>
+
+                <!-- Circular dependency arrow in the middle -->
+                <path d="M 240 145 Q 410 60 580 145" fill="none" stroke="#ec4899" stroke-width="2"
+                    stroke-dasharray="6,4" />
+                <path d="M 580 160 Q 410 240 240 160" fill="none" stroke="#ec4899" stroke-width="2"
+                    stroke-dasharray="6,4" />
+
+                <text x="410" y="118" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">A holds L1, wants L2</text>
+                <text x="410" y="218" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">B holds L2, wants L1</text>
+
+                <text x="410" y="275" font-family="Inter" font-size="12" fill="#94a3b8" text-anchor="middle">
+                    Neither thread can make progress. The system is deadlocked.
+                </text>
+            </svg>
+            <div class="svg-caption">Two threads each hold one lock and wait for the other — the circular wait is complete, and neither can proceed.</div>
+        </div>
+
+        <p>
+            The sequence is:
+        </p>
+
+        <ol>
+            <li>Thread A executes <code>lock(L1)</code> and succeeds. It now holds L1.</li>
+            <li>Thread B executes <code>lock(L2)</code> and succeeds. It now holds L2.</li>
+            <li>Thread A tries <code>lock(L2)</code>. It is held by B, so A blocks.</li>
+            <li>Thread B tries <code>lock(L1)</code>. It is held by A, so B blocks.</li>
+            <li>Both threads are blocked. Neither will ever release its first lock, because they are waiting for
+                the second lock, which cannot be released by the other because it is waiting for the first lock.</li>
+        </ol>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The core insight:</strong> a deadlock requires a <em>cycle</em> in the "who waits for what"
+            graph. Two threads holding lock A and waiting for B, and holding B and waiting for A, form exactly such
+            a cycle — a 2-cycle. Bigger cycles (three threads, four locks) are just harder to see, not harder to
+            fall into.
+        </div>
+
+        <h3>Deadlock vs livelock vs starvation</h3>
+
+        <p>
+            Before we go further, let us distinguish deadlock from two other failure modes that are often confused
+            with it:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 18%;">Failure</th>
+                    <th style="width: 30%;">What's happening</th>
+                    <th>Can it resolve itself?</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Deadlock</strong></td>
+                    <td>Threads are blocked forever, each waiting for another. Nobody is executing.</td>
+                    <td>No. External intervention required.</td>
+                </tr>
+                <tr>
+                    <td><strong>Livelock</strong></td>
+                    <td>Threads are actively running — performing actions — but those actions repeatedly undo
+                        each other's work. Similar to two people stepping side-to-side trying to pass on a sidewalk.</td>
+                    <td>In principle yes, if timing changes. In practice, no.</td>
+                </tr>
+                <tr>
+                    <td><strong>Starvation</strong></td>
+                    <td>One thread is ready to run but never gets the resource it needs, because others keep
+                        winning it.</td>
+                    <td>Yes, eventually — if priority or scheduling changes.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Why the distinction matters:</strong> the fixes are completely different. Livelock is fixed by
+            adding randomization or backoff. Starvation is fixed by aging (making old threads more important).
+            Deadlock requires prevention, avoidance, or detection — a structural change to how resources are
+            acquired.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 6.2 COFFMAN'S FOUR NECESSARY CONDITIONS                      -->
+        <!-- ============================================================ -->
+        <h2 id="coffman"><i class="fas fa-list-check"></i> 6.2 · Coffman's Four Necessary Conditions</h2>
+
+        <p>
+            In 1971, Edward Coffman and his colleagues published a landmark paper that gave the operating systems
+            world a precise characterization of when a deadlock can occur. Their result is elegant and widely
+            used — and it appears on every operating systems exam in existence.
+        </p>
+
+        <p>
+            Coffman's theorem states: <strong>a deadlock can occur if and only if all four of the following
+            conditions hold simultaneously</strong>. If any one of them is broken, deadlock becomes
+            impossible.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Condition</th>
+                    <th>Meaning</th>
+                    <th style="width: 30%;">How to break it</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Mutual exclusion</strong></td>
+                    <td>At least one resource is held in a non-sharable mode. Only one thread can use it at a time.</td>
+                    <td>Make the resource sharable, or virtualize it.</td>
+                </tr>
+                <tr>
+                    <td><strong>Hold and wait</strong></td>
+                    <td>A thread holding at least one resource is waiting to acquire additional resources held by
+                        other threads.</td>
+                    <td>Require threads to request all resources at once, up front.</td>
+                </tr>
+                <tr>
+                    <td><strong>No preemption</strong></td>
+                    <td>Resources cannot be forcibly taken from a thread that holds them. A resource is released only
+                        when the holder voluntarily releases it.</td>
+                    <td>Allow the kernel to preempt and forcibly take resources.</td>
+                </tr>
+                <tr>
+                    <td><strong>Circular wait</strong></td>
+                    <td>There exists a cycle in the "waits-for" graph: T1 waits for a resource held by T2, T2 waits
+                        for a resource held by T3, …, Tn waits for a resource held by T1.</td>
+                    <td>Enforce a global lock ordering, so no cycle can form.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The practical significance:</strong> the first three conditions are usually inherent in the
+            nature of the resources we're using. Two threads really cannot write to the same memory simultaneously
+            (mutual exclusion). A thread that already holds a lock really does need to wait for another one
+            (hold and wait). File descriptors are not something you can take away from a running process
+            (no preemption). <em>The only condition we can realistically break in a general-purpose system is the
+            fourth one — circular wait.</em> And that is exactly what lock ordering fixes.
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Imagine this in the two-lock example above:</strong> if <em>every</em> thread in the system
+            agreed to always acquire <code>L1</code> before <code>L2</code>, and there were no exceptions, then
+            Thread B's reverse ordering would be impossible. The cycle could not form. That is the essence of lock
+            ordering — the single most powerful technique in the deadlock prevention toolbox, and one you will use
+            constantly as a systems programmer.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 6.3 RESOURCE ALLOCATION GRAPHS                               -->
+        <!-- ============================================================ -->
+        <h2 id="rag"><i class="fas fa-diagram-project"></i> 6.3 · Resource Allocation Graphs</h2>
+
+        <p>
+            To reason about deadlocks precisely, we need a visual tool. The <strong>Resource Allocation Graph
+            (RAG)</strong> is a directed graph that shows which threads hold which resources, and which
+            threads are waiting for which resources.
+        </p>
+
+        <h3>The two types of nodes</h3>
+
+        <ul>
+            <li><strong>Thread nodes (or process nodes):</strong> drawn as circles, labeled T1, T2, or P1, P2.</li>
+            <li><strong>Resource nodes:</strong> drawn as rectangles, labeled R1, R2. A resource node may contain
+                small dots — one per instance of that resource. For example, a printer resource with two physical
+                printers has two dots.</li>
+        </ul>
+
+        <h3>The two types of edges</h3>
+
+        <ul>
+            <li><strong>Request edge — Tᵢ → Rⱼ:</strong> a directed edge from a thread to a resource. It means the
+                thread is currently waiting for an instance of that resource.</li>
+            <li><strong>Assignment edge — Rⱼ → Tᵢ:</strong> a directed edge from a resource (specifically, from one
+                of its instance-dots) to a thread. It means one instance of that resource is currently held by
+                that thread.</li>
+        </ul>
+
+        <!-- SVG: Resource allocation graph -->
+        <div class="svg-container">
+            <svg viewBox="0 0 780 380" xmlns="http://www.w3.org/2000/svg"
+                aria-label="Resource allocation graph with cycle">
+                <defs>
+                    <marker id="ragArrow" markerWidth="11" markerHeight="11" refX="9" refY="3"
+                        orient="auto">
+                        <path d="M0,0 L0,6 L9,3 z" fill="#7dd3fc" />
+                    </marker>
+                    <marker id="ragArrowPink" markerWidth="11" markerHeight="11" refX="9" refY="3"
+                        orient="auto">
+                        <path d="M0,0 L0,6 L9,3 z" fill="#ec4899" />
+                    </marker>
+                </defs>
+
+                <!-- Thread T1 -->
+                <circle cx="140" cy="90" r="35" fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="140" y="96" font-family="Inter" font-size="14" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">T1</text>
+
+                <!-- Thread T2 -->
+                <circle cx="640" cy="90" r="35" fill="rgba(16, 185, 129, 0.2)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="640" y="96" font-family="Inter" font-size="14" fill="#34d399"
+                    text-anchor="middle" font-weight="700">T2</text>
+
+                <!-- Thread T3 -->
+                <circle cx="390" cy="290" r="35" fill="rgba(139, 92, 246, 0.2)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="390" y="296" font-family="Inter" font-size="14" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">T3</text>
+
+                <!-- Resource R1 -->
+                <rect x="330" y="60" width="120" height="60" rx="8" fill="rgba(245, 158, 11, 0.15)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="390" y="85" font-family="Inter" font-size="13" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">R1</text>
+                <circle cx="390" cy="105" r="5" fill="#f59e0b" />
+
+                <!-- Resource R2 -->
+                <rect x="330" y="220" width="120" height="60" rx="8" fill="rgba(236, 72, 153, 0.15)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="390" y="245" font-family="Inter" font-size="13" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">R2</text>
+                <circle cx="390" cy="265" r="5" fill="#ec4899" />
+
+                <!-- Assignment edge: R1 → T1 (T1 holds R1) -->
+                <line x1="345" y1="90" x2="180" y2="90" stroke="#7dd3fc" stroke-width="2"
+                    marker-end="url(#ragArrow)" />
+                <text x="260" y="80" font-family="Inter" font-size="11" fill="#7dd3fc"
+                    text-anchor="middle">assignment</text>
+
+                <!-- Assignment edge: R2 → T2 (T2 holds R2) -->
+                <line x1="450" y1="240" x2="620" y2="115" stroke="#7dd3fc" stroke-width="2"
+                    marker-end="url(#ragArrow)" />
+                <text x="565" y="200" font-family="Inter" font-size="11" fill="#7dd3fc"
+                    text-anchor="middle">assignment</text>
+
+                <!-- Request edge: T1 → R2 (T1 waits for R2) -->
+                <line x1="155" y1="120" x2="340" y2="230" stroke="#ec4899" stroke-width="2"
+                    stroke-dasharray="6,3" marker-end="url(#ragArrowPink)" />
+                <text x="215" y="195" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle">request</text>
+
+                <!-- Request edge: T2 → R1 (T2 waits for R1) -->
+                <line x1="620" y1="110" x2="455" y2="80" stroke="#ec4899" stroke-width="2"
+                    stroke-dasharray="6,3" marker-end="url(#ragArrowPink)" />
+
+                <!-- Request edge: T3 → R2 -->
+                <line x1="390" y1="255" x2="390" y2="290" stroke="#ec4899" stroke-width="2"
+                    stroke-dasharray="6,3" marker-end="url(#ragArrowPink)" />
+
+                <text x="390" y="358" font-family="Inter" font-size="12" fill="#94a3b8"
+                    text-anchor="middle">
+                    T1 waits for R2 (held by T2), T2 waits for R1 (held by T1). A 2-cycle exists → deadlock.
+                </text>
+            </svg>
+            <div class="svg-caption">Resource Allocation Graph: circles are threads, rectangles are resources. Solid arrows are assignments (Held), dashed arrows are requests (Waiting). A cycle in this graph means deadlock.</div>
+        </div>
+
+        <h3>The fundamental theorem of RAG cycles</h3>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The RAG deadlock theorem:</strong>
+            <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+                <li>If the RAG contains <em>no cycle</em>, no thread in the system is deadlocked.</li>
+                <li>If the RAG contains a cycle, <em>and</em> each resource in the cycle has only a single
+                    instance, then a deadlock definitely exists.</li>
+                <li>If the RAG contains a cycle, <em>and</em> some resources in the cycle have multiple instances,
+                    a deadlock <em>may or may not</em> exist — you need to look at the actual resource allocation,
+                    not just the graph.</li>
+            </ul>
+        </div>
+
+        <p>
+            This theorem is important enough to remember in those three precise forms. It is the basis of every
+            deadlock detection algorithm in every operating system, and it directly shapes how we detect deadlocks
+            in user space.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 6.4 DEADLOCK PREVENTION                                      -->
+        <!-- ============================================================ -->
+        <h2 id="prevention"><i class="fas fa-shield-halved"></i> 6.4 · Deadlock Prevention</h2>
+
+        <p>
+            The most direct approach is <strong>prevention</strong>: enforce a rule at design time such that at
+            least one of Coffman's four conditions can never hold. Since we cannot usually change whether resources
+            have mutual exclusion, hold-and-wait, or preemption, the practical target is almost always the fourth
+            condition — circular wait.
+        </p>
+
+        <h3>Breaking circular wait — the lock-ordering discipline</h3>
+
+        <p>
+            The idea is simple: assign each resource a global ordering — say, a number. Then require that every
+            thread acquires resources in strictly increasing order. With this rule, no cycle can ever form, because
+            any thread's "waits for" chain would have to descend in a monotone sequence, and monotone sequences
+            cannot contain a cycle.
+        </p>
+
+        <pre><code>/* A simple lock-ordering discipline */
+#define LOCK_ALPHA  1
+#define LOCK_BETA   2
+#define LOCK_GAMMA  3
+
+/* Always acquire in the order ALPHA → BETA → GAMMA */
+void work_with_all_three(void) {
+    pthread_mutex_lock(&amp;lock_alpha);
+    pthread_mutex_lock(&amp;lock_beta);
+    pthread_mutex_lock(&amp;lock_gamma);
+
+    /* ... do the work ... */
+
+    pthread_mutex_unlock(&amp;lock_gamma);
+    pthread_mutex_unlock(&amp;lock_beta);
+    pthread_mutex_unlock(&amp;lock_alpha);
+}</code></pre>
+
+        <p>
+            Notice that we also release the locks in reverse order — this is not strictly required to prevent
+            deadlock, but it is a strong convention that makes the code easier to reason about and to maintain.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The ordering rule, precisely stated:</strong> if a thread must acquire locks A and B, and A
+            has a smaller order number than B, then A must be acquired first. Whenever possible, acquire all the
+            locks you need at the beginning of an operation, in one consistent sweep.
+        </div>
+
+        <h3>The other three conditions — briefly</h3>
+
+        <div class="two-cols">
+            <div class="col warn">
+                <h4><i class="fas fa-ban"></i> Breaking mutual exclusion</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Very hard. Some resources are inherently non-sharable — a printer cannot print two documents
+                    at once, a file descriptor is not something two processes can share cleanly. Where possible,
+                    we virtualize — spooling printers, ring buffers for data — but not all cases are feasible.
+                </p>
+            </div>
+            <div class="col violet">
+                <h4><i class="fas fa-ban"></i> Breaking hold and wait</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Require threads to request <em>all</em> their resources up front, before acquiring any. This
+                    works but is rarely practical — it forces threads to hold resources they don't yet need,
+                    reducing utilization and creating new starvation risks.
+                </p>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-ban"></i> Breaking no preemption</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Allow the OS to forcibly revoke a resource from a running thread. This works in some systems — a
+                    database can abort and roll back a transaction — but for memory and locks in general-purpose
+                    systems it is not feasible. It is one of the reasons database engines are so careful about
+                    deadlock handling.
+                </p>
+            </div>
+        </div>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Summary of prevention:</strong> in practice we almost always prevent deadlocks by preventing
+            circular wait, through lock ordering. The other three conditions are usually fixed by the nature of the
+            resource and cannot be changed.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 6.5 DEADLOCK AVOIDANCE — BANKER'S ALGORITHM                  -->
+        <!-- ============================================================ -->
+        <h2 id="avoidance"><i class="fas fa-scale-balanced"></i> 6.5 · Deadlock Avoidance — Banker's Algorithm</h2>
+
+        <p>
+            Prevention is a design-time commitment. <strong>Avoidance</strong> is a runtime decision — the OS
+            decides, at each resource-request moment, whether granting the request could lead to deadlock. If it
+            could, the request is denied (the thread is told to wait); if it could not, the request is granted.
+        </p>
+
+        <p>
+            To do this, the OS must know in advance the <em>maximum</em> resources each thread will need. If it
+            knows that, it can simulate the future and check whether the current state is <em>safe</em>.
+        </p>
+
+        <h3>Safe state — the key concept</h3>
+
+        <p>
+            A system is in a <strong>safe state</strong> if there exists at least one order in which all current
+            threads can run to completion without ever exceeding the available resources. That order is called a
+            <strong>safe sequence</strong>. If the system is in a safe state, no deadlock can occur — no matter
+            how the threads interleave their future requests.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The avoidance contract:</strong> before granting a resource request, the OS checks whether the
+            resulting state would still be safe. If it would, the OS grants. If it would not, the OS blocks the
+            requesting thread and makes it wait, even though resources are physically available. Resource
+            utilization suffers; deadlock becomes impossible.
+        </div>
+
+        <h3>The Banker's Algorithm</h3>
+
+        <p>
+            The Banker's Algorithm — named after the analogy with a banker who must keep enough cash on hand to
+            satisfy all current depositors — is the classic avoidance algorithm. Introduced by Dijkstra in 1965, it
+            generalizes easily to any number of threads and resource types.
+        </p>
+
+        <h4>The data structures</h4>
+
+        <p>
+            For a system with <code>n</code> threads and <code>m</code> resource types:
+        </p>
+
+        <ul>
+            <li><strong>Available[m]:</strong> how many instances of each resource are currently unallocated.</li>
+            <li><strong>Max[n][m]:</strong> the maximum number of each resource that each thread may request over
+                its entire lifetime.</li>
+            <li><strong>Allocation[n][m]:</strong> how many instances of each resource are currently held by each
+                thread.</li>
+            <li><strong>Need[n][m]:</strong> how many additional instances each thread still might need.
+                <code>Need[i][j] = Max[i][j] − Allocation[i][j]</code>.</li>
+        </ul>
+
+        <h4>The safety-check procedure</h4>
+
+        <p>
+            To determine whether the current state is safe, the algorithm tries to find a safe sequence:
+        </p>
+
+        <ol>
+            <li>Let <code>Work[m]</code> be a copy of <code>Available</code>. Let <code>Finish[n]</code> be all
+                <code>false</code>.</li>
+            <li>Find a thread <code>i</code> such that <code>Finish[i] == false</code> and
+                <code>Need[i][*] ≤ Work[*]</code> for every resource type. That is, thread <code>i</code> could
+                finish using only the currently available resources.</li>
+            <li>If such a thread exists: pretend it runs to completion and releases everything it holds. So set
+                <code>Work[*] += Allocation[i][*]</code> and <code>Finish[i] = true</code>. Go back to step 2.</li>
+            <li>If no such thread exists, check whether all threads are <code>Finish</code>ed. If yes, the state is
+                safe, and the sequence of threads found in step 2 is a valid safe sequence. If no, the state is
+                unsafe.</li>
+        </ol>
+
+        <h4>A small worked example</h4>
+
+        <p>
+            Consider a system with 3 resource types — A, B, and C — where A has 10 instances, B has 5, and C has
+            7. Five threads are running, and the current state is:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Thread</th>
+                    <th>Allocation (A, B, C)</th>
+                    <th>Max (A, B, C)</th>
+                    <th>Need = Max − Allocation</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>P0</td><td>0, 1, 0</td><td>7, 5, 3</td><td>7, 4, 3</td></tr>
+                <tr><td>P1</td><td>2, 0, 0</td><td>3, 2, 2</td><td>1, 2, 2</td></tr>
+                <tr><td>P2</td><td>3, 0, 2</td><td>9, 0, 2</td><td>6, 0, 0</td></tr>
+                <tr><td>P3</td><td>2, 1, 1</td><td>2, 2, 2</td><td>0, 1, 1</td></tr>
+                <tr><td>P4</td><td>0, 0, 2</td><td>4, 3, 3</td><td>4, 3, 1</td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            Current allocation totals: A = 7, B = 2, C = 5. Since totals are A = 10, B = 5, C = 7, the currently
+            available resources are <code>Available = (3, 3, 2)</code>.
+        </p>
+
+        <p>
+            Now run the safety check. Initial <code>Work = (3, 3, 2)</code>:
+        </p>
+
+        <ul>
+            <li>P0's Need is (7, 4, 3) — too large. Skip.</li>
+            <li>P1's Need is (1, 2, 2) — fits Work (3, 3, 2). Run P1. Work becomes
+                (3+2, 3+0, 2+0) = (5, 3, 2).</li>
+            <li>P2's Need is (6, 0, 0) — too large. Skip.</li>
+            <li>P3's Need is (0, 1, 1) — fits Work (5, 3, 2). Run P3. Work becomes
+                (5+2, 3+1, 2+1) = (7, 4, 3).</li>
+            <li>P4's Need is (4, 3, 1) — fits Work (7, 4, 3). Run P4. Work becomes
+                (7+0, 4+0, 3+2) = (7, 4, 5).</li>
+            <li>P0's Need is (7, 4, 3) — fits Work (7, 4, 5). Run P0. Work becomes
+                (7+0, 4+1, 5+0) = (7, 5, 5).</li>
+            <li>P2's Need is (6, 0, 0) — fits Work (7, 5, 5). Run P2. Work becomes
+                (7+3, 5+0, 5+2) = (10, 5, 7).</li>
+        </ul>
+
+        <p>
+            All threads finished. So the state is safe, with a safe sequence <code>(P1, P3, P4, P0, P2)</code>.
+            Because the state is safe, we know no deadlock can occur from here, even if the threads make their
+            future requests in the worst possible order.
+        </p>
+
+        <p>
+            Now suppose P1 requests one additional instance of A and two of C, i.e. <code>request = (1, 0, 2)</code>.
+            Is this grantable?
+        </p>
+
+        <ul>
+            <li>First, verify <code>request ≤ Need[P1]</code>: (1, 0, 2) ≤ (1, 2, 2). Valid.</li>
+            <li>Verify <code>request ≤ Available</code>: (1, 0, 2) ≤ (3, 3, 2). Valid.</li>
+            <li>Pretend the grant: <code>Available = (2, 3, 0)</code>, <code>Allocation[P1] = (3, 0, 2)</code>,
+                <code>Need[P1] = (0, 2, 0)</code>.</li>
+            <li>Run the safety check on this new state. Work = (2, 3, 0). P0's Need (7, 4, 3) — too large. P1's
+                Need (0, 2, 0) — fits! Run P1. Work becomes (2+3, 3+0, 0+2) = (5, 3, 2). P3's Need (0, 1, 1) —
+                fits. Run P3. Work = (7, 4, 3). P4's Need (4, 3, 1) — fits. Run P4. Work = (7, 4, 5). P0's Need
+                (7, 4, 3) — fits. Run P0. Work = (7, 5, 5). P2's Need (6, 0, 0) — fits. Run P2. Work = (10, 5, 7).</li>
+            <li>All threads finish. The state is safe — the request is granted.</li>
+        </ul>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>What Banker's Algorithm guarantees:</strong> if every thread declares its maximum resource
+            needs up front, and the OS only grants requests that leave the system in a safe state, then deadlock
+            is impossible. This is a provable theorem — one of the most elegant correctness results in operating
+            systems.
+        </div>
+
+        <h3>Why isn't Banker's Algorithm used in real operating systems?</h3>
+
+        <p>
+            In theory, Banker's Algorithm is a beautiful solution. In practice, it has never been used in a
+            general-purpose OS, for four reasons:
+        </p>
+
+        <ul>
+            <li><strong>Threads must declare maximum needs in advance.</strong> Real programs rarely know this. A
+                web server does not know how many file descriptors it will ultimately open. A compiler does not
+                know how much memory it will eventually allocate.</li>
+            <li><strong>Threads are not independent.</strong> They can synchronize via IPC, wait on each other,
+                and spawn new threads — all of which break the simple model.</li>
+            <li><strong>Resource-use patterns change dynamically.</strong> The maximum declared at start may not
+                reflect reality later.</li>
+            <li><strong>It is conservative.</strong> The algorithm denies requests that would still be fine in
+                practice. This hurts utilization and is often considered unacceptable in production systems.</li>
+        </ul>
+
+        <p>
+            Banker's Algorithm lives on primarily in its pedagogical value — it teaches us to reason about "safe
+            states" — and in specialized real-time systems where resource needs are, by design, known and
+            bounded.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 6.6 DETECTION AND RECOVERY                                   -->
+        <!-- ============================================================ -->
+        <h2 id="detection"><i class="fas fa-magnifying-glass-chart"></i> 6.6 · Deadlock Detection &amp; Recovery</h2>
+
+        <p>
+            Prevention and avoidance both try to <em>prevent</em> deadlocks from occurring. Detection accepts that
+            they will occur, and adds two mechanisms: one to notice them, and one to recover from them.
+        </p>
+
+        <h3>Detection — using the wait-for graph</h3>
+
+        <p>
+            For single-instance resources, the RAG can be simplified into a <strong>wait-for graph</strong>:
+            nodes are threads only, and a directed edge <code>Tᵢ → Tⱼ</code> means "thread <code>Tᵢ</code> is
+            waiting for a resource held by thread <code>Tⱼ</code>." A cycle in this graph is a deadlock, period.
+            Detection becomes cycle-finding, which is a well-studied problem in graph theory — <code>O(n + e)</code>
+            with an appropriate algorithm.
+        </p>
+
+        <p>
+            For multi-instance resources, we run a variant of Banker's safety check — this time without needing
+            the maximum-needs table. If the algorithm cannot find a sequence in which all threads finish, then
+            some subset is deadlocked.
+        </p>
+
+        <h3>When to run detection</h3>
+
+        <div class="two-cols">
+            <div class="col">
+                <h4><i class="fas fa-clock"></i> Periodically</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Run the detection algorithm every second, or every minute. Simple and predictable, but you
+                    might notice the deadlock late. This is common in batch systems.
+                </p>
+            </div>
+            <div class="col green">
+                <h4><i class="fas fa-bolt"></i> On demand</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Run it when CPU utilization drops below a threshold, or when a timeout fires. Detects
+                    deadlocks quickly at the cost of more frequent checking. Common in interactive systems.
+                </p>
+            </div>
+        </div>
+
+        <h3>Recovery — what to do once you know</h3>
+
+        <p>
+            Once a deadlock is detected, the OS must break it. There are three main strategies. In order of
+            increasing severity:
+        </p>
+
+        <ol>
+            <li><strong>Thread termination.</strong> Kill one thread in the cycle. Its resources are released, and
+                the remaining threads can proceed. The cost is that the killed thread loses all its work. Some
+                systems abort the entire thread family; others abort just one.</li>
+            <li><strong>Resource preemption.</strong> Take a resource away from one thread and give it to another.
+                Only possible when the resource type supports preemption. The victim thread is usually either
+                rolled back to a previous checkpoint, or terminated as a side effect.</li>
+            <li><strong>Rollback.</strong> If the system has been taking periodic checkpoints of thread state, we
+                can roll back to a point before one of the threads had acquired a particular resource. This is
+                common in database systems, which combine detection with transactions that can be cleanly aborted
+                and retried.</li>
+        </ol>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The victim selection problem:</strong> when we have to kill or preempt, who should we choose?
+            Ideally a thread that will cost the least to restart, that has done the least work so far, or that has
+            held the most resources. Getting this choice wrong — repeatedly killing the wrong thread — leads to a
+            new failure mode called <em>livelock by repeated preemption</em>. Real systems typically include the
+            number of times a thread has been rolled back in the victim-selection heuristic.
+        </div>
+
+        <h3>Detection in practice — database systems</h3>
+
+        <p>
+            Databases are one of the few places where real deadlock detection is universally used. Every major
+            database — PostgreSQL, MySQL, Oracle, SQL Server — has a background deadlock detector that:
+        </p>
+
+        <ul>
+            <li>Watches the transaction table for cyclic waits.</li>
+            <li>Runs every few hundred milliseconds.</li>
+            <li>When it finds a cycle, it aborts one transaction — typically the one that has done the least work —
+                with a <code>DEADLOCK DETECTED</code> error.</li>
+            <li>The aborted transaction's client gets the error and is expected to retry.</li>
+        </ul>
+
+        <p>
+            This pattern — "abort and retry" — is so common in database systems that application developers are
+            taught to write loops around their transactions to handle it gracefully. It is the practical
+            alternative to prevention in an environment where prevention is impractical.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 6.7 DINING PHILOSOPHERS REVISITED                            -->
+        <!-- ============================================================ -->
+        <h2 id="philosophers"><i class="fas fa-utensils"></i> 6.7 · The Dining Philosophers, Solved</h2>
+
+        <p>
+            In Week 4, we met the Dining Philosophers — five philosophers, five forks, each philosopher needs two
+            forks to eat — as a preview of the deadlock problem. Now we have all the tools to solve it properly.
+        </p>
+
+        <h3>The five solutions</h3>
+
+        <p>
+            Each of these breaks one of Coffman's conditions, or uses a structural trick that makes deadlock
+            impossible.
+        </p>
+
+        <h4>Solution 1 — Semaphore-based limit on seated philosophers</h4>
+
+        <p>
+            Allow at most <code>N − 1</code> philosophers to try to eat at the same time. That is, use a counting
+            semaphore initialized to <code>4</code> for 5 philosophers. Each philosopher tries to
+            <code>sem_wait</code> the semaphore before grabbing forks, and <code>sem_post</code>s it after
+            releasing them. With only 4 philosophers competing for 5 forks, at least one will always have access
+            to both forks.
+        </p>
+
+        <pre><code>#define N 5
+sem_t seats;
+
+void *philosopher(void *arg) {
+    while (1) {
+        think();
+        sem_wait(&amp;seats);              /* at most 4 at the table */
+        take_fork(left);
+        take_fork(right);
+        eat();
+        put_fork(right);
+        put_fork(left);
+        sem_post(&amp;seats);
+    }
+}</code></pre>
+
+        <h4>Solution 2 — Asymmetric behavior</h4>
+
+        <p>
+            Break the symmetry between philosophers. Four of them pick up their left fork first and then their
+            right; one picks up their right fork first and then their left. Now the circular wait cannot form,
+            because one participant in each possible cycle uses the opposite order. This is the seed of the
+            lock-ordering idea in disguise.
+        </p>
+
+        <h4>Solution 3 — The waiter (arbiter) approach</h4>
+
+        <p>
+            Add a single arbiter — the waiter — whose permission must be obtained before picking up forks. Only
+            one philosopher can be picking up forks at any moment. This eliminates the circular wait by adding a
+            global serialization point, at the cost of some parallelism.
+        </p>
+
+        <h4>Solution 4 — Atomic pickup of both forks</h4>
+
+        <p>
+            Combine the two forks into one resource that can be acquired atomically — a single mutex-protected
+            "both forks" resource. A philosopher either has both forks or has neither. This breaks hold-and-wait,
+            and it also breaks the circular wait, because there is no partial state to get stuck in.
+        </p>
+
+        <h4>Solution 5 — Chandy–Misra algorithm</h4>
+
+        <p>
+            A distributed deadlock detection and resolution algorithm that lets each philosopher detect and
+            resolve deadlocks dynamically. Only needed in truly distributed settings, but it is the general
+            solution to the class of problems that Dining Philosophers represents.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Solution</th>
+                    <th style="width: 30%;">Condition broken / trick used</th>
+                    <th>Trade-offs</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Seat limit (N−1)</strong></td>
+                    <td>Breaks circular wait structurally — one seat reserved.</td>
+                    <td>Simple. Slight reduction in parallelism.</td>
+                </tr>
+                <tr>
+                    <td><strong>Asymmetric</strong></td>
+                    <td>Breaks circular wait — one philosopher uses reverse order.</td>
+                    <td>Very simple in code. Slightly uneven behavior.</td>
+                </tr>
+                <tr>
+                    <td><strong>Waiter (arbiter)</strong></td>
+                    <td>Adds global serialization point.</td>
+                    <td>Clean, easy to reason about. Reduces concurrency.</td>
+                </tr>
+                <tr>
+                    <td><strong>Atomic both-fork</strong></td>
+                    <td>Breaks hold-and-wait — never hold one and wait for the other.</td>
+                    <td>Requires merging resources. May not fit all cases.</td>
+                </tr>
+                <tr>
+                    <td><strong>Chandy–Misra</strong></td>
+                    <td>Detects and resolves deadlocks after the fact.</td>
+                    <td>Full generalization. Complex to implement.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Which should you pick in practice?</strong> For most real code, the answer is
+            <strong>asymmetric lock ordering</strong>. If you cannot pick a global order — for example because the
+            lock acquisition is inside a library you do not control — the <strong>arbiter</strong> pattern is the
+            next simplest choice. The seat-limit solution and atomic-both come after.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 6.8 LAB: BANKER'S ALGORITHM SCRIPT                           -->
+        <!-- ============================================================ -->
+        <h2 id="lab-banker"><i class="fas fa-code"></i> 6.8 · Touch Lab — Banker's Algorithm in Python</h2>
+
+        <p>
+            Reading Banker's Algorithm is one thing; running it on real inputs and watching it make decisions is
+            another. In this lab, we will build a small Banker's Algorithm simulator in Python and use it to
+            evaluate fourteen predefined system states.
+        </p>
+
+        <h3>Step 1 — Create the script</h3>
+
+        <pre><code>$ nano banker.py</code></pre>
+
+        <p>Paste the following code:</p>
+
+        <pre><code>#!/usr/bin/env python3
+"""
+Banker's Algorithm — safe state checker.
+
+Reads allocation, max, and available tables, then determines
+whether the system is in a safe state and prints a safe sequence.
+"""
+
+import sys
+
+
+def is_safe(allocation, max_need, available, n, m):
+    """
+    Return (True, safe_sequence) if the system is safe,
+    or (False, None) otherwise.
+    """
+    need = [[max_need[i][j] - allocation[i][j] for j in range(m)]
+            for i in range(n)]
+
+    finish = [False] * n
+    work = available[:]
+    sequence = []
+
+    while len(sequence) &lt; n:
+        found = False
+        for i in range(n):
+            if finish[i]:
+                continue
+            if all(need[i][j] &lt;= work[j] for j in range(m)):
+                # Thread i can run to completion
+                for j in range(m):
+                    work[j] += allocation[i][j]
+                finish[i] = True
+                sequence.append(i)
+                found = True
+                break
+
+        if not found:
+            # No progress possible
+            return False, None
+
+    return True, sequence
+
+
+def main():
+    # 5 threads, 3 resource types (A, B, C)
+    n = 5
+    m = 3
+
+    # Total instances of each resource type
+    total = [10, 5, 7]
+
+    # Allocation table
+    allocation = [
+        [0, 1, 0],   # P0
+        [2, 0, 0],   # P1
+        [3, 0, 2],   # P2
+        [2, 1, 1],   # P3
+        [0, 0, 2],   # P4
+    ]
+
+    # Max need table
+    max_need = [
+        [7, 5, 3],   # P0
+        [3, 2, 2],   # P1
+        [9, 0, 2],   # P2
+        [2, 2, 2],   # P3
+        [4, 3, 3],   # P4
+    ]
+
+    # Compute Available as total - sum(Allocation)
+    used = [sum(allocation[i][j] for i in range(n)) for j in range(m)]
+    available = [total[j] - used[j] for j in range(m)]
+
+    print("Banker's Algorithm — safety check")
+    print("=================================")
+    print(f"Total      : {total}")
+    print(f"Used       : {used}")
+    print(f"Available  : {available}")
+    print()
+
+    safe, sequence = is_safe(allocation, max_need, available, n, m)
+
+    if safe:
+        print("SAFE STATE")
+        print(f"Safe sequence: {['P' + str(i) for i in sequence]}")
+    else:
+        print("UNSAFE STATE — deadlock may occur")
+        return 1
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())</code></pre>
+
+        <h3>Step 2 — Run it</h3>
+
+        <pre><code>$ python3 banker.py
+Banker's Algorithm — safety check
+=================================
+Total      : [10, 5, 7]
+Used       : [7, 2, 5]
+Available  : [3, 3, 2]
+
+SAFE STATE
+Safe sequence: ['P1', 'P3', 'P4', 'P0', 'P2']</code></pre>
+
+        <p>
+            The output confirms what we computed by hand — the state is safe, and <code>P1 → P3 → P4 → P0 → P2</code>
+            is one valid safe sequence.
+        </p>
+
+        <h3>Step 3 — Test unsafe states</h3>
+
+        <p>
+            Now modify the script: change <code>max_need[P0]</code> from <code>[7, 5, 3]</code> to
+            <code>[8, 5, 3]</code> — that is, P0 may need one additional instance of A. P0's Need becomes
+            <code>(8, 4, 3)</code>, which exceeds the total A = 10 even in the best case; the total demand exceeds
+            availability.
+        </p>
+
+        <pre><code>$ python3 banker.py
+Banker's Algorithm — safety check
+=================================
+Total      : [10, 5, 7]
+Used       : [7, 2, 5]
+Available  : [3, 3, 2]
+
+UNSAFE STATE — deadlock may occur</code></pre>
+
+        <p>
+            The script now reports UNSAFE. This does not mean a deadlock has occurred — it only means that
+            <em>from this state</em>, no sequence exists in which all threads can complete. If the system is
+            currently in this state, it is already on a trajectory that may end in deadlock.
+        </p>
+
+        <h3>Step 4 — Test a resource request</h3>
+
+        <p>
+            A more realistic use: given a current safe state, evaluate whether a specific request can be granted.
+            Add this function to the script and call it:
+        </p>
+
+        <pre><code>def try_request(allocation, max_need, available, n, m, i, request):
+    """
+    Test whether thread `i` can be granted `request`.
+    Return (True, new_state) if the request is safe, else (False, None).
+    """
+    # Check request &lt;= need
+    need_i = [max_need[i][j] - allocation[i][j] for j in range(m)]
+    if any(request[j] &gt; need_i[j] for j in range(m)):
+        print(f"Request exceeds declared max for P{i}")
+        return False, None
+
+    # Check request &lt;= available
+    if any(request[j] &gt; available[j] for j in range(m)):
+        print(f"Request exceeds currently available resources")
+        return False, None
+
+    # Pretend to grant
+    new_alloc = [row[:] for row in allocation]
+    new_avail = available[:]
+    for j in range(m):
+        new_alloc[i][j] += request[j]
+        new_avail[j]   -= request[j]
+
+    safe, seq = is_safe(new_alloc, max_need, new_avail, n, m)
+    if safe:
+        return True, (new_alloc, new_avail, seq)
+    return False, None</code></pre>
+
+        <p>
+            Test it with <code>try_request(..., i=1, request=[1, 0, 2])</code> — asking P1 for one A and two C.
+            The result is a safe state with new sequence <code>P1 → P3 → P4 → P0 → P2</code>, so the request
+            would be granted.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What this exercise teaches:</strong> the difference between a safe state and an unsafe state
+            is a genuine notion, not a heuristic. By running the safety check repeatedly on the same data, you
+            see it as a precise predicate, not as ambiguous advice.
+        </div>
+
+        <h3>Step 5 — Experiment on your own</h3>
+
+        <ol>
+            <li>Change the total resources to <code>[10, 5, 6]</code> — one instance of C removed. Is the state
+                still safe?</li>
+            <li>Change the number of threads from 5 to 7 and add two more. How does that affect the safety
+                outcome?</li>
+            <li>Add a small <code>print()</code> statement inside the safety check's while loop that shows
+                <code>Work</code>, <code>Need</code>, and <code>Finish</code> at each step. Watch the algorithm
+                iterating through candidate threads.</li>
+            <li>Make the workloads asymmetric — add a thread whose Need is enormous but whose Allocation is
+                small. Observe how the safety check reacts.</li>
+        </ol>
+
+        <!-- ============================================================ -->
+        <!-- 6.9 LAB: DIAGNOSING DEADLOCKED THREADS                       -->
+        <!-- ============================================================ -->
+        <h2 id="lab-diag"><i class="fas fa-stethoscope"></i> 6.9 · Touch Lab — Diagnosing a Deadlock</h2>
+
+        <p>
+            Banker's Algorithm teaches us the theory. Now let's see a real deadlock in the wild — a C program
+            that deliberately deadlocks, and the tools we use to find and diagnose it.
+        </p>
+
+        <h3>Step 1 — A program that deadlocks on purpose</h3>
+
+        <pre><code>$ nano deadlock.c</code></pre>
+
+        <p>Paste the following code:</p>
+
+        <pre><code>#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;unistd.h&gt;
+
+static pthread_mutex_t lock_a = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t lock_b = PTHREAD_MUTEX_INITIALIZER;
+
+void *thread_a(void *arg) {
+    printf("[A] trying lock_a\n");
+    pthread_mutex_lock(&amp;lock_a);
+    printf("[A] holding lock_a\n");
+
+    sleep(1);
+
+    printf("[A] trying lock_b\n");
+    pthread_mutex_lock(&amp;lock_b);
+
+    printf("[A] holding both — never reaches here\n");
+    pthread_mutex_unlock(&amp;lock_b);
+    pthread_mutex_unlock(&amp;lock_a);
+    return NULL;
+}
+
+void *thread_b(void *arg) {
+    printf("[B] trying lock_b\n");
+    pthread_mutex_lock(&amp;lock_b);
+    printf("[B] holding lock_b\n");
+
+    sleep(1);
+
+    printf("[B] trying lock_a\n");
+    pthread_mutex_lock(&amp;lock_a);
+
+    printf("[B] holding both — never reaches here\n");
+    pthread_mutex_unlock(&amp;lock_a);
+    pthread_mutex_unlock(&amp;lock_b);
+    return NULL;
+}
+
+int main(void) {
+    pthread_t ta, tb;
+
+    pthread_create(&amp;ta, NULL, thread_a, NULL);
+    pthread_create(&amp;tb, NULL, thread_b, NULL);
+
+    pthread_join(ta, NULL);
+    pthread_join(tb, NULL);
+
+    printf("Never prints — deadlock occurred\n");
+    return 0;
+}</code></pre>
+
+        <h3>Step 2 — Compile and run</h3>
+
+        <pre><code>$ gcc -Wall -pthread -o deadlock deadlock.c
+$ ./deadlock
+[A] trying lock_a
+[A] holding lock_a
+[B] trying lock_b
+[B] holding lock_b
+[A] trying lock_b
+[B] trying lock_a
+^C
+</code></pre>
+
+        <p>
+            The program prints both threads' first two lines, then hangs. Both threads have acquired one lock and
+            are waiting for the other. The deadlock is visible — but only because we carefully designed the
+            program to hang. In real code, you would see the freeze and know something is wrong, but not know
+            what.
+        </p>
+
+        <h3>Step 3 — Diagnosing with gdb</h3>
+
+        <p>
+            Run the program again in the background, then use <code>gdb</code> to inspect it:
+        </p>
+
+        <pre><code>$ ./deadlock &amp;
+[1] 6120
+... hang ...
+$ gdb -p 6120
+(gdb) info threads
+  Id   Target Id         Frame
+* 1    Thread 0x7f...     __lll_lock_wait () at lowlevellock.S:135
+  2    Thread 0x7f...     __lll_lock_wait () at lowlevellock.S:135
+
+(gdb) thread apply all bt
+
+Thread 2 (Thread 0x7f...):
+#0  __lll_lock_wait () at lowlevellock.S:135
+#1  __GI___pthread_mutex_lock (mutex=0x...&lt;lock_b&gt;) at pthread_mutex_lock.c:80
+#2  thread_b (...) at deadlock.c:33
+#3  start_thread (...)
+
+Thread 1 (Thread 0x7f...):
+#0  __lll_lock_wait () at lowlevellock.S:135
+#1  __GI___pthread_mutex_lock (mutex=0x...&lt;lock_a&gt;) at pthread_mutex_lock.c:80
+#2  thread_a (...) at deadlock.c:19
+#3  start_thread (...)
+
+(gdb) quit</code></pre>
+
+        <p>
+            Read that output carefully. This is the smoking gun:
+        </p>
+
+        <ul>
+            <li><strong>Thread 1 is blocked in <code>pthread_mutex_lock</code></strong>, waiting for a mutex
+                whose address matches <code>lock_a</code>. The backtrace shows it was called from
+                <code>deadlock.c:19</code> — which is inside <code>thread_a</code>, at the line
+                <code>pthread_mutex_lock(&amp;lock_b)</code>. So thread_a (originally holding lock_a) is now
+                waiting for lock_b.</li>
+            <li><strong>Thread 2 is blocked for a mutex</strong> at <code>deadlock.c:33</code> — inside
+                <code>thread_b</code>, at the line <code>pthread_mutex_lock(&amp;lock_a)</code>. So thread_b
+                (holding lock_b) is now waiting for lock_a.</li>
+        </ul>
+
+        <p>
+            Thread 1 holds lock_a and waits for lock_b. Thread 2 holds lock_b and waits for lock_a. The cycle is
+            complete. That is a textbook deadlock, and gdb has shown you the exact locations.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The diagnostic pattern:</strong> when a program hangs, run <code>info threads</code>, then
+            <code>thread apply all bt</code>. If two or more threads are stuck in <code>pthread_mutex_lock</code>
+            with mutex addresses that match each other's backtraces, you have a deadlock. This technique catches
+            the vast majority of real-world cases.
+        </div>
+
+        <h3>Step 4 — pstack as an alternative</h3>
+
+        <p>
+            If you don't want to attach a full debugger, <code>pstack</code> prints a stack trace of every thread
+            of a running process in one command. It is often installed as a wrapper for gdb, and it is what many
+            sysadmins actually use day-to-day:
+        </p>
+
+        <pre><code>$ pstack 6120
+Thread 2 (Thread 0x7f...):
+#0  __lll_lock_wait () at lowlevel...
+#1  __GI___pthread_mutex_lock (...)
+#2  thread_b (...) at deadlock.c:33
+...
+
+Thread 1 (Thread 0x7f...):
+#0  __lll_lock_wait () at lowlevel...
+#1  __GI___pthread_mutex_lock (...)
+#2  thread_a (...) at deadlock.c:19
+...</code></pre>
+
+        <p>
+            <code>pstack</code> gives you the same information as <code>thread apply all bt</code>, in one short
+            command. It is your first tool to reach for when a multi-threaded process hangs.
+        </p>
+
+        <h3>Step 5 — Clean up</h3>
+
+        <pre><code>$ kill %1
+[1]+  Terminated   ./deadlock</code></pre>
+
+        <p>
+            A deadlocked process does not respond to SIGTERM in some cases — the signal cannot be delivered to a
+            thread that is blocked in <code>pthread_mutex_lock</code> if the mutex is in an uninterruptible
+            state. If <code>kill %1</code> does not work, use <code>kill -9 %1</code> from a shell of any
+            priority, or kill the parent shell.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Why this matters in production:</strong> the technique above works after the fact. It finds a
+            deadlock that has already happened. The goal is to write code that cannot deadlock in the first
+            place — using lock ordering, using timeouts (see <code>pthread_mutex_timedlock</code>), or using
+            lock-free designs where feasible. Detection is a fallback, not a strategy.
+        </div>
+
+        <h3>Step 6 — Reproducing the fix</h3>
+
+        <p>
+            The fix is trivial. Change thread_b to acquire lock_a first, then lock_b:
+        </p>
+
+        <pre><code>void *thread_b(void *arg) {
+    printf("[B] trying lock_a\n");
+    pthread_mutex_lock(&amp;lock_a);   /* was lock_b */
+    printf("[B] holding lock_a\n");
+
+    sleep(1);
+
+    printf("[B] trying lock_b\n");
+    pthread_mutex_lock(&amp;lock_b);   /* was lock_a */
+
+    /* ... */
+    pthread_mutex_unlock(&amp;lock_b);
+    pthread_mutex_unlock(&amp;lock_a);
+    return NULL;
+}</code></pre>
+
+        <p>
+            Recompile and run a dozen times. The program terminates cleanly every time. Both threads now acquire
+            the locks in the same global order — <code>lock_a</code> then <code>lock_b</code> — so no cycle can
+            form. This is the lock-ordering discipline from section 6.4, applied to a real example.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The lesson:</strong> one line changed in thread_b, and the situation went from permanent
+            freeze to guaranteed correctness. That is the power of the lock-ordering rule — it is small, precise,
+            and universally effective for this class of bug.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 6 — Written Assignment</h3>
+            <p>
+                Submit your work as a PDF. Include all source code, terminal outputs, and short written answers.
+                This assignment contributes to your <strong>labs &amp; assignments</strong> grade.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Define <strong>deadlock</strong>, <strong>livelock</strong>, and <strong>starvation</strong>.
+                    Give one concrete example of each, and explain how a systems programmer would distinguish them
+                    when inspecting a running program.</li>
+                <li>State Coffman's four necessary conditions. For each one, give a concrete technique to break it,
+                    and provide a short justification of why breaking that condition prevents deadlock.</li>
+                <li>Explain the difference between <em>deadlock prevention</em> and <em>deadlock avoidance</em>.
+                    In each case, describe the information the OS needs and the runtime overhead.</li>
+                <li>Why is Banker's Algorithm practically unusable in a general-purpose operating system, even
+                    though it is provably correct? List three specific reasons, with concrete examples.</li>
+                <li>Explain what a "safe state" is. Define what "safe sequence" means, and explain the relationship
+                    between a safe state and the absence of deadlock.</li>
+            </ol>
+
+            <h4>Part II — Numerical Problems (40 points)</h4>
+            <p>
+                Consider a system with three resource types — A, B, and C — with totals A = 12, B = 6, C = 10.
+                There are currently five threads, with the following state:
+            </p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Thread</th>
+                        <th>Allocation (A, B, C)</th>
+                        <th>Max (A, B, C)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>P0</td><td>3, 0, 1</td><td>9, 2, 4</td></tr>
+                    <tr><td>P1</td><td>4, 2, 1</td><td>5, 2, 2</td></tr>
+                    <tr><td>P2</td><td>0, 1, 3</td><td>6, 3, 5</td></tr>
+                    <tr><td>P3</td><td>2, 1, 2</td><td>4, 4, 4</td></tr>
+                    <tr><td>P4</td><td>1, 0, 1</td><td>3, 3, 3</td></tr>
+                </tbody>
+            </table>
+
+            <ol>
+                <li>Compute the Available vector.</li>
+                <li>Compute the Need table.</li>
+                <li>Apply Banker's Algorithm. Is the current state safe? If yes, give <strong>one</strong> safe
+                    sequence. If no, explain which thread caused the check to fail.</li>
+                <li>Thread P1 issues a request for <code>(0, 1, 0)</code>. Determine whether the request can be
+                    granted. Show your work.</li>
+                <li>Thread P4 issues a request for <code>(2, 1, 1)</code>. Determine whether it can be granted.
+                    Show your work.</li>
+                <li>Would the answers to (d) and (e) change if the resource totals were A = 10 instead of A = 12?
+                    Explain.</li>
+            </ol>
+
+            <h4>Part III — Practical Lab (30 points)</h4>
+            <ol>
+                <li>Compile and run the <code>banker.py</code> script from section 6.8. Capture the output.
+                    Confirm the safe sequence matches your answer to problem 3 of Part II (adjusting for the
+                    resource numbers in the script).</li>
+                <li>Modify the script to add <code>print</code> statements inside the safety-check loop, showing
+                    <code>Work</code>, <code>Finish</code>, and the candidate thread at each iteration. Paste the
+                    full step-by-step trace for one run.</li>
+                <li>Compile and run the <code>deadlock.c</code> program from section 6.9. Use <code>pstack</code>
+                    (or <code>gdb</code> with <code>info threads</code> and <code>thread apply all bt</code>) to
+                    capture the state of both threads. Paste the output and identify the exact source line where
+                    each thread is blocked.</li>
+                <li>Fix <code>deadlock.c</code> by using the lock-ordering technique. Include the modified code
+                    and verify that the program terminates cleanly when run 10 times in a row.</li>
+                <li>Write a second version of <code>deadlock.c</code> that uses <code>pthread_mutex_timedlock</code>
+                    with a 2-second timeout instead of <code>pthread_mutex_lock</code>. Explain in 4–6 sentences
+                    what happens when the deadlock would have occurred, and how the timeout resolves it.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF containing all answers, code, and terminal outputs to
+                the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 6 Summary</h3>
+            <ul>
+                <li><strong>Deadlock:</strong> a set of threads, each waiting for an event that only another thread
+                    in the set can cause. A permanent standstill — no self-recovery possible.</li>
+                <li><strong>Distinguish from:</strong> livelock (threads actively doing useless work), and
+                    starvation (one thread never getting its turn despite others making progress).</li>
+                <li><strong>Coffman's four conditions:</strong> mutual exclusion, hold and wait, no preemption,
+                    circular wait. All four required for deadlock.</li>
+                <li><strong>Prevention:</strong> break at least one condition at design time. In practice we break
+                    <em>circular wait</em>, using <strong>lock ordering</strong> — the single most important
+                    technique in the deadlock arsenal.</li>
+                <li><strong>Avoidance — Banker's Algorithm:</strong> threads declare max needs; the OS grants only
+                    requests that leave the system in a safe state. Provably correct, but not used in practice.</li>
+                <li><strong>Detection:</strong> build a wait-for graph (single-instance) or run a variant of
+                    safety checking (multi-instance). Recovery by terminating or preempting a thread in the cycle.</li>
+                <li><strong>Dining Philosophers:</strong> the classic teaching problem. Five solutions exist, of
+                    which asymmetric lock ordering and the seat-limit approach are the most practical.</li>
+                <li><strong>Diagnostic tools:</strong> gdb's <code>info threads</code> and
+                    <code>thread apply all bt</code>; the simpler <code>pstack</code>. Together they will let you
+                    find and fix real deadlocks in minutes, not hours.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

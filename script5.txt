@@ -1,0 +1,1435 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 5 — CPU Scheduling
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  eight short videos.
+• Each video is designed to be between 15 and 20 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.1 — Why CPU Scheduling Matters                              ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "CPU Scheduling" + course name]
+
+SPEAK:
+"Welcome to Week 5 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+For the last four weeks we have built a stack of abstractions. We
+started with what an operating system is. We met the process. We met
+the thread. And last week we solved the problem of making concurrent
+threads cooperate safely with locks, semaphores, and condition
+variables.
+
+But there is one question we have not yet asked. When there are more
+runnable threads than CPU cores, who actually gets to run?
+
+That question — and its answer — is the subject of this entire week.
+It is called CPU scheduling."
+
+[PAUSE]
+
+[SLIDE 2 — A desktop with many processes running]
+
+SPEAK:
+"Look at your own laptop right now. Open a terminal and run top.
+
+You will see dozens of processes. Many of them are kernel threads.
+Your shell is one of them, your browser is several of them, and your
+background updater is another. On a four-core machine, there are
+typically fifty to a hundred runnable threads all trying to use four
+actual CPU cores.
+
+Yet the machine feels responsive. Typing is instant. Scrolling is
+smooth. Video playback is fluid. That is not because there are enough
+cores — there are never enough cores. It is because the kernel is
+constantly choosing who runs, for how long, and on which core. Every
+few milliseconds. Billions of times per second across the system.
+
+This week we are going to understand how that choice is made. And by
+the end, you will be able to look at a running system and predict what
+the scheduler will do."
+
+[PAUSE]
+
+[SLIDE 3 — Definition of a scheduler]
+
+SPEAK:
+"Here is the one-sentence definition I want you to write down: the
+CPU scheduler is the part of the kernel that decides which ready
+thread runs next on each CPU core, and how long it is allowed to run
+before being preempted.
+
+Two questions. Which one runs. And for how long. Those two questions
+are the entire space of scheduling design. Every algorithm we look at
+this week is just a different answer to those two questions."
+
+[PAUSE]
+
+[SLIDE 4 — Preemptive vs non-preemptive]
+
+SPEAK:
+"Before we look at any specific algorithm, we need one crucial
+distinction: preemptive versus non-preemptive.
+
+Non-preemptive means: once a thread starts running on a CPU, it keeps
+running until it either finishes, blocks on I/O, or voluntarily gives
+up the CPU. The scheduler has no power to take it away.
+
+Preemptive means: the scheduler CAN take the CPU away from a running
+thread, typically at the end of a time slice driven by a periodic
+timer interrupt.
+
+Every modern desktop, server, and mobile operating system uses
+preemptive scheduling. Non-preemptive schedulers exist only in tiny
+embedded systems and in historical batch operating systems from the
+1960s.
+
+The reason is simple: without preemption, a single misbehaving thread
+could hog the CPU forever, and the entire machine would freeze. With
+preemption, no thread can monopolise the CPU for more than one time
+slice — a fraction of a second — no matter what it does.
+
+That one guarantee is what makes modern systems usable."
+
+[PAUSE]
+
+[SLIDE 5 — When is the scheduler invoked?]
+
+SPEAK:
+"The scheduler is just a piece of kernel code. It gets invoked in four
+situations.
+
+First: a thread blocks. Say your shell reads from the keyboard, and
+there is no input yet. The shell moves to the Waiting state and the
+CPU is free. The scheduler runs and picks someone else.
+
+Second: a thread becomes ready. An interrupt fires — a disk completing
+I/O, a network packet arriving, or the timer tick. A waiting thread
+becomes runnable. The scheduler may preempt the current thread if the
+new one is more interesting.
+
+Third: a thread finishes. The CPU is free. The scheduler picks the
+next one.
+
+Fourth, and most importantly for preemptive systems: the time slice
+ends. The timer interrupt fires, the scheduler checks whether the
+running thread has consumed its quantum. If yes, it saves its state,
+moves it to the Ready queue, and picks the next thread."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize this first video.
+
+The CPU scheduler decides which thread runs next on each core, and
+for how long.
+
+Every general-purpose OS uses preemptive scheduling, which guarantees
+that no single thread can monopolise the CPU.
+
+The scheduler is invoked when a thread blocks, when a thread becomes
+ready, when a thread finishes, and when the time slice ends.
+
+Scheduling is invisible when it works well — but it determines how
+responsive your system feels, how fast a build completes, and how
+efficiently a server uses its hardware.
+
+In the next video we will look at the metrics that let us compare
+scheduling algorithms quantitatively."
+
+[END OF VIDEO 5.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.2 — Scheduling Criteria and Metrics                         ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Scheduling Criteria & Metrics"]
+
+SPEAK:
+"Welcome back. Before we can compare scheduling algorithms, we need a
+way to measure them. In this video I will introduce the standard set
+of metrics used in every textbook and every interview question on this
+subject.
+
+There are seven or eight metrics in common use, and I want you to know
+all of them. But there are two that matter more than the rest, and I
+will highlight them clearly."
+
+[PAUSE]
+
+[SLIDE 2 — The metrics table]
+
+SPEAK:
+"Let me go through each metric.
+
+Arrival time: the moment a thread first becomes ready to run. This is
+an input to the scheduler, not something it controls.
+
+Burst time: how long the thread needs on the CPU to finish, if it ran
+uninterrupted. The scheduler usually does not know this in advance —
+that is a problem we will return to.
+
+Completion time: the moment the thread finishes.
+
+Turnaround time: completion time minus arrival time. Total time from
+submission to completion. This measures how long the thread's life
+was, from its perspective.
+
+Waiting time: the total time the thread spent ready but not running.
+This is time it wanted to run but did not get the CPU.
+
+Response time: the time from arrival until the thread first executes.
+How long the user waited before the system did anything at all.
+
+Throughput: how many threads complete per unit of time.
+
+CPU utilisation: what fraction of time the CPU is doing useful work."
+
+[PAUSE]
+
+[SLIDE 3 — Turnaround vs response]
+
+SPEAK:
+"Of all these, the most important distinction to internalise is
+between turnaround time and response time. They optimise very
+different things, and often conflict.
+
+Turnaround time is total time to completion. A batch job that takes
+ten hours has a turnaround of ten hours. If it runs on the CPU for ten
+hours straight, its turnaround is ten hours and it is done. Along the
+way, response time is ten hours — it did not get touched until the end.
+But it does not care. Nobody is watching.
+
+Response time is how long until the first sign of life. An interactive
+user pressing a key wants the character to appear in ten milliseconds.
+A user launching an application wants the splash screen to appear
+quickly, even if the app takes ten seconds to fully load.
+
+Here is the conflict: the algorithm that minimises turnaround time —
+SJF — might make a small interactive task wait behind a large batch
+job. The algorithm that minimises response time — Round Robin — might
+slow a large job's completion by chopping it into slices.
+
+There is no algorithm that wins on every metric. Choosing a scheduler
+means choosing what kind of workload you are optimising for."
+
+[SLIDE 4 — The standard test workload]
+
+SPEAK:
+"Throughout this week, whenever we compare algorithms, we will use the
+same test workload so that the differences we see are real.
+
+Four threads: P1 with burst 20, P2 with burst 5, P3 with burst 3, and
+P4 with burst 8. All arriving at time zero. All CPU-bound, meaning
+they never block.
+
+Here is a table of the workload. If you want, pause the video and
+write this down — we will refer back to it several times.
+
+When we compare algorithms, we will compute average waiting time and
+average turnaround time across these four threads. That gives us
+numbers we can compare directly."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize this video.
+
+We have seven metrics: arrival, burst, completion, turnaround,
+waiting, response, and throughput. Each measures a different aspect
+of scheduler behaviour.
+
+The most important distinction is turnaround time versus response
+time. Turnaround optimises total time to completion; response
+optimises time until first execution. They often conflict.
+
+We will use a common test workload of four threads — P1, P2, P3, P4 —
+to compare algorithms on equal footing.
+
+In the next video, we will look at the three simplest algorithms ever
+invented: FCFS, SJF, and SRTF."
+
+[END OF VIDEO 5.2]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.3 — FCFS, SJF, and SRTF                                     ║
+║  Target duration: ~20 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "FCFS, SJF, and SRTF"]
+
+SPEAK:
+"Welcome to the third video of Week 5. In this video we look at the
+three simplest scheduling algorithms — the ones every textbook
+introduces first. They are not what modern operating systems use, but
+understanding them is essential because everything else is either a
+refinement or a reaction to their limitations.
+
+The three are: First Come First Served, Shortest Job First, and
+Shortest Remaining Time First."
+
+[PAUSE]
+
+[SLIDE 2 — FCFS definition]
+
+SPEAK:
+"First Come First Served — FCFS — is the simplest possible policy.
+Threads are placed in a FIFO queue. When the CPU becomes free, the
+thread at the front runs to completion. This is a non-preemptive
+algorithm.
+
+On our test workload with four threads all arriving at time zero,
+FCFS runs them in arrival order: P1, then P2, then P3, then P4.
+P1 has burst 20, so it runs for units 0 to 20. Then P2 from 20 to 25.
+Then P3 from 25 to 28. Then P4 from 28 to 36.
+
+Let me compute the metrics. P1 waits 0 units and finishes at 20 —
+turnaround 20. P2 waits 20 and finishes at 25 — turnaround 25. P3
+waits 25 and finishes at 28 — turnaround 28. P4 waits 28 and finishes
+at 36 — turnaround 36.
+
+Average waiting time: (0 + 20 + 25 + 28) / 4 = 18.25. Average
+turnaround: (20 + 25 + 28 + 36) / 4 = 27.25."
+
+[PAUSE]
+
+[SLIDE 3 — The convoy effect]
+
+SPEAK:
+"Notice the problem. Every thread that arrives after P1 has to wait for
+P1's entire 20 units. Even though P2, P3, and P4 are collectively much
+shorter than P1, they are stuck behind it.
+
+This is called the convoy effect. FCFS makes the short jobs pay for
+the long job's CPU time.
+
+Imagine a supermarket with one checkout. The customer in front has a
+cart with a hundred items. Everyone behind them waits — even the
+people buying only a bottle of water. That is exactly FCFS in a
+nutshell.
+
+The result is that FCFS has terrible average waiting time for any
+workload with mixed job sizes — which is essentially all real
+workloads."
+
+[SLIDE 4 — SJF definition and computation]
+
+SPEAK:
+"Now suppose we know each thread's burst time in advance. What would
+be the best order?
+
+Intuitively, run the shortest jobs first. This is called Shortest Job
+First — SJF. When the CPU becomes free, pick the ready thread with
+the smallest burst time.
+
+On our workload, that means P3 first (burst 3), then P2 (burst 5),
+then P4 (burst 8), then P1 (burst 20).
+
+Let me compute. P3 runs from 0 to 3 — waiting 0, turnaround 3. P2 runs
+from 3 to 8 — waiting 3, turnaround 8. P4 runs from 8 to 16 — waiting
+8, turnaround 16. P1 runs from 16 to 36 — waiting 16, turnaround 36.
+
+Average waiting time: (0 + 3 + 8 + 16) / 4 = 6.75. Average
+turnaround: (3 + 8 + 16 + 36) / 4 = 15.75.
+
+Compare this to FCFS: 18.25 average waiting versus 6.75. That is not a
+small improvement. It is a factor of nearly three."
+
+[PAUSE]
+
+[SLIDE 5 — Why SJF is optimal]
+
+SPEAK:
+"Here is the theoretical result that makes SJF famous: for any fixed
+set of jobs with known burst times, SJF minimises average waiting time.
+
+This is not a heuristic. It is a theorem. It can be proven with an
+exchange argument — take any schedule that is not SJF, show that
+swapping two adjacent out-of-order jobs reduces the average waiting
+time, and repeat until you reach SJF. The final schedule is optimal.
+
+When you hear that SJF stands for Shortest Job First, remember: it
+stands for the provably best single-core scheduler under two
+constraints — all jobs arrive at the same time, and all burst times
+are known in advance."
+
+[SLIDE 6 — The problem with SJF]
+
+SPEAK:
+"But those two constraints are unrealistic. In real systems, threads
+arrive continuously, not all at once. And we do not know how long
+they will run.
+
+If we do not know burst times, we cannot sort by them. So SJF is not
+usable as-is.
+
+There is also a second problem: starvation. If short threads keep
+arriving, a long thread may never get to run. It always has the
+largest burst, so it always waits.
+
+There is a partial fix: exponential averaging. We estimate each
+thread's next burst time based on its past CPU usage. This is what
+real schedulers do as a heuristic. But it is only an estimate — the
+optimality proof of SJF no longer applies."
+
+[SLIDE 7 — SRTF]
+
+SPEAK:
+"Shortest Remaining Time First — SRTF — is the preemptive version of
+SJF. When a new thread arrives, compare its remaining burst time
+against the running thread's remaining burst time. If the new one is
+shorter, preempt.
+
+SRTF is theoretically optimal for average waiting time in a preemptive
+setting. But it inherits SJF's problems — burst times unknown, and
+starvation risk. And it makes them worse, because now threads can
+be preempted — their turnaround becomes less predictable.
+
+In practice, SRTF is rarely used. Its main value is theoretical: it
+tells us the best possible performance, giving us an upper bound to
+compare real algorithms against."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+FCFS is simple and non-preemptive, but suffers from the convoy effect.
+Average waiting time depends heavily on arrival order.
+
+SJF is provably optimal for average waiting time, but requires knowing
+burst times — which real systems do not have. It also risks starving
+long threads.
+
+SRTF is the preemptive version of SJF, with the same theoretical
+appeal and the same practical problems.
+
+The lesson: knowing the theoretical optimum is useful. It tells us
+what we would achieve if we had perfect information. Then we design
+practical algorithms that approximate the optimum using heuristics.
+
+In the next video, we look at two more practical algorithms — Round
+Robin and Priority Scheduling — which form the basis of every real
+scheduler."
+
+[END OF VIDEO 5.3]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.4 — Round Robin and Priority Scheduling                     ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Round Robin & Priority Scheduling"]
+
+SPEAK:
+"Welcome to the fourth video of Week 5.
+
+In the last video, we saw that FCFS, SJF, and SRTF all optimise
+average turnaround or average waiting time. But those are not the
+metrics that an interactive user actually experiences. When you type
+a character, you do not care about average turnaround across the
+system. You care about how long until you see the character.
+
+That metric is response time. And for response time, we need a very
+different kind of algorithm."
+
+[PAUSE]
+
+[SLIDE 2 — Round Robin]
+
+SPEAK:
+"Round Robin was invented to fix the response time problem. The idea
+is simple.
+
+Each thread is given a fixed time slice — typically between one and
+one hundred milliseconds. Ready threads are organised in a circular
+queue. The scheduler runs the front of the queue for at most one
+slice. If the thread does not finish, it goes to the back of the
+queue, and the scheduler picks the next one.
+
+The result: every thread gets a turn within a bounded amount of time.
+If there are n threads and the slice is s, then each thread runs at
+least once every n times s units of wall-clock time. Response time is
+bounded. No thread ever waits behind another for more than a full
+cycle of the queue."
+
+[PAUSE]
+
+[SLIDE 3 — The time slice trade-off]
+
+SPEAK:
+"The choice of time slice is critical, and it is a genuine trade-off.
+
+A small time slice minimises response time. Every thread gets to the
+CPU quickly. But it also means more context switches — more overhead.
+If the slice is too small, the CPU spends more time switching contexts
+than doing useful work.
+
+A large time slice reduces context switches and improves throughput.
+But it also means a thread arriving just after the start of a slice
+waits a long time before its turn. Response time suffers. And if the
+slice approaches infinity, Round Robin degenerates into FCFS.
+
+The sweet spot in modern systems is typically a few milliseconds. But
+real schedulers do not use a fixed slice — they adjust it dynamically
+based on how many threads are runnable. We will see how Linux CFS
+does this in a few videos."
+
+[SLIDE 4 — Round Robin example]
+
+SPEAK:
+"Let me run through a small example. Our four threads with bursts 20,
+5, 3, and 8. Round Robin with a slice of 4 units.
+
+Time 0: run P1 for 4 units. P1 has 16 left.
+Time 4: run P2 for 4 units. P2 has 1 left.
+Time 8: run P3 for 3 units — it finishes early.
+Time 11: run P4 for 4 units. P4 has 4 left.
+Time 15: run P1 for 4 units. P1 has 12 left.
+Time 19: run P2 for 1 unit — it finishes.
+Time 20: run P4 for 4 units — it finishes.
+Time 24: run P1 for 4 units. P1 has 8 left.
+... and so on.
+
+The key observation: every thread gets the CPU within the first
+fourteen units of the simulation. Compare that to FCFS, where P4 does
+not run until time 28. Round Robin's response time is dramatically
+better, even though its average turnaround will be worse."
+
+[SLIDE 5 — Priority scheduling]
+
+SPEAK:
+"Round Robin treats all threads equally. But real systems want to
+express that some threads are more important than others. That is
+priority scheduling.
+
+Each thread has a priority value. The scheduler always runs the
+highest-priority ready thread. Priorities may be preemptive — a
+newly-ready higher-priority thread immediately preempts the running
+one — or non-preemptive.
+
+In practice, most systems use a hybrid: preemptive priority scheduling
+with round-robin within each priority level. If two threads have the
+same priority, they alternate in a fixed time slice.
+
+This combination is the basis of modern schedulers, including the
+Multi-Level Feedback Queue that we will see next."
+
+[PAUSE]
+
+[SLIDE 6 — The starvation problem]
+
+SPEAK:
+"Priority scheduling has one dangerous failure mode: starvation.
+
+Imagine a low-priority thread that just wants to run. Every time a
+higher-priority thread becomes ready, the low-priority thread is
+preempted. If higher-priority threads keep arriving, the low-priority
+thread waits forever.
+
+This is not a theoretical concern. In a web server that handles user
+requests with high priority and background maintenance tasks with low
+priority, the maintenance tasks may never run under sustained user
+load. In an operating system, kernel threads that clean up memory and
+flush disk caches can be starved by user workloads.
+
+The universal fix is called aging. The kernel gradually increases the
+priority of threads that have been waiting a long time. After enough
+time, even the lowest-priority thread starts climbing the ladder. No
+thread starves indefinitely.
+
+Aging is a small overhead — a bit of bookkeeping per thread — but it
+makes an enormous difference to system robustness. Every production
+scheduler includes it."
+
+[SLIDE 7 — Priority in the real world]
+
+SPEAK:
+"Let me show you how priority appears in the operating systems you
+actually use.
+
+Linux exposes priority through nice values. A nice value from minus
+twenty to plus nineteen. Lower nice means higher priority. The name
+comes from the idea that a process with a high nice value is being
+nice to others — giving them CPU time.
+
+Linux also has real-time priorities, from one to ninety-nine, under
+scheduling classes SCHED_FIFO and SCHED_RR. These override nice
+values entirely and preempt all normal threads.
+
+Windows uses a priority class system with values from zero to
+thirty-one. The mapping from a running program to a Windows thread
+priority involves several layers of adjustment.
+
+macOS and iOS abstract all this into Quality of Service classes: User
+Interactive, User Initiated, Utility, Background. The user never sees
+a raw number. Instead, the developer declares what kind of work this
+thread does, and the scheduler interprets it."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+Round Robin uses a fixed time slice and a circular queue. It
+guarantees bounded response time, at the cost of more context
+switches.
+
+Priority scheduling always runs the highest-priority ready thread. It
+is powerful, but subject to starvation.
+
+Aging gradually increases the priority of waiting threads, fixing the
+starvation problem.
+
+Real operating systems combine priority scheduling with round-robin
+within each priority level. This is why a single-threaded niced
+process can drop to a tiny share of CPU, while interactive threads
+keep running smoothly.
+
+In the next video we will look at the Multi-Level Feedback Queue — the
+scheduler design that first learned a thread's behaviour instead of
+being told about it."
+
+[END OF VIDEO 5.4]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.5 — Multi-Level Feedback Queue (MLFQ)                       ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Multi-Level Feedback Queue"]
+
+SPEAK:
+"Welcome back. Every algorithm we have looked at so far has had the
+same problem: it needs information the OS usually does not have.
+
+SJF needs burst times. Priority scheduling needs priorities. But real
+operating systems do not know in advance whether a thread is going to
+be interactive and short or CPU-bound and long. From the outside, both
+look like threads that want to run.
+
+The Multi-Level Feedback Queue — MLFQ — solves this by not requiring
+that information. Instead of being told, the scheduler observes. It
+learns each thread's behaviour from how the thread behaves, and
+adjusts accordingly.
+
+This is arguably the most important scheduler design of the 1960s and
+70s. It appeared in many early Unix-derived systems, influenced
+Windows, and its philosophy survives in Linux's CFS even today."
+
+[PAUSE]
+
+[SLIDE 2 — The structure]
+
+SPEAK:
+"Here is how MLFQ works.
+
+Instead of one ready queue, keep several queues. Each queue has a
+different priority. Higher-priority queues are for interactive
+threads; lower-priority queues are for CPU-bound threads.
+
+In the simplest version we have four queues, Q0 through Q3. Q0 has the
+highest priority. Within each queue, threads are scheduled with Round
+Robin — so no thread in a given queue can starve another.
+
+Time slices get longer as we go down. Q0 might use 8 milliseconds, Q1
+uses 16, Q2 uses 32, and Q3 uses a fixed quantum. Higher-priority
+queues have shorter slices because we want to switch between
+interactive threads rapidly. Lower-priority queues have longer slices
+because CPU-bound threads benefit from running for a while without
+interruption."
+
+[SLIDE 3 — The rules]
+
+SPEAK:
+"Here are the four core rules of MLFQ.
+
+Rule one: new threads go to the highest queue — Q0. We assume every
+thread starts out as interactive until proven otherwise.
+
+Rule two: the scheduler always prefers a higher-priority queue. Only
+if Q0 is empty does it consider Q1, and so on. Round Robin runs within
+each queue.
+
+Rule three: if a thread uses its entire time slice, it gets demoted to
+the next lower queue. Using a full slice is evidence that the thread
+is CPU-bound.
+
+Rule four: if a thread yields the CPU before its slice ends — because
+it is waiting on I/O, waiting on a lock, or just being interactive —
+it stays at its current queue level. Yielding early is evidence that
+the thread is interactive.
+
+Taken together, these rules mean: threads that behave interactively
+stay at high priority. Threads that hog the CPU sink to low priority."
+
+[PAUSE]
+
+[SLIDE 4 — Why this is elegant]
+
+SPEAK:
+"Let me emphasise why this design is elegant.
+
+The operating system does not need any kind of classification. It
+does not need to know whether a thread is a text editor, a video
+encoder, or a database. It does not need the user or the programmer
+to declare anything.
+
+It just watches. If you yield quickly, you are treated as interactive.
+If you consume your whole slice, you are treated as CPU-bound. The
+classification emerges from behaviour, without any explicit input.
+
+This is a big deal. It means the same OS kernel can correctly serve
+a word processor, a compiler, and a game, all running on the same
+machine, without any application having to configure anything. The
+scheduler adapts."
+
+[SLIDE 5 — The starvation problem and the fix]
+
+SPEAK:
+"But there is one problem. If a long-running CPU-bound thread sinks
+to Q3 and stays there — and interactive threads keep filling Q0 —
+then the long thread never runs. It is starved.
+
+The fix is a single extra rule. Every fixed period of time — typically
+once per second of CPU time across the whole system — boost every
+thread back to the top queue, Q0. Regardless of history. Regardless
+of how CPU-bound it has been.
+
+This rule has two effects. First, it prevents starvation — every
+thread gets a chance to run regularly. Second, it adapts to changing
+behaviour — if a thread that used to be CPU-bound becomes interactive,
+it gets a fresh start at high priority.
+
+The priority boost is a small amount of work — the kernel just walks
+through its thread list and moves each one. But it is what makes MLFQ
+robust in practice."
+
+[SLIDE 6 — MLFQ in the real world]
+
+SPEAK:
+"MLFQ-style schedulers have appeared in many real systems.
+
+BSD Unix used a variant called the multilevel feedback queue in the
+1980s and 90s. Solaris used a form of MLFQ for many years. And even
+Windows, though it never used the name, has always used a form of
+multilevel scheduling with dynamic priority adjustment — the thread
+priority is based on an initial class plus adjustments based on
+whether the thread has been blocking or CPU-hungry.
+
+Linux's O(1) scheduler, used from kernel 2.6 through 2.6.22, was a
+direct descendant of MLFQ with some clever tricks. Linux's modern CFS
+is philosophically different — but it still embodies the idea that
+the scheduler should infer behaviour from how threads actually run.
+
+In other words: MLFQ is not a historical footnote. Its core idea —
+dynamic classification based on observed behaviour — is the foundation
+of every scheduler you will encounter."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+MLFQ uses multiple priority queues. New threads start at the top.
+Threads that use their full time slice get demoted. Threads that
+yield early stay put. And periodic priority boosts prevent starvation.
+
+The result: the scheduler learns each thread's behaviour without ever
+being told about it. Interactive threads stay fast. CPU-bound threads
+sink. Nobody starves.
+
+The design has influenced every scheduler that came after it — from
+Solaris to Linux to Windows.
+
+In the next video, we will look at Linux's current scheduler — CFS —
+which takes a very different approach to the same fundamental problem."
+
+[END OF VIDEO 5.5]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.6 — Linux CFS — The Completely Fair Scheduler               ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Linux CFS — The Completely Fair Scheduler"]
+
+SPEAK:
+"Welcome to the sixth video of Week 5. Modern Linux does not use MLFQ.
+Since kernel version 2.6.23, released in 2007, the default scheduler
+is the Completely Fair Scheduler — CFS.
+
+CFS is a genuinely different approach to scheduling, and it has become
+one of the most influential schedulers in the world — not only in
+Linux, but in the ideas it popularised. Understanding it is essential
+for anyone working with Linux systems, which is all of us.
+
+CFS rests on one key abstraction: virtual runtime."
+
+[PAUSE]
+
+[SLIDE 2 — Virtual runtime]
+
+SPEAK:
+"CFS does not assign explicit priorities or time slices. Instead, it
+tracks one number per thread, called the virtual runtime. This is
+usually abbreviated as vruntime.
+
+Virtual runtime is the total CPU time that the thread has consumed,
+weighted by its priority. A thread with a high priority accrues
+virtual runtime more slowly than a low-priority thread. So after
+running for the same wall-clock time on the CPU, the high-priority
+thread has a lower vruntime than the low-priority thread.
+
+Here is the specific rule CFS uses: always run the thread with the
+smallest vruntime.
+
+That is it. That is the entire scheduling policy. The thread that has
+had the least CPU relative to its priority runs next.
+
+This one rule replaces all the rules we saw in earlier algorithms.
+No time slice. No priority queue. No aging. Just a single comparison:
+whose vruntime is smallest?"
+
+[PAUSE]
+
+[SLIDE 3 — The red-black tree]
+
+SPEAK:
+"To implement this rule efficiently, CFS keeps its runnable threads in
+a red-black tree, sorted by vruntime.
+
+A red-black tree is a self-balancing binary search tree. It guarantees
+that insertion, deletion, and finding the smallest element all take
+logarithmic time — O(log n) — no matter how many threads are in the
+tree.
+
+Why does this matter? Because the scheduler needs to find the
+smallest vruntime on every scheduling decision. If it had to scan
+a list — which is what older schedulers did — a system with ten
+thousand runnable threads would spend most of its time scanning. With
+a red-black tree, finding the next thread to run is one traversal
+down the left spine — an operation that takes logarithmic time even
+at scale.
+
+When the tree has the current thread's vruntime inserted back in
+after the thread runs, the scheduler simply picks the new leftmost
+node. That thread runs next."
+
+[SLIDE 4 — Dynamic time slices]
+
+SPEAK:
+"CFS does not use a fixed time slice. Instead, it uses two parameters
+that together determine how long a thread is allowed to run.
+
+The first parameter is sched_latency — typically 6 milliseconds on a
+desktop system. This is the target for how long, in wall-clock time,
+it should take to cycle through all runnable threads once.
+
+The second parameter is min_granularity — typically around 0.75
+milliseconds. This is the smallest slice any thread should get.
+
+The calculation is simple. If there are n runnable threads, each
+thread gets sched_latency divided by n. If n is 4, each gets 1.5
+milliseconds. If n is 100, each gets 0.06 milliseconds — which is
+below min_granularity, so it is clamped up to 0.75 milliseconds.
+
+This is elegant because it scales. With few threads, each one runs
+for a long time and the system has few context switches. With many
+threads, slices shorten to keep the system responsive — but not so
+short that they fail to be useful."
+
+[SLIDE 5 — Nice values as weights]
+
+SPEAK:
+"CFS does not ignore priority. It interprets it as a weight.
+
+Every nice value from minus twenty to plus nineteen corresponds to a
+weight. Nice zero has weight 1024. Nice minus twenty has a weight of
+about 88761 — nearly ninety times higher. Nice plus nineteen has a
+weight of just 15.
+
+When a thread runs, its vruntime increases by the actual CPU time
+divided by its weight. So a high-weight thread's vruntime grows
+slowly. That means it can stay at the front of the tree for a long
+time before other threads catch up.
+
+Consequently, a high-priority thread gets more CPU time. A
+low-priority thread gets less. But no thread is ever starved
+outright — CFS guarantees that every runnable thread will eventually
+reach the front of the tree.
+
+How much CPU does each nice level get? Roughly, dropping nice by one
+level multiplies CPU share by about 1.25. Dropping by ten multiplies
+by about 10. Dropping by twenty multiplies by about 90. That is why
+the nice scale is exponential — each step is a ratio, not an amount."
+
+[SLIDE 6 — Why "completely fair"?]
+
+SPEAK:
+"Now let me explain the name. Why 'completely fair'?
+
+If every thread has the same nice value — say, all at nice 0 — then
+CFS gives every thread exactly the same share of the CPU.
+
+Regardless of when the thread arrived. Regardless of how long it has
+been running. Regardless of what it is doing. Every runnable thread
+gets a share proportional to its weight, and with equal weights, that
+means equal shares.
+
+This is different from MLFQ, which explicitly favours interactive
+threads. CFS is not trying to be optimal for a particular workload.
+It is trying to be fair.
+
+Fairness is the default. Any deviation — such as a thread running at
+a higher nice value — is a deliberate, purposeful deviation from that
+baseline. The user or programmer has asked for the deviation
+explicitly, and CFS honours it.
+
+That is what 'completely fair' means. It is not a marketing phrase —
+it is a precise description of the algorithm's guarantee."
+
+[PAUSE]
+
+[SLIDE 7 — CFS in practice]
+
+SPEAK:
+"Let me give you some intuition about CFS's behavior you can verify
+yourself.
+
+If you start one CPU-intensive thread on an idle system, it gets
+almost all the CPU. Nothing else is competing.
+
+If you start a second CPU-bound thread, the two split the CPU evenly.
+Each gets about 50%, because they have equal vruntime accrual and
+equal weight.
+
+If you nice one of them to plus nineteen, it drops to about a few
+percent of CPU while the other keeps nearly all of it. That is the
+weight difference acting.
+
+If you have twenty threads all at nice zero on a four-core system,
+they get 20% of a core each — 5% of the total four-core capacity.
+Everyone gets a fair share, and no one waits forever.
+
+You can verify all of this yourself with top. We will do exactly that
+in the next two labs."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+CFS tracks virtual runtime per thread. It always runs the thread with
+the smallest vruntime.
+
+It uses a red-black tree for O(log n) scheduling decisions at any
+scale.
+
+Its time slices are dynamic — sched_latency divided by the number of
+runnable threads, clamped at min_granularity.
+
+Nice values become weights. Each step of nice roughly multiplies CPU
+share by a fixed ratio.
+
+The name 'completely fair' is literal: with equal priorities, all
+runnable threads get equal shares.
+
+In the next video, we will stop talking about the theory and start
+touching the Linux scheduler from user space. We will use nice, renice,
+and chrt to control priority, and verify everything with top."
+
+[END OF VIDEO 5.6]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.7 — Touch Lab: nice, renice, and chrt                       ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Controlling Priority from User Space"]
+
+SPEAK:
+"Welcome to the practical side of Week 5. In this video we are going
+to actually change the scheduling priority of real processes and
+observe the effect with top.
+
+Everything we have been discussing becomes very concrete when you
+watch one process starve and another thrive on the same CPU, because
+you asked the scheduler to make it so.
+
+Make sure your Ubuntu VM is running and you are logged in. Let's get
+started."
+
+[SCREENCAST — terminal]
+
+SPEAK:
+"First, let's check our current nice value. Every process has one.
+
+Run: nice
+
+On an unmodified shell, this returns zero. The default.
+
+Let's also check the priority and nice value with ps:
+
+ps -o pid,ni,pri,comm -p $$
+
+The NI column is the nice value. The PRI column is the kernel's
+internal priority, derived from nice. Lower PRI means higher priority."
+
+[SCREENCAST — starting a CPU hog]
+
+SPEAK:
+"Now let's create a CPU hog. The yes command prints the letter y
+forever — sending the output to /dev/null makes it a pure CPU
+workload with no I/O.
+
+Run: yes > /dev/null &
+
+The ampersand runs it in the background. We get a job number and a
+PID back.
+
+Now let's start a second one, but at the lowest possible priority:
+
+nice -n 19 yes > /dev/null &
+
+The nice command runs the given program at the specified nice value.
+Nice 19 is the lowest priority a user can set.
+
+Now let's see what happened. Run top, and filter to our two PIDs.
+
+top -p <pid1>,<pid2>
+
+Look at the %CPU column. The first one is using about 100% of a core.
+The second one is using a small fraction — a few percent. The nice 19
+process is being starved, exactly as we asked.
+
+Also look at the PR column. It shows 20 for the first one and 39 for
+the second. That is the kernel's priority representation. It differs
+by exactly the nice difference of 19. Every point of nice moves the
+priority by one point of PR, in the base mapping.
+
+And the NI column confirms: 0 and 19."
+
+[PAUSE]
+
+[SCREENCAST — changing nice at runtime]
+
+SPEAK:
+"You can also change the nice value of a running process, using
+renice.
+
+renice -n 10 -p <pid_of_first_process>
+
+The output confirms the change. Now watch top again. The first
+process is no longer getting 100%. It has dropped to somewhere
+between 50 and 80 percent, because the second process is now only
+9 nice points away instead of 19.
+
+Renice only adjusts relative priority. To undo it:
+
+sudo renice -n 0 -p <pid>
+
+Note the sudo. To increase priority — that is, to lower the nice
+value — you need root, because otherwise any user could starve the
+system. To decrease priority — raise the nice value — anyone can
+do it. The kernel trusts users to be nice, but not to be selfish."
+
+[SCREENCAST — chrt]
+
+SPEAK:
+"Nice values only affect ordinary scheduling. For real-time
+scheduling, Linux exposes a different interface: chrt.
+
+First let's check what the current scheduling policy is:
+
+chrt -p $$
+
+The output says SCHED_OTHER — that is the default. The one that
+uses CFS.
+
+Now let me show you the options. There are roughly five scheduling
+policies you will encounter.
+
+SCHED_OTHER is the default. Round-robin-ish, based on CFS.
+
+SCHED_BATCH is for CPU-bound jobs that do not need low latency.
+It tells CFS to allow longer slices and fewer preemptions. Good for
+compilers and other batch jobs.
+
+SCHED_IDLE is a thread that only runs when the system would otherwise
+be doing nothing. Useful for background maintenance.
+
+SCHED_FIFO is real-time, first-in-first-out. A running thread keeps
+the CPU until it voluntarily blocks or yields. There is no time
+slice.
+
+SCHED_RR is real-time, round-robin. Same as FIFO, but each thread
+gets a time slice.
+
+Real-time policies have priorities from 1 to 99. They preempt every
+SCHED_OTHER thread on the system. That is why they are extremely
+powerful and extremely dangerous."
+
+[PAUSE]
+
+[SCREENCAST — careful real-time experiment]
+
+SPEAK:
+"Let me show you real-time scheduling in action — but carefully.
+Uncontrolled real-time threads can freeze the whole system, so we
+will use a timeout.
+
+kill %1 %2
+
+First, clean up the previous jobs. You can check with jobs.
+
+Now run this:
+
+sudo chrt -f 10 timeout 5s yes > /dev/null &
+
+This starts a SCHED_FIFO thread with real-time priority 10, capped at
+5 seconds by the timeout command. While it runs, our shell and other
+processes are being preempted.
+
+You might notice a slight lag if you type in the shell. After 5
+seconds, the timeout kills the thread and everything goes back to
+normal.
+
+Verify with:
+
+ps -o pid,ni,pri,cls,rtprio,comm -p <pid>
+
+The CLS column shows FF, meaning SCHED_FIFO. RTPRIO shows 10. And the
+NI column is empty, because nice values do not apply to real-time
+threads."
+
+[SLIDE — why real-time is dangerous]
+
+SPEAK:
+"I want to emphasise why real-time scheduling is dangerous.
+
+SCHED_FIFO threads run before every other thread on the system. That
+includes the shell you are typing in, the scheduler daemon, and the
+kernel's own timer handling threads.
+
+If a SCHED_FIFO thread gets into an infinite loop — and never blocks,
+never yields, never calls any syscall that would let the kernel
+preempt it — it will take 100% of one CPU forever. The other
+processes will continue to run on other CPUs, but the shell you are
+typing in has to share time with that thread, and the imbalance
+will be noticeable.
+
+If it takes 100% of all CPUs at real-time priority, the system is
+effectively frozen. You cannot even press Ctrl+C to kill the runaway
+process, because your terminal is a normal-priority process and never
+gets scheduled.
+
+This is the classic way to lock up a Linux machine.
+
+So: use real-time scheduling only when you fully understand it, and
+always with a safety net like timeout, or by starting it with a
+bounded job that completes in known time."
+
+[SCREENCAST — cleanup]
+
+SPEAK:
+"Let's clean up our jobs.
+
+kill %1 %2 %3
+jobs
+
+Everything should be terminated. Take a moment to verify that no
+stray yes processes are running:
+
+ps aux | grep yes
+
+The only line should be the grep itself."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we controlled scheduling priority from user space using
+three tools.
+
+nice starts a process with a specific nice value.
+
+renice changes the nice value of an already running process.
+
+chrt inspects and changes the scheduling policy and real-time priority.
+
+We confirmed with top and ps that our priority changes actually
+affected the CPU share each process received — the exact behavior CFS
+predicts from the theory.
+
+In the next video, we will go further: we will observe the scheduler
+at the system level — load average, per-CPU usage, I/O wait — and
+learn to read what the scheduler is doing from the numbers."
+
+[END OF VIDEO 5.7]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 5.8 — Touch Lab: Observing the Scheduler with top & /proc     ║
+║  Target duration: ~16 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Reading the Scheduler from top and /proc"]
+
+SPEAK:
+"Welcome to the final video of Week 5. In the previous lab we changed
+priorities and observed the effect on individual processes. In this
+video I want to teach you to read the system-wide signals that tell
+you what the scheduler is doing.
+
+This is one of the most valuable skills you can develop as a systems
+engineer. Scheduling bugs are invisible unless you know how to look
+at the right numbers."
+
+[SCREENCAST — uptime and load average]
+
+SPEAK:
+"Start with load average. The uptime command gives it to us — and
+top shows it on the first line.
+
+uptime
+
+The three numbers after 'load average' are the average number of
+runnable or uninterruptible threads over the last 1, 5, and 15
+minutes.
+
+To interpret them, you need to know how many CPU cores you have.
+
+nproc
+
+My VM has four cores. So a load average of 4.0 means all cores are
+fully loaded. A load average of 2.0 means half capacity. A load
+average of 8.0 means twice as many runnable threads as cores —
+there is a queue.
+
+What a load average does NOT tell you is what is causing the load.
+A thread blocked on disk I/O counts as runnable in the load average,
+because it is in the uninterruptible sleep state. This distinction
+between CPU load and I/O load matters a lot."
+
+[PAUSE]
+
+[SCREENCAST — top CPU line]
+
+SPEAK:
+"Now let's look at top's CPU usage line. This is where the scheduler
+tells you where the CPU time went.
+
+top
+
+The first line under the header looks like:
+
+%Cpu(s):  3.2 us,  0.8 sy,  0.0 ni, 95.6 id,  0.4 wa,  0.0 hi,  0.0 si,  0.0 st
+
+Let me explain each field.
+
+us is user time — running user-space code. High values mean your
+applications are doing work.
+
+sy is system time — running kernel code. High values mean the kernel
+is doing work: syscalls, scheduling, interrupt handling. If sy is
+high under a light workload, you probably have a system call problem
+— too many syscalls, or an IO-heavy workload.
+
+ni is time spent running nice-adjusted processes. It is nonzero only
+if you use nice values extensively.
+
+id is idle — CPU doing nothing. On a healthy non-loaded system, this
+is high.
+
+wa is I/O wait — the CPU is idle waiting for disk or network. This is
+the most underrated number. A system with high wa is slow, but if you
+just look at CPU usage, it looks idle. If your server is slow and CPU
+usage is low, check the I/O wait first.
+
+hi and si are interrupt handling. High values mean heavy device
+activity — network cards, in particular, can produce a lot of
+software interrupts.
+
+st is steal time. This is only meaningful in virtual machines — the
+time the hypervisor took from this VM while we thought we were
+running. If you see st in the double digits, your VM is being
+throttled by the host."
+
+[PAUSE]
+
+[SCREENCAST — per-CPU view]
+
+SPEAK:
+"Press 1 in top to toggle the per-CPU view.
+
+You will see one usage line for each core. This is where the
+scheduler's work becomes visible.
+
+On a system with several CPU-bound threads, all cores should show
+high us. The scheduler distributes them.
+
+If only one core is loaded — and it stays that way — the workload
+is single-threaded. Nothing the scheduler can do will use more cores,
+because there is only one thread to run.
+
+This is one of the most common misunderstandings about performance.
+People see a system with one core at 100% and others near idle and
+blame the scheduler. But the scheduler cannot parallelise a
+single-threaded program. The fix is in the application, not the
+kernel."
+
+[SCREENCAST — /proc/<pid>/sched]
+
+SPEAK:
+"Now the most detailed view: /proc/<pid>/sched.
+
+cat /proc/$$/sched
+
+Every process and thread has one of these files. It contains the
+kernel's scheduler statistics for that thread.
+
+Let me point out the fields worth understanding.
+
+se.vruntime — the CFS virtual runtime we discussed. This is the
+number CFS uses to order threads in its red-black tree.
+
+se.sum_exec_runtime — the total CPU time consumed by this thread, in
+milliseconds.
+
+nr_voluntary_switches — times the thread voluntarily gave up the CPU.
+This happens when the thread blocks on I/O, waits on a lock, or
+calls sleep. High values indicate an I/O-bound or interactive thread.
+
+nr_involuntary_switches — times the thread was preempted by the
+scheduler. This happens when the time slice expires. High values
+indicate a CPU-bound thread.
+
+se.nr_migrations — how many times this thread has been moved between
+CPU cores. Small values are good — threads want to stay on the same
+core to benefit from cache locality. Many migrations mean the
+scheduler is shuffling the thread around, hurting performance.
+
+Watch these numbers change. Start a CPU hog, wait ten seconds, kill
+it, and check /proc/<pid>/sched for it — the involuntary switch count
+will be high. Now do the same with a program that reads from disk —
+the voluntary switch count will be high. This is how you tell the
+two kinds of workloads apart from the numbers."
+
+[SCREENCAST — a diagnostic exercise]
+
+SPEAK:
+"Let's put this all together.
+
+Step one: capture a baseline.
+
+uptime
+ps aux --sort=-%cpu | head -5
+
+Write down the load average and the top CPU consumers.
+
+Step two: start three CPU hogs.
+
+yes > /dev/null &
+yes > /dev/null &
+yes > /dev/null &
+
+Step three: wait a minute. Then capture again.
+
+uptime
+top -b -n 1 | head -20
+
+Compare. The load average should have climbed to roughly three,
+because we have three runnable threads. The CPU usage should be spread
+across cores with high us.
+
+Step four: add a real-time thread on top.
+
+sudo chrt -f 10 timeout 5s yes > /dev/null &
+
+For five seconds, the load average stays the same, but the share each
+thread gets changes — the real-time thread takes precedence. You will
+see the CPU usage shift.
+
+Step five: clean up.
+
+kill %1 %2 %3
+
+Everything should return to baseline. Check with uptime — the load
+average will take a minute or two to fall back, because it is an
+exponential average."
+
+[SLIDE — Practice exercise]
+
+SPEAK:
+"Here is a practice exercise to do on your own.
+
+Start four CPU-bound processes. Observe load average, per-CPU usage,
+and the voluntary versus involuntary switch counts of each process
+over the next minute.
+
+Then introduce an I/O-bound process — such as a script that copies a
+large file repeatedly. Observe how its voluntary switch count is much
+higher than its CPU-bound siblings.
+
+Then change one CPU-bound process to nice 19 and observe the exact
+fraction of CPU it still receives.
+
+If you can predict what top will show before you run it, then you
+understand Linux scheduling. That is the goal of this week."
+
+[SLIDE — Week 5 wrap-up]
+
+SPEAK:
+"That wraps up Week 5. We covered a lot of ground: the metrics that
+define scheduling quality, the classical algorithms FCFS, SJF, and
+SRTF, the practical algorithms Round Robin and Priority, the
+MLFQ that first learned behaviour, and the modern CFS that produces
+fairness by design.
+
+We also touched the scheduler from user space using nice, renice,
+and chrt, and read its effects in top, uptime, and /proc.
+
+CPU scheduling is one of those topics where the theory is clean and
+the practice is messy. You now understand both sides. Every time you
+see a slow system, you will have a mental model of what to check
+first.
+
+Please complete the written homework assignment for this week. It
+includes both calculation problems — computing average waiting time
+for various algorithms on the same workload — and practical lab work
+where you will apply nice, renice, and top to your own VM.
+
+Next week we move to a topic that builds directly on everything we
+have done so far: deadlocks. What happens when the same threads that
+we have been carefully scheduling, once they hold locks they cannot
+release. That is Week 6.
+
+See you then."
+
+[END OF VIDEO 5.8 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 5
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~127 minutes of raw footage
+After editing and trimming: ~105–115 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

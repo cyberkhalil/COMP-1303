@@ -1,0 +1,1011 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 9 — Linux Shell, Users, Permissions & systemd
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  nine short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the first week of Phase 2. Students are expected to have a
+  working Ubuntu Server VM from Week 1. If not, direct them back to the
+  Week 1 setup video.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.1 — The Shell and the Filesystem Hierarchy                  ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Linux Shell, Users, Permissions & systemd"]
+
+SPEAK:
+"Welcome to Week 9 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+This is the beginning of Phase 2. For the last eight weeks, we built
+the theoretical foundation: processes, threads, synchronization,
+scheduling, deadlocks, memory, and file systems. We took the midterm.
+Now we shift into deep practical mode.
+
+From this week forward, we will spend almost all of our time inside a
+real Linux system. We will configure services, manage users, control
+permissions, and read logs. The theory is not going away — it is the
+lens through which we understand everything we do. But the focus is
+now on hands-on skills.
+
+This week has four big topics: the shell and filesystem hierarchy,
+users and permissions, identity and sudo, and systemd services. Let's
+start with the shell."
+
+[PAUSE]
+
+[SLIDE 2 — What a shell is]
+
+SPEAK:
+"A shell is a command interpreter. It reads the commands you type,
+figures out what you meant, and asks the kernel to run the appropriate
+programs.
+
+The default shell on almost every Linux distribution is bash — the
+Bourne-Again SHell. But there are others. zsh is popular for
+interactive use because of its autocompletion and themes. fish is
+friendly and modern but not POSIX-compatible. dash is a minimal shell
+used as /bin/sh on Debian and Ubuntu for faster script execution.
+
+For this course, we will use bash, because it is the default and it
+is what you will find on the overwhelming majority of servers."
+
+[PAUSE]
+
+[SLIDE 3 — The Filesystem Hierarchy Standard]
+
+SPEAK:
+"Linux organizes everything into one single tree, starting at the
+root directory, which is written as a single forward slash.
+
+This is called the Filesystem Hierarchy Standard — the FHS.
+
+Unlike Windows, there are no drive letters — no C drive, no D drive.
+Instead, every disk, partition, USB stick, and network share is mounted
+somewhere inside this one tree.
+
+Let's walk through the most important directories.
+
+/bin and /usr/bin contain essential user commands. On modern systems,
+/bin is usually a symlink to /usr/bin.
+
+/etc contains system configuration files. Almost every service you
+install puts its configuration here.
+
+/home contains user home directories. Every regular user gets a
+directory here, like /home/alice.
+
+/var contains variable data — logs, spool files, caches, and databases.
+If a service writes something that changes over time, it usually goes
+in /var.
+
+/tmp is for temporary files. It is world-writable, but it has the
+sticky bit set, so only the owner of a file can delete it.
+
+/usr contains the bulk of the system's software and libraries.
+
+/opt is for optional third-party software.
+
+/dev contains device files. Everything is a file in Unix — even
+hardware. /dev/sda is your first disk, /dev/tty0 is your console.
+
+/proc and /sys are virtual file systems. They do not exist on disk.
+They are windows into the kernel. We saw /proc back in Week 2 when we
+inspected processes."
+
+[PAUSE]
+
+[SLIDE 4 — Navigation commands]
+
+SPEAK:
+"Let's talk about navigation. These commands you will use every single
+day.
+
+pwd prints your current working directory.
+
+ls lists files. With -la, it lists all files — including hidden ones
+that start with a dot — in long format.
+
+cd changes directory. cd /etc takes you to /etc. cd .. goes up one
+level. cd ~ goes to your home directory. cd - goes back to your
+previous directory.
+
+which tells you the path of a command. type tells you how the shell
+will interpret a command — whether it is an alias, a built-in, or an
+external program.
+
+And tree shows a recursive directory listing. You may need to install
+it with apt."
+
+[SLIDE 5 — Absolute and relative paths]
+
+SPEAK:
+"One last concept before we move on: absolute versus relative paths.
+
+An absolute path starts at the root. /etc/hosts is absolute. It means
+the same thing no matter where you are.
+
+A relative path starts from your current directory. If you are already
+in /etc, then just typing hosts refers to /etc/hosts.
+
+The shortcuts dot and dot-dot mean 'this directory' and 'parent
+directory'. So cd .. goes up one level. And ./script.sh runs a script
+in the current directory.
+
+Understanding the difference is critical for scripting and for
+diagnosing path-related bugs."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+The shell interprets your commands. bash is the standard on most Linux
+systems.
+
+The filesystem hierarchy organizes everything into one tree under /.
+Key directories: /etc for config, /home for users, /var for variable
+data, /tmp for temporary files, /usr for software, /proc and /sys for
+kernel interfaces.
+
+Navigation commands: pwd, ls, cd, which, type, tree.
+
+Absolute paths start at /, relative paths start from where you are.
+
+In the next video, we'll make the shell truly powerful by combining
+commands with pipes and redirection."
+
+[END OF VIDEO 9.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.2 — Pipes, Redirection, and Text Processing                 ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Pipes, Redirection & Text Tools"]
+
+SPEAK:
+"Welcome back. In the previous video, we learned how to navigate the
+filesystem and run single commands. Now let's make the shell truly
+powerful by combining commands into pipelines.
+
+This is the Unix philosophy in action: write small tools that do one
+thing well, and combine them to solve complex problems."
+
+[PAUSE]
+
+[SLIDE 2 — Standard streams]
+
+SPEAK:
+"Every Linux process has three standard streams.
+
+stdin — file descriptor 0 — is standard input. By default, it comes
+from your keyboard.
+
+stdout — file descriptor 1 — is standard output. By default, it goes
+to your terminal screen.
+
+stderr — file descriptor 2 — is standard error. By default, it also
+goes to your terminal screen, but it is separate from stdout.
+
+The fact that stdout and stderr are separate is important. It means
+you can redirect normal output to a file while still seeing errors on
+the screen, or vice versa."
+
+[PAUSE]
+
+[SLIDE 3 — Redirection operators]
+
+SPEAK:
+"Here are the redirection operators you need to know.
+
+command > file writes stdout to file. If the file exists, it is
+overwritten immediately.
+
+command >> file appends stdout to file.
+
+command < file reads stdin from file.
+
+command 2> file writes stderr to file.
+
+command &> file writes both stdout and stderr to file.
+
+command | other pipes stdout of command into stdin of other.
+
+command | tee file writes to both the terminal and a file.
+
+Let me give you an example. Suppose you want to save the list of
+files in /etc to a file and also see it on screen. You would run:
+
+ls -la /etc | tee /tmp/etc-listing.txt
+
+The tee command splits the stream — one copy goes to the file, one
+copy goes to the screen."
+
+[PAUSE]
+
+[SLIDE 4 — Text processing tools]
+
+SPEAK:
+"Now let me introduce the text processing tools that make Linux so
+powerful.
+
+grep searches for patterns. grep root /etc/passwd shows every line
+containing the word root.
+
+sed is a stream editor. sed 's/old/new/g' file replaces every
+occurrence of old with new.
+
+awk is a field-based processor. awk '{print $1}' file prints the first
+whitespace-separated field of every line.
+
+cut extracts columns. cut -d: -f1 /etc/passwd extracts the first
+colon-separated field — the username.
+
+sort sorts lines. uniq removes adjacent duplicates. wc counts lines,
+words, and bytes. head and tail show the first or last lines of a
+file.
+
+These tools are small, but they compose beautifully. Let me show you a
+real one-liner.
+
+ps aux | grep ssh | awk '{print $2}' | xargs kill
+
+This finds all processes related to ssh, extracts their PIDs, and
+kills them. Four small tools, connected by pipes, solve a complex
+problem.
+
+That is the Unix philosophy."
+
+[SLIDE 5 — A warning about redirection]
+
+SPEAK:
+"One warning about redirection. The shell sets up redirection before
+it runs the command. That means command > file will truncate file
+immediately, even if command later fails.
+
+This is a common source of accidental data loss. If you are not sure
+what a command will output, test it without redirection first. Or use
+set -o noclobber to prevent accidental overwriting.
+
+Also remember that stderr is not redirected by default. If you want
+both stdout and stderr in a file, use &> or 2>&1."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Every process has stdin, stdout, and stderr.
+
+Redirection operators: >, >>, <, 2>, &>, |, tee.
+
+Text tools: grep, sed, awk, cut, sort, uniq, wc, head, tail.
+
+Pipes connect commands into pipelines, which is the fundamental
+composition mechanism in Unix.
+
+Be careful with redirection — it truncates files before the command
+runs.
+
+In the next video, we move to users and groups."
+
+[END OF VIDEO 9.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.3 — Users & Groups                                           ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Users & Groups"]
+
+SPEAK:
+"Welcome back. Linux is a multi-user system by design. Every process
+runs as some user. Every file is owned by some user and some group.
+Understanding users and groups is essential for administration and
+security.
+
+In this video, we will look at where user information lives and how
+to manage users and groups from the command line."
+
+[PAUSE]
+
+[SLIDE 2 — Where user information lives]
+
+SPEAK:
+"There are three key files.
+
+/etc/passwd contains user accounts. Each line has seven fields:
+username, password placeholder, UID, GID, comment field, home
+directory, and login shell.
+
+/etc/shadow contains the encrypted passwords and password aging
+information. It is readable only by root, for obvious reasons.
+
+/etc/group contains groups. Each line has the group name, a password
+placeholder, the GID, and a comma-separated list of members.
+
+Let me look at a line from /etc/passwd.
+
+alice:x:1000:1000:Alice Smith:/home/alice:/bin/bash
+
+The x means the password is in /etc/shadow. UID and GID are both 1000.
+The home directory is /home/alice. And the login shell is bash."
+
+[PAUSE]
+
+[SLIDE 3 — Creating users and groups]
+
+SPEAK:
+"Here are the commands you will use.
+
+useradd creates a user. The -m flag creates a home directory. The
+-s flag sets the login shell.
+
+passwd sets or changes a password.
+
+usermod modifies a user. The -aG flag adds the user to a supplementary
+group without removing them from other groups. Do not forget the -a,
+or you will overwrite their existing group memberships.
+
+userdel deletes a user. The -r flag also removes their home directory.
+
+groupadd creates a group. groupdel deletes one.
+
+And to inspect users, use id, groups, whoami, who, and w. The id
+command shows UID, GID, and all groups.
+
+Let me show you a session.
+
+sudo useradd -m -s /bin/bash alice
+sudo passwd alice
+sudo usermod -aG developers alice
+id alice
+
+The output shows alice's UID, GID, and groups. If you added her to
+developers, you will see developers in the list."
+
+[SLIDE 4 — UID 0 and system users]
+
+SPEAK:
+"One important concept: UID 0 is root. The root user is special. It
+bypasses most permission checks. It can read, write, and delete almost
+anything.
+
+System users — like www-data, nobody, and systemd-network — usually
+have UIDs below 1000. They exist to run services with limited
+privileges.
+
+Regular users start at UID 1000 on most distributions. Each one gets
+a home directory and a login shell.
+
+When you create a user with useradd, if you do not specify otherwise,
+the system assigns the next available UID."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize.
+
+User information lives in /etc/passwd, /etc/shadow, and /etc/group.
+
+Commands: useradd, passwd, usermod, userdel, groupadd, groupdel.
+
+Use id, groups, whoami, who, and w to inspect users.
+
+UID 0 is root. System users have low UIDs. Regular users start at
+1000.
+
+In the next video, we look at file permissions — the mechanism that
+controls who can read, write, and execute each file."
+
+[END OF VIDEO 9.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.4 — File Permissions                                         ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "File Permissions"]
+
+SPEAK:
+"Welcome to the fourth video of Week 9. Now we come to one of the
+most important practical topics in Linux administration: file
+permissions.
+
+Every file and directory has a set of permission bits — nine bits
+in total, split into three groups of three. These bits determine who
+can read, write, and execute the file. Getting them right is the
+difference between a secure system and a disaster."
+
+[PAUSE]
+
+[SLIDE 2 — Reading ls -l output]
+
+SPEAK:
+"Let's look at a typical ls -l output.
+
+-rw-r--r-- 1 alice developers 1024 Nov 12 10:22 notes.txt
+
+The first character is the file type. A dash means a regular file. d
+means directory. l means symbolic link.
+
+The next nine characters are the permissions, in three groups of
+three. The first three are for the owner. The next three are for the
+group. The last three are for others.
+
+In our example: rw- for owner — read and write. r-- for group — read
+only. r-- for others — read only.
+
+The number after that is the link count. Then the owner, the group,
+the size in bytes, the modification time, and the filename."
+
+[PAUSE]
+
+[SLIDE 3 — Numeric and symbolic modes]
+
+SPEAK:
+"Permissions can be expressed in numeric form or symbolic form.
+
+Numeric form uses three octal digits. Read is 4, write is 2, execute
+is 1. You add them together for each group.
+
+So 755 means owner gets 7 — read, write, execute. Group gets 5 — read
+and execute. Others get 5 — read and execute.
+
+644 means owner gets read and write. Group and others get read only.
+This is typical for regular files.
+
+Symbolic form uses letters. chmod u+x adds execute for the owner.
+chmod g-w removes write for the group. chmod o=r sets others to read
+only.
+
+Both forms are valid. Numeric is faster for setting absolute
+permissions. Symbolic is clearer when you want to modify one bit
+without changing the rest."
+
+[PAUSE]
+
+[SLIDE 4 — chown, chgrp, and umask]
+
+SPEAK:
+"chown changes the owner of a file. chown alice file.txt. You can
+also change both owner and group at once with chown alice:developers
+file.txt.
+
+chgrp changes the group.
+
+umask is the default permission mask for new files and directories.
+It is subtractive — it starts from a base and removes bits. The
+default umask on most systems is 022. That means new files get 644
+and new directories get 755.
+
+If you want more restrictive defaults, set umask to 077. Then new
+files are 600 and new directories are 700."
+
+[SLIDE 5 — Permission bits on directories]
+
+SPEAK:
+"Permissions on directories mean something slightly different.
+
+Read allows listing the directory contents — that is what ls does.
+
+Write allows creating, deleting, and renaming files inside the
+directory.
+
+Execute allows traversing the directory — that is, accessing files
+inside it if you know their names.
+
+So if you have read but not execute on a directory, you can list the
+names but not access the files. If you have execute but not read, you
+can access files if you know their exact names, but you cannot list
+the directory contents.
+
+This distinction is important. Many permission bugs come from
+misunderstanding directory permissions."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Permissions are nine bits: rwx for owner, group, and others.
+
+Numeric mode: 4 = read, 2 = write, 1 = execute.
+
+Commands: chmod, chown, chgrp, umask.
+
+On directories, read means list, write means create/delete, execute
+means traverse.
+
+In the next video, we look at the special permission bits: setuid,
+setgid, and sticky."
+
+[END OF VIDEO 9.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.5 — Special Permission Bits                                  ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Special Permission Bits"]
+
+SPEAK:
+"Welcome back. Beyond the nine standard permission bits, Linux has
+three special bits: setuid, setgid, and sticky. They change the
+behavior of executables and directories in powerful ways.
+
+Used correctly, they are essential. Used incorrectly, they are a
+security risk."
+
+[PAUSE]
+
+[SLIDE 2 — setuid]
+
+SPEAK:
+"The setuid bit is set on an executable file. When a program with the
+setuid bit runs, it runs with the UID of the file's owner, not the
+UID of the user who started it.
+
+This is how passwd works. The passwd command needs to modify
+/etc/shadow, which is only writable by root. But regular users need
+to change their own passwords. So passwd is setuid root. When alice
+runs passwd, the process runs as root — but passwd itself enforces
+that alice can only change her own password.
+
+Setuid is powerful. A bug in a setuid root program can let an
+attacker become root. That is why setuid binaries are carefully
+audited."
+
+[PAUSE]
+
+[SLIDE 3 — setgid]
+
+SPEAK:
+"The setgid bit has two meanings.
+
+On an executable, it runs the program with the GID of the file's
+group.
+
+On a directory, it changes the behavior of newly created files. Any
+file created inside a setgid directory inherits the directory's group
+instead of the creator's primary group.
+
+This is extremely useful for shared directories. Imagine a directory
+/srv/shared owned by root:developers with setgid set. When alice,
+who is in developers, creates a file there, the file is owned by
+alice:developers — not alice:alice. When bob, also in developers,
+creates a file, it is owned by bob:developers.
+
+Now everyone in the developers group can read and write each other's
+files without needing to change ownership manually."
+
+[PAUSE]
+
+[SLIDE 4 — sticky bit]
+
+SPEAK:
+"The sticky bit on a directory allows only the owner of a file — or
+root — to delete or rename it.
+
+The classic example is /tmp. It is world-writable, so anyone can
+create files there. But the sticky bit ensures that I cannot delete
+your files, and you cannot delete mine.
+
+You can see the sticky bit in ls -ld output as a trailing t instead
+of x in the others' execute position. For example:
+drwxrwxrwt 1 root root /tmp
+
+Set it with chmod +t."
+
+[SLIDE 5 — Setting and viewing special bits]
+
+SPEAK:
+"Here is how to set them.
+
+chmod u+s /usr/bin/program sets setuid.
+chmod g+s /srv/shared sets setgid on a directory.
+chmod +t /tmp sets the sticky bit.
+
+When you view them with ls -l, setuid shows as s in the owner's
+execute position, setgid as s in the group's execute position, and
+sticky as t in the others' execute position.
+
+A capital S or T instead of lowercase s or t means the execute bit
+itself is not set. That is usually a bug."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+setuid — program runs with owner's UID. Used by passwd. Dangerous.
+
+setgid — program runs with group's GID, or directory forces new files
+to inherit the group. Very useful for shared directories.
+
+sticky — on a directory, only the owner can delete their files. Used
+on /tmp.
+
+Set with chmod u+s, g+s, +t. View with ls -l.
+
+In the next video, we look at how identity switching works with su
+and sudo."
+
+[END OF VIDEO 9.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.6 — su, sudo, and Identity                                   ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "su, sudo & Identity"]
+
+SPEAK:
+"Welcome back. In the previous videos, we learned how users, groups,
+and permissions work. Now let's talk about switching identity — how
+do you become another user, or run a command with elevated
+privileges?
+
+The two tools are su and sudo. Modern systems strongly prefer sudo."
+
+[PAUSE]
+
+[SLIDE 2 — su]
+
+SPEAK:
+"su switches user. By default, it switches to root. You run su and
+enter root's password. Then you have a root shell.
+
+su - alice switches to alice and loads her login environment — her
+home directory, her PATH, her shell startup files.
+
+su is simple, but it has drawbacks. It requires sharing passwords.
+It gives you a full shell, which is powerful and easy to abuse. And
+there is no fine-grained control over what the user can do as root."
+
+[PAUSE]
+
+[SLIDE 3 — sudo]
+
+SPEAK:
+"sudo runs a single command as another user — by default, root. It
+asks for your own password, not root's. This is a big improvement.
+It means you never need to know or share the root password.
+
+sudo is also configurable. The file /etc/sudoers defines who can run
+what. You can grant alice the ability to restart nginx but not to do
+anything else. You can require a password for some commands and not
+for others. You can log every sudo invocation.
+
+This granularity is why sudo is the standard on modern Linux.
+
+To edit /etc/sudoers, always use visudo. It checks the syntax before
+saving. A syntax error in sudoers can lock you out of sudo entirely."
+
+[PAUSE]
+
+[SLIDE 4 — Inspecting identity]
+
+SPEAK:
+"Here are the commands to inspect identity.
+
+whoami prints your current username.
+
+id prints your UID, GID, and all groups.
+
+groups prints just your group memberships.
+
+who and w show who is logged in.
+
+Let me show you a typical session.
+
+whoami
+id
+sudo whoami
+sudo id
+
+Notice that sudo whoami prints root, and sudo id shows UID 0. That
+is expected — sudo runs the command as root."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize.
+
+su switches user. It requires the target user's password. It gives
+you a full shell.
+
+sudo runs a single command as another user. It uses your password.
+It is granular and auditable. It is the modern standard.
+
+Edit /etc/sudoers only with visudo.
+
+Use whoami, id, groups, who, and w to inspect identity.
+
+In the next video, we move to systemd — the service manager that runs
+on almost every modern Linux system."
+
+[END OF VIDEO 9.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.7 — systemd Services                                         ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "systemd Services"]
+
+SPEAK:
+"Welcome to the seventh video of Week 9. In this video, we look at
+systemd — the init system and service manager used by almost every
+modern Linux distribution.
+
+systemd starts services at boot, manages their lifecycle, handles
+dependencies, collects logs, and much more. Understanding systemd is
+essential for any Linux administrator."
+
+[PAUSE]
+
+[SLIDE 2 — systemctl commands]
+
+SPEAK:
+"The primary command is systemctl. Let me walk through the essential
+subcommands.
+
+systemctl status nginx shows the current status of a service —
+whether it is running, when it started, its PID, and the last few log
+lines.
+
+sudo systemctl start nginx starts it now.
+
+sudo systemctl stop nginx stops it now.
+
+sudo systemctl restart nginx stops and starts it.
+
+sudo systemctl enable nginx configures it to start at boot. This
+creates a symlink in the appropriate target directory.
+
+sudo systemctl disable nginx removes that symlink.
+
+systemctl list-units --type=service lists all services.
+
+systemctl daemon-reload reloads unit files from disk. You run this
+after creating or editing a unit file."
+
+[PAUSE]
+
+[SLIDE 3 — Unit files]
+
+SPEAK:
+"systemd services are defined by unit files. These are simple text
+files with three sections: Unit, Service, and Install.
+
+Let me show you a minimal example.
+
+[Unit]
+Description=My example service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/my-service.sh
+Restart=on-failure
+User=nobody
+
+[Install]
+WantedBy=multi-user.target
+
+The Unit section has metadata — description, dependencies, ordering.
+
+The Service section defines how to run the service. Type=simple means
+the process started by ExecStart is the main process. ExecStart is
+the command to run. Restart=on-failure means systemd will restart it
+if it crashes. User=nobody means it runs as the nobody user.
+
+The Install section says what happens when the service is enabled.
+WantedBy=multi-user.target means it starts in the normal multi-user
+runlevel."
+
+[PAUSE]
+
+[SLIDE 4 — Where unit files live]
+
+SPEAK:
+"Unit files live in two main locations.
+
+/lib/systemd/system/ — or /usr/lib/systemd/system/ on some
+distributions — is where packages install their unit files. You should
+not edit files here directly, because package updates may overwrite
+them.
+
+/etc/systemd/system/ is where you put your own unit files, or
+overrides for package-provided units. This is the right place for
+custom services.
+
+After creating or editing a unit file in /etc/systemd/system/, run
+sudo systemctl daemon-reload to make systemd aware of the change.
+Then you can enable and start the service."
+
+[SLIDE 5 — A quick look at systemd state]
+
+SPEAK:
+"Let me describe the state transitions in words.
+
+When you enable a service, systemd creates a symlink from the target's
+.wants directory to your unit file. This means the service will be
+started automatically at boot.
+
+When you start a service, systemd runs its ExecStart command. If the
+service exits, systemd may restart it depending on the Restart policy.
+
+When you stop a service, systemd sends SIGTERM, waits, and if the
+process does not exit, sends SIGKILL.
+
+When you disable a service, systemd removes the symlink. The service
+will no longer start at boot, but if it is currently running, it keeps
+running until you stop it."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+systemd is the init system and service manager on modern Linux.
+
+systemctl manages services: start, stop, restart, status, enable,
+disable, daemon-reload.
+
+Unit files define services. They have Unit, Service, and Install
+sections.
+
+Package units live in /lib/systemd/system/. Custom units go in
+/etc/systemd/system/.
+
+In the next video, we look at journalctl — how to read logs from
+systemd and debug services."
+
+[END OF VIDEO 9.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 9.8 — journalctl and the Deep Labs                             ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "journalctl — Reading the Logs"]
+
+SPEAK:
+"Welcome to the final theory video of Week 9. In this video, we look
+at journalctl — the tool for reading logs from systemd.
+
+systemd collects logs from the kernel, services, and applications
+into a central journal. journalctl lets you query that journal in
+powerful ways."
+
+[PAUSE]
+
+[SLIDE 2 — Basic journalctl commands]
+
+SPEAK:
+"Here are the commands you will use most often.
+
+journalctl shows all logs. It is usually long, so you will want to
+pipe it or filter it.
+
+journalctl -u nginx shows logs for a specific service.
+
+journalctl -f follows new logs as they arrive. This is like tail -f
+for the journal.
+
+journalctl -b shows logs since the last boot.
+
+journalctl --since '1 hour ago' shows logs from the last hour.
+
+journalctl -p err shows only errors and worse.
+
+journalctl -u nginx -n 50 shows the last 50 lines for nginx.
+
+journalctl --disk-usage shows how much space the journal is using.
+
+sudo journalctl --vacuum-time=7d removes logs older than 7 days."
+
+[SLIDE 3 — Debugging a service]
+
+SPEAK:
+"Let me give you the standard debugging pattern.
+
+When a service fails, the first thing you do is run systemctl status
+on it. This usually shows the last few log lines and the exit code.
+It tells you whether the service is active, failed, or inactive.
+
+If you need more context, run journalctl -u service -n 100. This
+shows the last hundred lines of output from that service.
+
+If the service is crashing and restarting repeatedly, use
+journalctl -u service -f to watch it in real time.
+
+And if you want to see everything since boot, use journalctl -b -u
+service.
+
+Between status and journalctl, you can diagnose almost any service
+failure."
+
+[SLIDE 4 — Making the journal persistent]
+
+SPEAK:
+"By default, on many systems, the journal is stored in memory only.
+That means logs are lost at reboot.
+
+To make it persistent, create the directory /var/log/journal. You
+can do this with:
+
+sudo mkdir -p /var/log/journal
+sudo systemd-tmpfiles --create --prefix /var/log/journal
+sudo systemctl restart systemd-journald
+
+Once persistent, logs survive reboots. This is essential for
+production systems, because you often need to see what happened
+before a crash."
+
+[SLIDE 5 — The Deep Labs]
+
+SPEAK:
+"Now let me preview the two deep labs for this week.
+
+In the first lab, you will build a multi-user environment. You will
+create groups and users, set passwords, create a shared directory
+with setgid, and test access as different users. This is exactly the
+kind of setup you will build on real servers.
+
+In the second lab, you will create a systemd service. You will write
+a script, create a unit file, enable and start the service, and read
+its logs with journalctl. This is the foundation of running any
+custom service on Linux.
+
+Both labs are in the lecture notes. Complete them on your VM. They
+are the main practical work for this week."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+journalctl reads systemd logs. Use -u for a service, -f to follow,
+-b for boot, --since for time ranges, and -p for priority.
+
+Debug services with systemctl status first, then journalctl -u.
+
+Make the journal persistent by creating /var/log/journal.
+
+In the deep labs, you will build a multi-user environment and create
+your own systemd service.
+
+That wraps up Week 9. Next week, we continue Phase 2 with packages,
+networking basics, and DHCP."
+
+[END OF VIDEO 9.8 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 9
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~128 minutes of raw footage
+After editing and trimming: ~105–115 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

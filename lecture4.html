@@ -1,0 +1,1321 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 4: Synchronization &amp; Concurrency</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 4</span>
+            <span class="pink"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-clock"></i> Theory + Touch Lab</span>
+        </div>
+
+        <h1>Synchronization &amp; Concurrency</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> — Chapters 28 (Locks), 29 (Locked Data
+            Structures), 30 (Condition Variables), 31 (Semaphores) &amp; <em>Operating System Concepts</em> —
+            Silberschatz, Chapters 5–6.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#race-conditions">4.1 · Race Conditions</a>
+            <a href="#locks">4.2 · Locks &amp; Mutexes</a>
+            <a href="#semaphores">4.3 · Semaphores</a>
+            <a href="#cond-vars">4.4 · Condition Variables</a>
+            <a href="#classic">4.5 · Classic Problems</a>
+            <a href="#monitors">4.6 · Monitors</a>
+            <a href="#lab-prodcons">4.7 · Lab: Producer–Consumer</a>
+            <a href="#lab-helgrind">4.8 · Lab: Helgrind</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 4.1 RACE CONDITIONS AND CRITICAL SECTIONS                    -->
+        <!-- ============================================================ -->
+        <h2 id="race-conditions"><i class="fas fa-bolt"></i> 4.1 · Race Conditions and Critical Sections</h2>
+
+        <p>
+            In Week 3 you saw the dangerous side of threads: shared memory without coordination trivially corrupts
+            data. You saw the classic <code>counter++</code> example produce non-deterministic results, and you
+            learned the vocabulary — <em>race condition</em>, <em>critical section</em>, <em>mutual exclusion</em>.
+            Now it is time to build the tools that let us take control of that chaos.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Week 4 in one sentence:</strong> this week we learn how to make concurrent code
+            <em>correct</em> — predictably, provably, and efficiently.
+        </p>
+
+        <h3>The three properties we want from any solution</h3>
+
+        <p>
+            Before looking at mechanisms, let us define what a good solution must guarantee. Any correct
+            synchronization primitive must provide <strong>all three</strong>:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Property</th>
+                    <th>Meaning</th>
+                    <th style="width: 20%;">If missing…</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Mutual exclusion</strong></td>
+                    <td>At most one thread is inside the critical section at any time.</td>
+                    <td>Race conditions — data corruption.</td>
+                </tr>
+                <tr>
+                    <td><strong>Progress</strong></td>
+                    <td>If no thread is inside the critical section, and some thread wants in, one of them must be
+                        allowed to enter — eventually.</td>
+                    <td>Starvation or livelock.</td>
+                </tr>
+                <tr>
+                    <td><strong>Bounded waiting</strong></td>
+                    <td>There is a limit on how many times other threads can enter the critical section before a
+                        waiting thread gets its turn.</td>
+                    <td>Some thread may wait forever even though the system is technically making progress.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Why a simple flag variable doesn't work</h3>
+
+        <p>
+            Suppose you try to build a lock with a simple boolean flag:
+        </p>
+
+        <pre><code>/* A broken attempt at a lock */
+volatile int lock = 0;   /* 0 = free, 1 = held */
+
+void acquire(void) {
+    while (lock == 1) { /* spin — wait */ }
+    lock = 1;           /* now claim the lock */
+}
+
+void release(void) {
+    lock = 0;
+}</code></pre>
+
+        <p>
+            This is called a <strong>spinlock</strong> attempt, and it is broken. Two threads can both check the
+            flag, both see it as 0, both decide to take the lock, and both enter the critical section. The check
+            and the set are not atomic — they suffer from exactly the same interleaving problem as
+            <code>counter++</code>.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-bug"></i>
+            <strong>Why we can't just "check then set":</strong> between the check and the set, another thread can
+            run. The instruction pair is not atomic at the hardware level. To fix this, we need hardware support —
+            a way to test and set a value in a single, uninterruptible instruction.
+        </div>
+
+        <h3>Hardware primitives: the foundation of every lock</h3>
+
+        <p>
+            Modern CPUs provide atomic primitives that make correct locks possible. The most important ones are:
+        </p>
+
+        <ul>
+            <li><strong>Test-and-set:</strong> atomically returns the old value of a variable and sets it to 1.</li>
+            <li><strong>Compare-and-swap (CAS):</strong> atomically sets a variable to a new value, but only if its
+                current value matches an expected value.</li>
+            <li><strong>Load-linked / store-conditional (LL/SC):</strong> a pair of instructions used on RISC
+                architectures, with the same effect as CAS.</li>
+            <li><strong>Fetch-and-add:</strong> atomically adds a value and returns the old value — used for atomic
+                counters.</li>
+        </ul>
+
+        <p>
+            Every lock, semaphore, and condition variable in every operating system is ultimately built out of these
+            primitives. They are the hardware's contribution to correct concurrency.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Good news:</strong> you rarely write spinlocks by hand. The C standard, pthread library, and
+            Linux kernel all provide correct, tested implementations. But you <em>must</em> know what they are built
+            on — because the guarantees they provide are the guarantees you rely on when you use them.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 4.2 LOCKS AND MUTEXES                                        -->
+        <!-- ============================================================ -->
+        <h2 id="locks"><i class="fas fa-lock"></i> 4.2 · Locks and Mutexes</h2>
+
+        <p>
+            A <strong>lock</strong> — or <strong>mutex</strong>, for <em>mutual exclusion</em> — is the most
+            fundamental synchronization primitive. Its interface is simple and beautiful:
+        </p>
+
+        <pre><code>lock_t mutex;              /* create a lock variable */
+
+lock(&amp;mutex);              /* try to acquire — blocks if held */
+    /* critical section — only one thread at a time can be here */
+unlock(&amp;mutex);            /* release */</code></pre>
+
+        <p>
+            Any code between <code>lock</code> and <code>unlock</code> runs with the guarantee that no other
+            thread can be inside the same locked region. If a second thread calls <code>lock</code> while the first
+            one holds it, the second thread will block, waiting on that specific lock, until the first calls
+            <code>unlock</code>.
+        </p>
+
+        <h3>What does "block" actually mean?</h3>
+
+        <p>
+            There are two possible implementations of <code>lock()</code> when the lock is held:
+        </p>
+
+        <div class="two-cols">
+            <div class="col warn">
+                <h4><i class="fas fa-spinner"></i> Spinlocking</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    The waiting thread sits in a tight loop, repeatedly checking whether the lock has been released.
+                    This wastes CPU cycles, but it avoids any context-switch overhead — useful when the lock is held
+                    for extremely short periods.
+                </p>
+            </div>
+            <div class="col green">
+                <h4><i class="fas fa-moon"></i> Blocking (sleeping)</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    The waiting thread asks the kernel to put it to sleep until the lock becomes available. The CPU
+                    is then free to run other threads. This is the default in pthreads — efficient when the lock is
+                    held for a while.
+                </p>
+            </div>
+        </div>
+
+        <p>
+            Linux's pthread mutexes use a hybrid strategy: they briefly spin (a few microseconds) and then block.
+            This is because short critical sections are common, and sleeping has a real cost of its own.
+        </p>
+
+        <h3>The pthread_mutex API</h3>
+
+        <pre><code>#include &lt;pthread.h&gt;
+
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+int pthread_mutex_lock(pthread_mutex_t *mutex);
+int pthread_mutex_trylock(pthread_mutex_t *mutex);
+int pthread_mutex_timedlock(pthread_mutex_t *mutex,
+                            const struct timespec *abs_timeout);
+int pthread_mutex_unlock(pthread_mutex_t *mutex);
+int pthread_mutex_destroy(pthread_mutex_t *mutex);</code></pre>
+
+        <p>
+            <code>pthread_mutex_lock</code> blocks until the mutex is acquired.
+            <code>pthread_mutex_trylock</code> returns immediately — either acquiring the lock or returning
+            <code>EBUSY</code>. <code>pthread_mutex_timedlock</code> gives up after a specified absolute timeout.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Golden rules for mutexes:</strong>
+            <ul style="margin-top: 0.5rem; margin-bottom: 0;">
+                <li>Always call <code>unlock</code> on every path out of the locked region (including error paths and
+                    <code>return</code> statements).</li>
+                <li>Never lock the same mutex twice from the same thread — this is undefined behavior, often a
+                    self-deadlock.</li>
+                <li>Never unlock a mutex you did not lock.</li>
+                <li>Keep the critical section as short as possible — holding a lock blocks other threads.</li>
+            </ul>
+        </div>
+
+        <h3>The corrected counter example</h3>
+
+        <pre><code>#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+
+static pthread_mutex_t counter_lock = PTHREAD_MUTEX_INITIALIZER;
+static volatile long counter = 0;
+
+void *worker(void *arg) {
+    for (long i = 0; i &lt; 100000; i++) {
+        pthread_mutex_lock(&amp;counter_lock);
+        counter++;                       /* now safe */
+        pthread_mutex_unlock(&amp;counter_lock);
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t1, t2;
+
+    pthread_create(&amp;t1, NULL, worker, NULL);
+    pthread_create(&amp;t2, NULL, worker, NULL);
+
+    pthread_join(t1, NULL);
+    pthread_join(t2, NULL);
+
+    printf("counter = %ld  (expected 200000)\n", counter);
+    return 0;
+}</code></pre>
+
+        <p>
+            Run this a hundred times — the output is always 200,000. The lock has made the increment atomic from the
+            perspective of the two threads, and the lost update is gone.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What we just did:</strong> we took the broken code from Week 3, wrapped the problematic line in
+            a mutex, and turned a non-deterministic bug into deterministic correctness. That is the essence of
+            synchronization.
+        </div>
+
+        <h3>Performance reality check</h3>
+
+        <p>
+            A mutex is not free. Every lock and unlock is an atomic operation — typically tens of nanoseconds if
+            uncontended. If the lock is contended, the cost grows dramatically — waiting threads may sleep, requiring
+            a context switch to wake them.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 40%;">Operation</th>
+                    <th style="width: 30%;">Approximate cost</th>
+                    <th style="width: 30%;">Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Uncontended mutex lock/unlock</td>
+                    <td>~15–25 ns</td>
+                    <td>A single atomic instruction, no syscall</td>
+                </tr>
+                <tr>
+                    <td>Contended mutex (sleep-based)</td>
+                    <td>~1,000–10,000 ns</td>
+                    <td>Involves futex syscall and context switch</td>
+                </tr>
+                <tr>
+                    <td>Contended mutex (spin-based)</td>
+                    <td>~50–500 ns</td>
+                    <td>Burns CPU, but avoids context switch — good for very short critical sections</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            This is why real-world code prefers <strong>fine-grained locking</strong> — many small locks protecting
+            small pieces of data — over one giant global lock. It is also why advanced data structures (lock-free
+            queues, RCU, atomics) exist — to avoid locking altogether where it matters.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 4.3 SEMAPHORES                                               -->
+        <!-- ============================================================ -->
+        <h2 id="semaphores"><i class="fas fa-traffic-light"></i> 4.3 · Semaphores</h2>
+
+        <p>
+            A <strong>semaphore</strong> is a generalization of a lock. Instead of a simple "held or free" state, a
+            semaphore has an integer counter that can be any non-negative value.
+        </p>
+
+        <p>
+            A semaphore supports two atomic operations:
+        </p>
+
+        <ul>
+            <li><strong>wait(sem)</strong> — also called <code>P</code> or <code>down</code>. Decrements the
+                counter. If the counter would become negative, the calling thread blocks until another thread
+                increments the value.</li>
+            <li><strong>post(sem)</strong> — also called <code>V</code> or <code>up</code>. Increments the counter.
+                If any thread is blocked waiting on the semaphore, exactly one is woken up.</li>
+        </ul>
+
+        <pre><code>sem_wait(&amp;sem);    /* decrement; block if 0 */
+    /* critical section or resource use */
+sem_post(&amp;sem);    /* increment; wake a waiter */</code></pre>
+
+        <h3>Two uses of semaphores</h3>
+
+        <p>
+            The beautiful thing about semaphores is that a single mechanism plays two very different roles depending
+            on how you initialize them.
+        </p>
+
+        <div class="two-cols">
+            <div class="col">
+                <h4><i class="fas fa-lock"></i> As a lock — init to 1</h4>
+                <p style="font-size:0.9rem;">
+                    If you start a semaphore at 1, <code>wait</code> decrements to 0, blocking every other caller
+                    until the first one calls <code>post</code>. This behaves exactly like a mutex.
+                </p>
+                <pre style="margin-top: 0.6rem; margin-bottom: 0; font-size: 0.78rem;"><code>sem_t mutex;
+sem_init(&amp;mutex, 0, 1);
+sem_wait(&amp;mutex);
+/* critical section */
+sem_post(&amp;mutex);</code></pre>
+            </div>
+            <div class="col violet">
+                <h4><i class="fas fa-layer-group"></i> As a counter — init to N</h4>
+                <p style="font-size:0.9rem;">
+                    Initialize to N to limit concurrency to at most N threads. Each thread decrements on entry and
+                    increments on exit. This is called a <strong>counting semaphore</strong>.
+                </p>
+                <pre style="margin-top: 0.6rem; margin-bottom: 0; font-size: 0.78rem;"><code>sem_t slots;
+sem_init(&amp;slots, 0, 3);  /* 3 slots */
+sem_wait(&amp;slots);
+/* at most 3 threads here */
+sem_post(&amp;slots);</code></pre>
+            </div>
+        </div>
+
+        <h3>The POSIX semaphore API</h3>
+
+        <pre><code>#include &lt;semaphore.h&gt;
+
+sem_t sem;
+sem_init(&amp;sem, 0, initial_value);   /* 0 = process-private */
+
+sem_wait(&amp;sem);                     /* P / down */
+sem_trywait(&amp;sem);                  /* non-blocking version */
+sem_post(&amp;sem);                     /* V / up */
+sem_getvalue(&amp;sem, &amp;val);           /* read current value */
+
+sem_destroy(&amp;sem);</code></pre>
+
+        <p>
+            Unix-style systems also provide named semaphores accessible across processes through the file system,
+            but anonymous semaphores (initialized with <code>sem_init</code>) are what you use inside a single
+            process.
+        </p>
+
+        <h3>Semaphores as a signaling mechanism</h3>
+
+        <p>
+            Where semaphores really shine is <strong>ordering</strong> work between threads. Unlike a mutex, which
+            only guarantees mutual exclusion, a semaphore can be used to force one thread to run before another.
+        </p>
+
+        <p>
+            Consider a scenario: thread A must fully initialize a resource before thread B may use it. Thread B
+            doesn't know how long initialization will take, and thread A doesn't know when B wants to start.
+        </p>
+
+        <pre><code>sem_t initialized;
+sem_init(&amp;initialized, 0, 0);   /* initially "unsignaled" */
+
+/* Thread A — producer of the signal */
+do_heavy_init();
+sem_post(&amp;initialized);         /* signal "init done" */
+
+/* Thread B — consumer of the signal */
+sem_wait(&amp;initialized);         /* block until signaled */
+use_resource();</code></pre>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The key insight:</strong> because the semaphore starts at 0, thread B will block on
+            <code>sem_wait</code> until thread A has called <code>sem_post</code>. This gives us a way to enforce
+            ordering between threads — something a mutex alone cannot do.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 4.4 CONDITION VARIABLES                                      -->
+        <!-- ============================================================ -->
+        <h2 id="cond-vars"><i class="fas fa-hourglass-half"></i> 4.4 · Condition Variables</h2>
+
+        <p>
+            Locks give us mutual exclusion. Semaphores give us counters and signaling. But neither is quite right for
+            the most common pattern in concurrent code: <em>"wait until some condition becomes true, then continue."</em>
+        </p>
+
+        <p>
+            That pattern — waiting for a condition — is what <strong>condition variables</strong> are for. They are
+            almost always used <em>together with</em> a mutex, and the pair is what makes coordinated waiting
+            correct.
+        </p>
+
+        <h3>The interface</h3>
+
+        <pre><code>#include &lt;pthread.h&gt;
+
+pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Wait until someone signals the condition */
+pthread_cond_wait(&amp;cond, &amp;mutex);
+
+/* Wake one waiting thread */
+pthread_cond_signal(&amp;cond);
+
+/* Wake all waiting threads */
+pthread_cond_broadcast(&amp;cond);</code></pre>
+
+        <h3>The magic of pthread_cond_wait</h3>
+
+        <p>
+            <code>pthread_cond_wait</code> is not an ordinary wait. Its contract is precise, and it is essential to
+            understand what it does atomically:
+        </p>
+
+        <ol>
+            <li><strong>Release</strong> the mutex.</li>
+            <li><strong>Block</strong> until the condition is signaled.</li>
+            <li><strong>Re-acquire</strong> the mutex before returning.</li>
+        </ol>
+
+        <p>
+            The first two steps happen <em>atomically</em> — there is no window during which the thread has released
+            the mutex but is not yet actually waiting. This atomicity is what makes condition variables correct:
+            without it, a signal sent between "release the lock" and "start waiting" would be lost.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>You must always call <code>pthread_cond_wait</code> with the mutex held.</strong> If you don't,
+            the atomic release-and-wait protocol is broken, and you may lose wakeups or corrupt the mutex state.
+        </div>
+
+        <h3>The canonical wait-while pattern</h3>
+
+        <p>
+            Here is the pattern you should use every time you wait on a condition variable:
+        </p>
+
+        <pre><code>pthread_mutex_lock(&amp;mutex);
+
+/* ALWAYS use while, never if! */
+while (!condition_is_true()) {
+    pthread_cond_wait(&amp;cond, &amp;mutex);
+}
+
+/* Now the condition holds, and we hold the lock. */
+do_something_that_requires_the_condition();
+
+pthread_mutex_unlock(&amp;mutex);</code></pre>
+
+        <p>
+            The producer — the thread that makes the condition true — signals after modifying the shared state:
+        </p>
+
+        <pre><code>pthread_mutex_lock(&amp;mutex);
+
+make_condition_true();
+
+pthread_cond_signal(&amp;cond);    /* or broadcast */
+
+pthread_mutex_unlock(&amp;mutex);</code></pre>
+
+        <h3>Why <code>while</code> and not <code>if</code>?</h3>
+
+        <p>
+            This is one of the most-asked questions in concurrency, and the answer has three parts.
+        </p>
+
+        <div class="two-cols">
+            <div class="col pink">
+                <h4><i class="fas fa-user-secret"></i> Spurious wakeups</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    POSIX explicitly allows <code>pthread_cond_wait</code> to return <em>even without</em> a signal.
+                    This is called a spurious wakeup, and it can happen on real systems for various low-level
+                    reasons. With <code>if</code>, you would proceed as if the condition were true; with
+                    <code>while</code>, you loop and check again.
+                </p>
+            </div>
+            <div class="col violet">
+                <h4><i class="fas fa-users"></i> Multiple waiters</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    If three threads are waiting on the same condition, and only one condition "slot" is available,
+                    <code>pthread_cond_signal</code> wakes exactly one. That one consumes the resource. The other
+                    two, if woken later, would find no resource — <code>while</code> loops them back to sleep.
+                    <code>if</code> would let them proceed and corrupt state.
+                </p>
+            </div>
+            <div class="col warn">
+                <h4><i class="fas fa-clock"></i> The condition can be false again</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Even a properly-signaled wakeup may find the condition false again, if another thread "stole"
+                    the resource between the signal and this thread acquiring the mutex. Only by re-checking in a
+                    loop do we handle this safely.
+                </p>
+            </div>
+        </div>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Rule to memorize:</strong> <em>always</em> wrap <code>pthread_cond_wait</code> in a
+            <code>while</code> loop that re-checks the predicate. If you use <code>if</code>, your code may appear
+            to work in testing and fail catastrophically in production.
+        </div>
+
+        <h3>signal vs broadcast</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Primitive</th>
+                    <th>Meaning</th>
+                    <th style="width: 30%;">When to use</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>pthread_cond_signal</code></td>
+                    <td>Wake at most <strong>one</strong> waiting thread.</td>
+                    <td>When any waiting thread can make progress — e.g., one item was added to a queue.</td>
+                </tr>
+                <tr>
+                    <td><code>pthread_cond_broadcast</code></td>
+                    <td>Wake <strong>all</strong> waiting threads.</td>
+                    <td>When the state change is relevant to many threads — e.g., shutting down, or the queue was
+                        resized.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Broadcasting is safer (you never accidentally miss a thread that needs to wake) but less efficient —
+            every waiter wakes up, contends for the mutex, and most go right back to sleep. Signal is more efficient
+            but requires you to be sure exactly one waiter needs to run.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 4.5 CLASSIC SYNCHRONIZATION PROBLEMS                         -->
+        <!-- ============================================================ -->
+        <h2 id="classic"><i class="fas fa-puzzle-piece"></i> 4.5 · Classic Problems</h2>
+
+        <p>
+            Three classic problems appear in every operating systems course, every systems textbook, and every job
+            interview. They capture the essence of synchronization, and their solutions are used in real code every
+            day.
+        </p>
+
+        <h3>The Producer–Consumer Problem (Bounded Buffer)</h3>
+
+        <p>
+            One or more producer threads generate items and place them in a shared buffer of fixed size. One or more
+            consumer threads take items out. The rules are:
+        </p>
+
+        <ul>
+            <li>A producer must wait if the buffer is full.</li>
+            <li>A consumer must wait if the buffer is empty.</li>
+            <li>No producer and no consumer should ever corrupt the buffer state.</li>
+        </ul>
+
+        <p>
+            This pattern is literally everywhere: web servers reading network requests, video players decoding
+            frames, databases flushing write-ahead logs, operating systems moving data between disks and memory. If
+            you understand Producer–Consumer, you understand the heart of concurrent systems.
+        </p>
+
+        <h3>A solution with mutex + condition variables</h3>
+
+        <pre><code>#define BUF_SIZE 8
+
+typedef struct {
+    int items[BUF_SIZE];
+    int count;             /* current number of items */
+    int in, out;           /* next write / read index */
+
+    pthread_mutex_t mutex;
+    pthread_cond_t  not_full;
+    pthread_cond_t  not_empty;
+} bounded_buffer_t;
+
+void bb_init(bounded_buffer_t *bb) {
+    bb-&gt;count = bb-&gt;in = bb-&gt;out = 0;
+    pthread_mutex_init(&amp;bb-&gt;mutex, NULL);
+    pthread_cond_init(&amp;bb-&gt;not_full, NULL);
+    pthread_cond_init(&amp;bb-&gt;not_empty, NULL);
+}
+
+void bb_put(bounded_buffer_t *bb, int value) {
+    pthread_mutex_lock(&amp;bb-&gt;mutex);
+
+    while (bb-&gt;count == BUF_SIZE) {
+        pthread_cond_wait(&amp;bb-&gt;not_full, &amp;bb-&gt;mutex);
+    }
+
+    bb-&gt;items[bb-&gt;in] = value;
+    bb-&gt;in = (bb-&gt;in + 1) % BUF_SIZE;
+    bb-&gt;count++;
+
+    pthread_cond_signal(&amp;bb-&gt;not_empty);
+    pthread_mutex_unlock(&amp;bb-&gt;mutex);
+}
+
+int bb_get(bounded_buffer_t *bb) {
+    pthread_mutex_lock(&amp;bb-&gt;mutex);
+
+    while (bb-&gt;count == 0) {
+        pthread_cond_wait(&amp;bb-&gt;not_empty, &amp;bb-&gt;mutex);
+    }
+
+    int value = bb-&gt;items[bb-&gt;out];
+    bb-&gt;out = (bb-&gt;out + 1) % BUF_SIZE;
+    bb-&gt;count--;
+
+    pthread_cond_signal(&amp;bb-&gt;not_full);
+    pthread_mutex_unlock(&amp;bb-&gt;mutex);
+
+    return value;
+}</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Notice the pattern:</strong> one mutex protects the shared state, and two condition variables
+            represent the two events we can wait for — <em>buffer became non-empty</em> and <em>buffer became
+            non-full</em>. This is the canonical solution and worth memorizing.
+        </div>
+
+        <h3>The Reader–Writer Problem</h3>
+
+        <p>
+            A shared data structure — say, a database or an in-memory cache — is accessed by two kinds of threads:
+        </p>
+
+        <ul>
+            <li><strong>Readers</strong> want to read the current value. Multiple readers can be active at the same
+                time without conflict.</li>
+            <li><strong>Writers</strong> want to change the value. A writer must be completely alone — no other
+                reader or writer can be active while it runs.</li>
+        </ul>
+
+        <p>
+            The rule is: <em>many readers, or one writer, but never a mix</em>. This pattern is common in databases
+            and caches, where reads vastly outnumber writes.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Variant</th>
+                    <th>Rule</th>
+                    <th style="width: 30%;">Potential issue</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Reader-priority</strong></td>
+                    <td>Writers wait until no readers are active. Readers can always enter.</td>
+                    <td>Writer starvation if readers keep arriving.</td>
+                </tr>
+                <tr>
+                    <td><strong>Writer-priority</strong></td>
+                    <td>Once a writer is waiting, no new readers are admitted.</td>
+                    <td>Reader starvation if writers keep arriving.</td>
+                </tr>
+                <tr>
+                    <td><strong>Fair (FIFO)</strong></td>
+                    <td>Arrival order is respected, regardless of type.</td>
+                    <td>Slightly more complex to implement.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            On Linux, the same guarantee is provided by <code>pthread_rwlock_t</code> — a ready-made reader-writer
+            lock you can use instead of building your own.
+        </p>
+
+        <pre><code>pthread_rwlock_t rwlock = PTHREAD_RWLOCK_INITIALIZER;
+
+pthread_rwlock_rdlock(&amp;rwlock);   /* many readers can hold this */
+   read_shared_data();
+pthread_rwlock_unlock(&amp;rwlock);
+
+pthread_rwlock_wrlock(&amp;rwlock);   /* exclusive */
+   modify_shared_data();
+pthread_rwlock_unlock(&amp;rwlock);</code></pre>
+
+        <h3>The Dining Philosophers</h3>
+
+        <p>
+            Five philosophers sit around a round table. Between each pair of neighbors lies one fork — five forks
+            total. Each philosopher needs <em>two</em> forks to eat. They alternate between thinking and eating.
+            The problem: design a protocol so that no philosopher starves.
+        </p>
+
+        <p>
+            The philosophers represent processes, the forks represent shared resources, and the problem abstracts
+            the pattern of <em>grabbing multiple shared resources</em>. Naïve solutions lead to <strong>deadlock</strong>
+            — every philosopher grabs their left fork and waits forever for their right.
+        </p>
+
+        <p>
+            We will study deadlock prevention and the Dining Philosophers in detail in <strong>Week 6</strong>. For
+            now, remember the pattern: whenever a thread must acquire two or more locks, the order of acquisition
+            matters, and getting it wrong leads to deadlock.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Lock ordering rule:</strong> if two locks A and B must both be acquired, every thread that
+            acquires both must acquire them in the same order — A then B, or B then A, but never mixed. This single
+            discipline prevents the most common form of deadlock.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 4.6 MONITORS AND MODERN LANGUAGES                            -->
+        <!-- ============================================================ -->
+        <h2 id="monitors"><i class="fas fa-shield-halved"></i> 4.6 · Monitors and Modern Languages</h2>
+
+        <p>
+            Directly managing mutexes and condition variables is fragile. It's easy to forget an unlock, use the
+            wrong variable in a <code>while</code>, or introduce a subtle lock-ordering bug. In the 1970s, computer
+            scientists Tony Hoare and Per Brinch Hansen proposed a higher-level abstraction to make this safe:
+            the <strong>monitor</strong>.
+        </p>
+
+        <h3>What is a monitor?</h3>
+
+        <p>
+            A monitor is a programming-language construct that bundles:
+        </p>
+
+        <ul>
+            <li>Shared data (the state of the monitor).</li>
+            <li>Procedures that operate on that data.</li>
+            <li>A mutex that the language automatically acquires on entry to any procedure, and releases on exit.</li>
+            <li>Condition variables associated with the monitor for waiting and signaling.</li>
+        </ul>
+
+        <p>
+            The crucial part: <em>the programmer never writes <code>lock</code> or <code>unlock</code></em>. The
+            language guarantees that only one thread is inside any monitor procedure at a time. This removes the
+            entire class of "forgot to unlock" bugs by construction.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The shift in thinking:</strong> instead of "protect this data with a mutex I manage", you write
+            "here is a piece of data with its own procedures, and the language protects it". It is synchronization
+            by language design, not by programmer discipline.
+        </div>
+
+        <h3>Monitors in modern languages</h3>
+
+        <p>
+            Every one of these features is a monitor in disguise:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Language</th>
+                    <th>Construct</th>
+                    <th style="width: 35%;">Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Java</strong></td>
+                    <td><code>synchronized</code> methods and blocks; <code>wait()</code> and <code>notify()</code>
+                        on <code>Object</code>.</td>
+                    <td>Every Java object is a monitor with an implicit lock.</td>
+                </tr>
+                <tr>
+                    <td><strong>C#</strong></td>
+                    <td><code>lock</code> statement; <code>Monitor.Wait</code> / <code>Monitor.Pulse</code>.</td>
+                    <td>Very similar to Java.</td>
+                </tr>
+                <tr>
+                    <td><strong>Python</strong></td>
+                    <td><code>threading.Lock</code>, <code>threading.Condition</code>.</td>
+                    <td>GIL limits real parallelism but monitors work as expected.</td>
+                </tr>
+                <tr>
+                    <td><strong>Go</strong></td>
+                    <td>Channels (<code>chan</code>) plus <code>sync.Mutex</code> and <code>sync.Cond</code>.</td>
+                    <td>Channels embody a different philosophy — communication instead of shared state.</td>
+                </tr>
+                <tr>
+                    <td><strong>Rust</strong></td>
+                    <td><code>Mutex&lt;T&gt;</code> that <em>owns</em> the data it protects.</td>
+                    <td>The type system enforces that you cannot access the data without holding the lock.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>The Rust philosophy: encode correctness in the type system</h3>
+
+        <p>
+            Rust takes monitors to their logical conclusion. In Rust, a <code>Mutex&lt;T&gt;</code> is a container
+            that <em>owns</em> the data it protects. You literally cannot access the data except by locking the
+            mutex — the compiler will not let you. There is no way to "forget to lock", because the code would not
+            compile.
+        </p>
+
+        <pre><code>use std::sync::Mutex;
+
+let counter = Mutex::new(0);   // the mutex owns the data
+
+{
+    let mut guard = counter.lock().unwrap();
+    *guard += 1;                // must go through the guard
+}
+// guard drops here — the lock is automatically released</code></pre>
+
+        <p>
+            Notice that there is no <code>unlock</code> call — Rust's RAII drops the guard when it goes out of
+            scope, automatically releasing the lock. This is how the type system makes an entire class of bugs
+            impossible.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The lesson for beginners:</strong> whenever you write C with pthreads, remember that you are
+            doing manually what modern languages do automatically. Every <code>pthread_mutex_lock</code> must have
+            a matching <code>unlock</code> on every code path. Every <code>cond_wait</code> must sit inside a
+            <code>while</code>. The languages that do this for you exist because humans forget.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 4.7 LAB: PRODUCER-CONSUMER                                   -->
+        <!-- ============================================================ -->
+        <h2 id="lab-prodcons"><i class="fas fa-code"></i> 4.7 · Touch Lab — Producer–Consumer in C</h2>
+
+        <p>
+            Now let's put everything together. We will write a real, working Producer–Consumer program using
+            <code>pthread_mutex</code> and <code>pthread_cond</code>. This is the exact pattern used inside real
+            servers, buffers, and thread pools.
+        </p>
+
+        <h3>Step 1 — Create the source file</h3>
+
+        <pre><code>$ nano prodcons.c</code></pre>
+
+        <p>Paste the following code:</p>
+
+        <pre><code>#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;stdlib.h&gt;
+#include &lt;unistd.h&gt;
+
+#define BUF_SIZE   8
+#define N_ITEMS    20
+
+typedef struct {
+    int items[BUF_SIZE];
+    int count, in, out;
+
+    pthread_mutex_t mutex;
+    pthread_cond_t  not_full;
+    pthread_cond_t  not_empty;
+} buffer_t;
+
+static buffer_t buf;
+
+void bb_init(buffer_t *bb) {
+    bb-&gt;count = bb-&gt;in = bb-&gt;out = 0;
+    pthread_mutex_init(&amp;bb-&gt;mutex, NULL);
+    pthread_cond_init(&amp;bb-&gt;not_full, NULL);
+    pthread_cond_init(&amp;bb-&gt;not_empty, NULL);
+}
+
+void bb_put(buffer_t *bb, int value) {
+    pthread_mutex_lock(&amp;bb-&gt;mutex);
+    while (bb-&gt;count == BUF_SIZE) {
+        pthread_cond_wait(&amp;bb-&gt;not_full, &amp;bb-&gt;mutex);
+    }
+    bb-&gt;items[bb-&gt;in] = value;
+    bb-&gt;in = (bb-&gt;in + 1) % BUF_SIZE;
+    bb-&gt;count++;
+    printf("[PRODUCER] put %2d  (count=%d)\n", value, bb-&gt;count);
+    pthread_cond_signal(&amp;bb-&gt;not_empty);
+    pthread_mutex_unlock(&amp;bb-&gt;mutex);
+}
+
+int bb_get(buffer_t *bb) {
+    pthread_mutex_lock(&amp;bb-&gt;mutex);
+    while (bb-&gt;count == 0) {
+        pthread_cond_wait(&amp;bb-&gt;not_empty, &amp;bb-&gt;mutex);
+    }
+    int value = bb-&gt;items[bb-&gt;out];
+    bb-&gt;out = (bb-&gt;out + 1) % BUF_SIZE;
+    bb-&gt;count--;
+    printf("[CONSUMER] got %2d  (count=%d)\n", value, bb-&gt;count);
+    pthread_cond_signal(&amp;bb-&gt;not_full);
+    pthread_mutex_unlock(&amp;bb-&gt;mutex);
+    return value;
+}
+
+void *producer(void *arg) {
+    for (int i = 1; i &lt;= N_ITEMS; i++) {
+        bb_put(&amp;buf, i);
+        usleep(50000);   /* 50 ms — simulate producing */
+    }
+    return NULL;
+}
+
+void *consumer(void *arg) {
+    for (int i = 0; i &lt; N_ITEMS; i++) {
+        int v = bb_get(&amp;buf);
+        usleep(80000);   /* 80 ms — simulate consuming */
+        (void)v;
+    }
+    return NULL;
+}
+
+int main(void) {
+    pthread_t t_prod, t_cons;
+
+    bb_init(&amp;buf);
+
+    pthread_create(&amp;t_prod, NULL, producer, NULL);
+    pthread_create(&amp;t_cons, NULL, consumer, NULL);
+
+    pthread_join(t_prod, NULL);
+    pthread_join(t_cons, NULL);
+
+    pthread_mutex_destroy(&amp;buf.mutex);
+    pthread_cond_destroy(&amp;buf.not_full);
+    pthread_cond_destroy(&amp;buf.not_empty);
+
+    printf("\nDone. Everything consumed cleanly.\n");
+    return 0;
+}</code></pre>
+
+        <h3>Step 2 — Compile</h3>
+
+        <pre><code>$ gcc -Wall -pthread -o prodcons prodcons.c</code></pre>
+
+        <h3>Step 3 — Run it</h3>
+
+        <pre><code>$ ./prodcons
+[PRODUCER] put  1  (count=1)
+[CONSUMER] got  1  (count=0)
+[PRODUCER] put  2  (count=1)
+[PRODUCER] put  3  (count=2)
+[CONSUMER] got  2  (count=1)
+...
+[PRODUCER] put 20  (count=1)
+[CONSUMER] got 20  (count=0)
+
+Done. Everything consumed cleanly.</code></pre>
+
+        <p>
+            Everything is deterministic in outcome, even though the interleaving is not. Every item produced is
+            exactly one item consumed. The buffer never overflows or underflows. The program always terminates
+            cleanly with the same final line.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Try to break it:</strong> run the program ten times in a row. Every run must end with the same
+            "Done" message and the same total count of puts and gets. If it ever hangs or crashes, you have found
+            a bug — and the diagnosis will teach you something. This is exactly how production-quality code is
+            validated: by running it again and again under stress.
+        </div>
+
+        <h3>Experiment: what happens if you use `if` instead of `while`?</h3>
+
+        <p>
+            Open the file and change the two <code>while</code> loops to <code>if</code> statements. Recompile and
+            run it several times. You may observe:
+        </p>
+
+        <ul>
+            <li>Buffer underflow — the consumer reads a slot that has never been written.</li>
+            <li>Buffer overflow — the producer overwrites a slot before it is consumed.</li>
+            <li>Occasional hangs — the program sits forever because one side missed its wakeup.</li>
+        </ul>
+
+        <p>
+            This is a powerful demonstration of why the <code>while</code> loop is not optional. It is not defensive
+            coding — it is <em>necessary</em> for correctness.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 4.8 LAB: HELGRIND                                            -->
+        <!-- ============================================================ -->
+        <h2 id="lab-helgrind"><i class="fas fa-magnifying-glass"></i> 4.8 · Touch Lab — Debugging with Helgrind</h2>
+
+        <p>
+            Manually inspecting concurrent code for race conditions is unreliable — even experts miss bugs that only
+            appear once in ten million executions. This is where dynamic analysis tools come in. The most widely
+            used tool for concurrency bugs in C is <strong>Helgrind</strong>, part of the Valgrind suite.
+        </p>
+
+        <h3>Installing Valgrind</h3>
+
+        <pre><code>$ sudo apt update
+$ sudo apt install valgrind
+$ valgrind --version
+valgrind-3.22.0</code></pre>
+
+        <h3>Running Helgrind on a correct program</h3>
+
+        <p>
+            Let's use our corrected counter from section 4.2 — the one with the mutex — to verify that Helgrind
+            finds nothing wrong:
+        </p>
+
+        <pre><code>$ valgrind --tool=helgrind ./counter_mutex
+...
+==12345== Helgrind, a thread error detector
+==12345== Copyright (C) 2007-2017, and GNU GPL'd, by OpenWorks LLP et al.
+==12345== Using Valgrind-3.22.0 and LibVEX; rerun with -h for copyright info
+==12345== Command: ./counter_mutex
+==12345==
+counter = 200000  (expected 200000)
+==12345==
+==12345== For lists of detected and suppressed errors, rerun with: -s
+==12345== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)</code></pre>
+
+        <p>
+            The line we care about is at the very bottom: <strong>0 errors from 0 contexts</strong>. Helgrind has
+            checked for lock ordering issues, data races, and misuses of synchronization primitives — and found
+            nothing. Our code is correct.
+        </p>
+
+        <h3>Running Helgrind on a buggy program</h3>
+
+        <p>
+            Now let's deliberately remove the mutex — the classic race condition from Week 3 — and see what
+            Helgrind reports:
+        </p>
+
+        <pre><code>$ valgrind --tool=helgrind ./counter_nomutex
+...
+==12345== Possible data race during write of size 8 at 0x... by thread #3
+==12345==    at 0x10916B: worker (counter_nomutex.c:10)
+==12345==    by 0x483F9C8: start_thread (pthread_create.c:470)
+==12345==    by 0x49555C8: clone (clone.S:97)
+==12345==  This conflicts with a previous write of size 8 by thread #2
+==12345==    at 0x10916B: worker (counter_nomutex.c:10)
+==12345==    by 0x483F9C8: start_thread (pthread_create.c:470)
+==12345==    by 0x49555C8: clone (clone.S:97)
+==12345==
+counter = 143982  (expected 200000)
+==12345==
+==12345== ERROR SUMMARY: 13762 errors from 2 contexts ...
+</code></pre>
+
+        <p>
+            The output tells you clearly what happened:
+        </p>
+
+        <ul>
+            <li><strong>Possible data race during write of size 8</strong> — Helgrind noticed two threads writing
+                to the same address without synchronization.</li>
+            <li><strong>worker (counter_nomutex.c:10)</strong> — the exact source file and line number of the
+                problematic access.</li>
+            <li><strong>13762 errors</strong> — the actual number of unsynchronized accesses observed during the
+                run.</li>
+            <li><strong>counter = 143982</strong> — the program itself produced the wrong result, confirming that
+                Helgrind is not just paranoid — it caught a real bug.</li>
+        </ul>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Even one error is too many.</strong> A program with even a single Helgrind-reported race is not
+            correct. It may run fine for a million executions and corrupt memory on the million-and-first. Never
+            ship code that fails Helgrind.
+        </div>
+
+        <h3>Understanding Helgrind's limitations</h3>
+
+        <p>
+            Helgrind is extremely valuable but not omniscient. Be aware of these limitations:
+        </p>
+
+        <ul>
+            <li><strong>It can only detect races it actually observes.</strong> If the buggy interleaving does not
+                occur during your test run, Helgrind will not report it. This is why we run test programs many
+                times, on many machines, with different workloads.</li>
+            <li><strong>It cannot detect misused locks directly.</strong> It reports improper lock ordering, but
+                it cannot know that you are holding the "wrong" lock for a given piece of data.</li>
+            <li><strong>It slows execution by 20–100×.</strong> Not something you leave running on production code.
+                It is a debugging tool, not a runtime monitor.</li>
+            <li><strong>It has false positives.</strong> Some correct code, like lock-free algorithms, may trigger
+                Helgrind warnings because the tool cannot track the correctness of the pattern. Annotations exist
+                to help with these cases.</li>
+        </ul>
+
+        <h3>Helgrind vs other tools</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Tool</th>
+                    <th>Purpose</th>
+                    <th style="width: 30%;">Command</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Helgrind</strong></td>
+                    <td>Data races, lock ordering, synchronization misuse.</td>
+                    <td><code>valgrind --tool=helgrind ./prog</code></td>
+                </tr>
+                <tr>
+                    <td><strong>DRD</strong></td>
+                    <td>Alternative race detector, sometimes detects different bugs.</td>
+                    <td><code>valgrind --tool=drd ./prog</code></td>
+                </tr>
+                <tr>
+                    <td><strong>ThreadSanitizer</strong></td>
+                    <td>Similar to Helgrind, but compiled into the program — much faster.</td>
+                    <td><code>gcc -fsanitize=thread -g ./prog.c</code></td>
+                </tr>
+                <tr>
+                    <td><strong>AddressSanitizer</strong></td>
+                    <td>Detects memory errors — not concurrency-specific, but useful together.</td>
+                    <td><code>gcc -fsanitize=address -g ./prog.c</code></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            In practice, serious development uses ThreadSanitizer (TSan) more often than Helgrind because it is
+            10–20× faster and can be integrated into continuous integration. But Helgrind is bundled with Valgrind,
+            works on compiled programs without recompilation, and is the standard tool when you need to inspect
+            an already-built binary.
+        </p>
+
+        <h3>Practice exercise: audit your own code</h3>
+
+        <ol>
+            <li>Take the Producer–Consumer program from the previous lab. Run it under Helgrind:
+                <code>valgrind --tool=helgrind ./prodcons</code></li>
+            <li>Confirm the corrected version reports zero errors.</li>
+            <li>Modify the code to make a mistake — for example, switch one <code>while</code> to <code>if</code>.
+                Run Helgrind again. Note that Helgrind may not directly detect the logic error (because the code is
+                still "synchronized" technically), but <code>pthread_cond</code> misuse sometimes shows up as
+                <em>lock order violated</em> or similar warnings.</li>
+            <li>Modify the code further — for example, remove the mutex entirely. Observe how Helgrind now reports
+                races on every access to the shared count, the buffer array, and every other piece of shared state.</li>
+        </ol>
+
+        <div class="success-note">
+            <i class="fas fa-check"></i>
+            <strong>Why this matters:</strong> writing correct concurrent code is hard. Every professional systems
+            programmer uses a race detector as a routine part of their workflow. Adding <code>valgrind
+            --tool=helgrind</code> to your testing process will save you days of mysterious bug hunting.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 4 — Written Assignment</h3>
+            <p>
+                Submit your work as a PDF. Include all source code, command outputs, and short written answers.
+                This assignment contributes to your <strong>labs &amp; assignments</strong> grade.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the three properties any correct synchronization solution must provide —
+                    <em>mutual exclusion</em>, <em>progress</em>, and <em>bounded waiting</em>. Give one concrete
+                    scenario where violating each property causes a real problem.</li>
+                <li>Compare spinlocks and blocking locks. In what situations is a spinlock the better choice? In what
+                    situations is blocking the better choice? Be specific.</li>
+                <li>Why must <code>pthread_cond_wait</code> be called inside a <code>while</code> loop rather than
+                    an <code>if</code>? Give three distinct reasons, and explain each one in two to three sentences.</li>
+                <li>Explain the difference between <code>pthread_cond_signal</code> and
+                    <code>pthread_cond_broadcast</code>. In the Producer–Consumer problem, when would you use one
+                    versus the other?</li>
+                <li>Compare the two main variants of the Reader–Writer problem (reader-priority and writer-priority).
+                    What is the trade-off? Which is more appropriate for a database that is read-heavy? Which for
+                    one that is write-heavy?</li>
+            </ol>
+
+            <h4>Part II — Applied Questions (40 points)</h4>
+            <ol>
+                <li>Write a C program that uses a mutex to protect a shared counter. The program should spawn
+                    <strong>four</strong> threads, each incrementing the counter 250,000 times. Confirm the final
+                    value is exactly 1,000,000. Then run it under Helgrind and show that it reports zero errors.
+                    Include the code and both outputs.</li>
+                <li>Rewrite the same program <em>without</em> the mutex. Run it 5 times and report each result.
+                    What is the minimum and maximum observed value? Now run it under Helgrind and paste the first
+                    three error messages. Explain what each error means in plain English.</li>
+                <li>Implement a bounded buffer using <code>pthread_mutex_t</code> and two
+                    <code>pthread_cond_t</code> variables. Your program should have <strong>three producers</strong>
+                    and <strong>two consumers</strong>, producing 100 items total. Verify the total count of puts
+                    equals the total count of gets after the program finishes. Include code and output.</li>
+                <li>Under Helgrind, run your bounded buffer program. If it reports zero errors, explain why your
+                    use of condition variables is correct. If it reports errors, diagnose and fix them.</li>
+            </ol>
+
+            <h4>Part III — Reflection (30 points)</h4>
+            <ol>
+                <li>In your own words (5–7 sentences), describe the difference between "getting the code to compile
+                    and run" and "writing correct concurrent code." What makes the second category so much harder,
+                    and why is testing not enough to prove correctness?</li>
+                <li>Modern languages like Rust and Go offer higher-level abstractions (mutexes that own their data,
+                    channels, actors) that make many synchronization bugs impossible by construction. Yet C with
+                    pthreads is still used extensively in operating systems and systems programming. Discuss the
+                    trade-offs. Given the choice, would you write a new concurrent system in C or in a modern
+                    language? Justify your answer in 5–7 sentences.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF plus your <code>.c</code> files to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 4 Summary</h3>
+            <ul>
+                <li><strong>Race conditions</strong> occur when two threads access shared data without
+                    synchronization. The three requirements of any correct solution are mutual exclusion, progress,
+                    and bounded waiting.</li>
+                <li><strong>Locks (mutexes)</strong> provide mutual exclusion. Built on hardware atomic primitives
+                    like test-and-set and compare-and-swap. Use <code>pthread_mutex_lock</code> and
+                    <code>pthread_mutex_unlock</code> — always paired, always balanced.</li>
+                <li><strong>Semaphores</strong> are counters with atomic wait/post operations. Can act as locks
+                    (init=1) or as counting mechanisms (init=N). Excellent for signaling and resource counting.</li>
+                <li><strong>Condition variables</strong> let threads wait for a predicate to become true. Must
+                    always be used with a mutex. Always check the condition in a <code>while</code> loop.</li>
+                <li><strong>Producer–Consumer</strong> is solved with one mutex and two condition variables —
+                    <em>not_full</em> and <em>not_empty</em>. This pattern is the heart of most concurrent systems.</li>
+                <li><strong>Reader–Writer</strong> allows many readers or one writer. Provided by the OS as
+                    <code>pthread_rwlock_t</code>.</li>
+                <li><strong>Monitors</strong> are a language-level abstraction that bundles data, procedures, and
+                    locking. Java's <code>synchronized</code>, Rust's <code>Mutex&lt;T&gt;</code>, and Go's channels
+                    are modern descendants.</li>
+                <li><strong>Helgrind</strong> — <code>valgrind --tool=helgrind</code> — detects data races and
+                    synchronization misuse. Essential for any serious concurrent code.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

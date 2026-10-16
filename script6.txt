@@ -1,0 +1,1442 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 6 — Deadlocks
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  nine short videos.
+• Each video is designed to be between 12 and 20 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.1 — What is a Deadlock?                                     ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Deadlocks" + course name]
+
+SPEAK:
+"Welcome to Week 6 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+In Week 4 we built a stack of synchronization primitives — mutexes,
+semaphores, and condition variables — and we used them to make
+concurrent code correct. But at the end of that week, I gave you a
+warning: locks solve the problem of race conditions, but they
+introduce a new failure mode that is arguably even worse. That
+warning was about deadlocks.
+
+Today, we take the warning seriously. This entire week is about
+understanding what deadlocks are, when they can happen, how to
+prevent them at design time, and how to diagnose them when they do."
+
+[PAUSE]
+
+[SLIDE 2 — Two threads, two locks, both stuck]
+
+SPEAK:
+"Let me start with the simplest possible example. Imagine two threads
+and two mutexes. We will call them L1 and L2.
+
+Thread A acquires L1, does some work, and then tries to acquire L2.
+Thread B, meanwhile, has acquired L2, done some work, and is now
+trying to acquire L1.
+
+What happens? Thread A holds L1 and is waiting for L2. Thread B holds
+L2 and is waiting for L1. Thread A cannot release L1 until it acquires
+L2. Thread B cannot release L2 until it acquires L1.
+
+Neither thread can proceed. Both are waiting forever. And here is the
+key feature: this is not slow progress. This is not starvation. This
+is a permanent standstill. Nothing the kernel does will break it.
+Nothing the applications do will break it. The system is deadlocked.
+
+Here is the precise definition I want you to write down. A deadlock
+is a situation in which a set of threads are all waiting for events
+that can only be caused by another thread in the same set. Because
+every thread in the set is waiting, none of them can proceed."
+
+[PAUSE]
+
+[SLIDE 3 — Distinguish from other failures]
+
+SPEAK:
+"Before we go further, let me distinguish deadlock from two other
+failure modes that are often confused with it.
+
+Livelock: threads are actively running — they are doing work — but
+their actions repeatedly undo each other's work. Imagine two people
+trying to pass each other on a narrow sidewalk, both stepping left at
+the same time, both stepping right at the same time. Nobody is
+blocked. But nobody is making progress either.
+
+Starvation: one thread is ready to run but never gets the resource it
+needs, because other threads keep winning it. Unlike deadlock, the
+system as a whole is making progress — it is just this one thread
+that is left out.
+
+The distinction matters because the fixes are completely different.
+Livelock is fixed by adding randomization or backoff. Starvation is
+fixed by aging — by making old threads more important. But deadlock
+requires a structural change. Prevention, or avoidance, or detection
+and recovery. Not a tweak — a fundamental change to how resources
+are acquired."
+
+[SLIDE 4 — Why deadlocks are worse than crashes]
+
+SPEAK:
+"Let me explain why deadlocks are considered one of the worst bugs in
+systems programming.
+
+A crash is annoying, but it is honest. The program stops. You notice
+immediately. You have a stack trace, a core dump, and often a clear
+line of code to look at.
+
+A deadlock is silent. The program is still running. The process is
+still in the process table. From the outside, it looks alive. But it
+is not doing anything. It will never do anything again.
+
+And here is the truly dangerous part: the deadlock may not be
+reproducible. Everything depends on timing. On your laptop it works
+every time. On the production server, under load, with a specific
+scheduling order, it hangs. That hang may take hours to reproduce, or
+it may happen once a month at exactly the moment when you cannot
+afford it.
+
+This is why every serious systems programmer treats deadlocks as a
+design-time problem. You fix them by structuring your code so that
+they cannot happen — not by trying to recover from them after the
+fact."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize this first video.
+
+A deadlock is a permanent standstill: a set of threads, each waiting
+for an event that only another thread in the set can cause.
+
+Deadlock is different from livelock — where threads run but make no
+progress — and from starvation — where one thread is left out while
+others proceed.
+
+Deadlocks are silent, hard to reproduce, and devastating in
+production. They are a design-time problem, not a runtime problem.
+
+In the next video, we will look at the four classic conditions that
+must all hold for a deadlock to occur. This is one of the most
+important theorems in operating systems, and it directly tells us
+how to prevent deadlocks."
+
+[END OF VIDEO 6.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.2 — Coffman's Four Necessary Conditions                     ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Coffman's Four Necessary Conditions"]
+
+SPEAK:
+"Welcome back. Now that we know what a deadlock is, we need a precise
+characterization of when it can happen. Because if we know exactly
+when deadlocks are possible, we can often design code that makes them
+impossible.
+
+The answer comes from a paper published in 1971 by Edward Coffman
+and his colleagues. Their result is one of the most elegant theorems
+in operating systems, and it appears on every exam in this subject."
+
+[PAUSE]
+
+[SLIDE 2 — The four conditions]
+
+SPEAK:
+"Coffman's theorem says: a deadlock can occur if and only if all four
+of the following conditions hold simultaneously. If any one of them
+is broken, deadlock becomes impossible.
+
+Condition one: mutual exclusion. At least one resource is held in a
+non-sharable mode. That is, only one thread can use this resource at
+a time. Two threads cannot simultaneously write to the same memory
+location. Two programs cannot simultaneously print to the same
+printer port.
+
+Condition two: hold and wait. A thread is currently holding at least
+one resource, and it is waiting to acquire additional resources that
+are held by other threads. It has not released what it holds. It is
+not asking for everything at once.
+
+Condition three: no preemption. Resources cannot be forcibly taken
+away from a thread that holds them. The holder must voluntarily
+release the resource. The kernel does not step in and pull it away.
+
+Condition four: circular wait. There exists a cycle in the
+waits-for graph. Thread T1 waits for a resource held by T2. T2 waits
+for a resource held by T3. And so on, until some thread Tn waits for
+a resource held by T1. The chain closes back on itself."
+
+[PAUSE]
+
+[SLIDE 3 — Which condition to break]
+
+SPEAK:
+"Now here is the practical question. Which of these conditions should
+we try to break?
+
+Condition one, mutual exclusion, is usually inherent. We cannot make
+memory suddenly writable by two threads. We cannot make a printer
+print two documents at the same time. So breaking this condition is
+rarely feasible.
+
+Condition two, hold and wait, can be broken by requiring threads to
+acquire all their resources up front. But this is impractical in
+general. A program does not know in advance how many files it will
+open, or how much memory it will eventually allocate.
+
+Condition three, no preemption, can be broken by allowing the kernel
+to take resources away from threads. Databases do this with
+transactions that can be rolled back. But in a general-purpose
+operating system, we cannot take away a running thread's locks.
+
+Condition four, circular wait, is the one we can realistically break.
+If we can guarantee that no cycle forms, deadlock becomes impossible.
+And how do we do that? With a global lock ordering — a rule that
+every thread must acquire locks in a specific order."
+
+[SLIDE 4 — Lock ordering in action]
+
+SPEAK:
+"Here is the fix for the two-lock example from the first video.
+
+The problem was: thread A acquires L1 then L2, and thread B acquires
+L2 then L1. Opposite orders. That is what creates the cycle.
+
+The fix is simple: assign each lock a global order. Say L1 has
+order 1, and L2 has order 2. Now make it a rule that every thread
+acquires locks in increasing order. Thread A acquires L1 (order 1)
+then L2 (order 2). Thread B — instead of L2 then L1 — now acquires
+L1 then L2 as well.
+
+Can thread B still deadlock with thread A? Suppose both threads
+somehow reach the point of holding one lock and waiting for the
+other. Because both use the same order, the only way for a cycle to
+form would be for one thread's first lock to be the other thread's
+second lock — which is impossible if both follow the order.
+
+The cycle cannot form. Deadlock becomes impossible. One line of
+code changed. A permanent freeze becomes guaranteed correctness."
+
+[SLIDE 5 — The lock-ordering rule and its practical shape]
+
+SPEAK:
+"Let me give you the rule in its most practical form.
+
+If your program uses multiple locks, assign each lock a number, or a
+name, that establishes a total order. Every thread, everywhere in the
+program, must acquire locks in increasing order. If you need two or
+three locks, acquire them in the order their numbers dictate. Never
+acquire them out of order, never acquire a lock with a lower number
+after a lock with a higher number.
+
+Release order does not matter for correctness. You can release in any
+order — but for readability, most programmers use reverse order:
+last-acquired, first-released.
+
+Follow this rule religiously, and you have eliminated the most
+common class of deadlocks — the class that plagues real production
+code every day."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Coffman's four necessary conditions: mutual exclusion, hold and wait,
+no preemption, and circular wait. All four must hold for a deadlock
+to be possible.
+
+In practice, we break circular wait — because that is the condition
+we can realistically change.
+
+The technique is lock ordering: assign each lock a global order and
+require all threads to acquire in that order.
+
+Follow this rule, and simple two-lock deadlocks become impossible.
+
+In the next video, we will look at a visual way to detect and reason
+about deadlocks: resource allocation graphs."
+
+[END OF VIDEO 6.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.3 — Resource Allocation Graphs                              ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Resource Allocation Graphs"]
+
+SPEAK:
+"Welcome to the third video of Week 6.
+
+We now know when a deadlock can happen: when all four of Coffman's
+conditions hold. But often we want more than that — we want to look
+at a specific system state and say, definitely, that there is a
+deadlock, or definitely, that there is not one. For that, we need a
+visual and precise tool. That tool is the Resource Allocation Graph."
+
+[PAUSE]
+
+[SLIDE 2 — The two node types]
+
+SPEAK:
+"A Resource Allocation Graph — a R-A-G, for short — is a directed
+graph with two kinds of nodes.
+
+Thread nodes are drawn as circles. They represent the threads or
+processes in the system. We label them T1, T2, or P1, P2, or by
+whatever naming convention we like.
+
+Resource nodes are drawn as rectangles. They represent the resources
+in the system. A resource node may contain small dots inside it —
+one dot for each instance of that resource. For example, a printer
+resource node with three dots means there are three printers of that
+type. A CPU-core resource with eight dots means there are eight
+cores."
+
+[PAUSE]
+
+[SLIDE 3 — The two edge types]
+
+SPEAK:
+"There are two kinds of edges.
+
+A request edge points from a thread to a resource. It means the
+thread is currently waiting to acquire an instance of that resource.
+
+An assignment edge points from a resource to a thread. It means one
+instance of that resource is currently held by that thread.
+
+Put together: if you see a solid arrow from a resource box to a
+thread circle, the thread holds a resource. If you see a dashed arrow
+from a thread circle to a resource box, the thread is waiting for
+that resource."
+
+[SLIDE 4 — The deadlock detection rule]
+
+SPEAK:
+"Here is the whole reason we build these graphs.
+
+If the RAG contains no cycle, no thread is deadlocked. This is always
+true, unambiguously. No cycle, no deadlock.
+
+If the RAG contains a cycle, the situation depends on how many
+instances each resource has.
+
+Case one: every resource in the cycle has exactly one instance. Then
+the cycle means deadlock, definitively. Some thread group is stuck.
+
+Case two: some resources in the cycle have multiple instances. Then
+the cycle is a warning sign — not a proof. You have to look at the
+actual allocation to decide. Multiple instances give the threads
+ways to route around each other, but not always enough of them.
+
+This distinction is important, and it appears on every exam on this
+topic."
+
+[SLIDE 5 — Walking through an example]
+
+SPEAK:
+"Let me walk you through the example shown in the lecture text.
+
+We have three threads — T1, T2, T3 — and two resources, R1 and R2.
+R1 has one instance. R2 has one instance.
+
+T1 holds R1, and is requesting R2. So there is an assignment edge
+from R1 to T1, and a request edge from T1 to R2.
+
+T2 holds R2, and is requesting R1. So there is an assignment edge
+from R2 to T2, and a request edge from T2 to R1.
+
+Can you see the cycle? T1 holds R1 and waits for R2. T2 holds R2 and
+waits for R1. Both resources have one instance. So this is a definite
+deadlock.
+
+T3, in the lecture diagram, is waiting for R2 as well — but T2 has
+R2, and T2 is blocked. So T3 is also stuck, even though T3 is not
+part of the minimal cycle. It is collateral damage of the deadlock."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+A Resource Allocation Graph has two node types — threads and
+resources — and two edge types — requests and assignments.
+
+If there is no cycle in the RAG, there is no deadlock.
+
+If there is a cycle and all resources in the cycle have a single
+instance, there is definitely a deadlock.
+
+If there is a cycle and some resources have multiple instances, the
+situation is ambiguous — you need to look at the actual state.
+
+In the next video, we look at how to prevent deadlocks at design
+time — a set of four classic strategies, one for each of Coffman's
+conditions."
+
+[END OF VIDEO 6.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.4 — Deadlock Prevention                                     ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deadlock Prevention"]
+
+SPEAK:
+"Welcome to the fourth video of Week 6.
+
+We have a characterization of deadlock — Coffman's four conditions.
+Now we ask: how do we use it to prevent deadlocks before they ever
+occur? The answer is, we break one of the four conditions. And we
+look at each of the four candidate conditions in turn, and ask which
+one is realistically breakable in a modern operating system."
+
+[PAUSE]
+
+[SLIDE 2 — Breaking mutual exclusion]
+
+SPEAK:
+"The first condition is mutual exclusion. To break it, we would need
+to make resources sharable. Two threads could use the same resource
+simultaneously.
+
+Some resources can be virtualized this way. Printers, for example,
+are often virtualized by spooling: when a program prints, its output
+goes to a spool file, not directly to the printer. Multiple programs
+can "print" simultaneously because they are really writing to
+different spool files. The printer itself prints them one at a time.
+
+But most resources cannot be shared. Two threads cannot write to the
+same memory location simultaneously. Two processes cannot both have
+the same file open for writing. In practice, mutual exclusion is
+almost always inherent to the resource, and breaking it is not an
+option."
+
+[SLIDE 3 — Breaking hold and wait]
+
+SPEAK:
+"Condition two is hold and wait. The fix here is well known: require
+every thread to acquire all its resources at once, at the beginning
+of its work. If any resource is not available, no resources are held,
+so there is nothing to deadlock over.
+
+This works in theory, but in practice it is painful. It means a
+thread must know in advance exactly what resources it will need over
+its entire lifetime. It must be able to hold them all throughout,
+even when it does not need them yet. This wastes resources. It also
+introduces starvation: if some resource is unavailable, a thread
+might wait indefinitely.
+
+So "acquire all up front" is used occasionally, but not as a general
+strategy."
+
+[SLIDE 4 — Breaking no preemption]
+
+SPEAK:
+"Condition three is no preemption. To break it, we let the OS forcibly
+take resources away from threads.
+
+In some systems this is natural. A database transaction holds a
+lock on a row, but if the database detects a problem, it can abort
+the transaction — rolling back its changes and releasing its locks.
+Theoretically, this technique could apply to operating systems and
+to general-purpose programs, but in practice it is not.
+
+Why not? Because a thread holding a lock has been making changes
+based on the assumption it holds the lock. If we forcibly take the
+lock away, we have to roll back all those changes to make them
+consistent. That rollback is only possible if the thread was written
+with rollback in mind — which is typical for database transactions
+but essentially never for general-purpose code."
+
+[SLIDE 5 — Breaking circular wait — the practical choice]
+
+SPEAK:
+"So we arrive at condition four: circular wait. This is where we
+focus our energy. Break circular wait, and deadlock becomes
+impossible.
+
+The mechanism is: enforce a global lock ordering. Assign each lock a
+number. Require every thread, everywhere, to acquire locks in
+increasing order.
+
+With this rule, can a cycle form? Suppose T1 holds lock 5 and waits
+for lock 3. That violates the rule, because 3 is smaller than 5 and
+we require increasing order. If everyone follows the rule, the
+"waits for" graph is monotone — each request goes to a higher number.
+A monotone sequence cannot form a cycle, because a cycle would have
+to come back down to a lower number at some point.
+
+So no cycles. No deadlock. That is the whole argument, and it is
+airtight."
+
+[SLIDE 6 — Practical tips for lock ordering]
+
+SPEAK:
+"Let me give you some practical tips for using this rule in real code.
+
+One: pick a numbering scheme that makes sense. You can use the memory
+address of the lock, or a manually assigned integer, or the order of
+fields in a database schema.
+
+Two: whenever you add a new lock, assign its number carefully. Adding
+a lock in the middle of the order means you may need to revisit
+existing code. Adding a lock at the end is safer.
+
+Three: document the order prominently. Put comments in the header
+file, in the module's top comment, wherever a future developer will
+see it. The rule only works if everyone follows it.
+
+Four: check for violations automatically if you can. Some static
+analysis tools and dynamic race detectors can be told about your
+ordering, and they will warn you if code violates it.
+
+Five: prefer coarse-grained locks over fine-grained ones when you
+cannot reason about the ordering confidently. A single global lock
+is bad for performance, but it is trivially deadlock-free."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+There are four conditions that enable deadlock, and we can break each
+one in principle. In practice, only one of them is realistically
+breakable in a general-purpose system: circular wait.
+
+The technique is lock ordering. Assign each lock a number. Acquire
+locks in increasing order. Never, ever acquire out of order.
+
+Follow this rule, and simple two-lock deadlocks are impossible. More
+complex multi-lock deadlocks also become impossible, provided you
+apply the rule uniformly.
+
+In the next video, we will look at a very different approach —
+avoidance — and specifically at Banker's Algorithm."
+
+[END OF VIDEO 6.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.5 — Avoidance: Banker's Algorithm                           ║
+║  Target duration: ~20 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deadlock Avoidance — Banker's Algorithm"]
+
+SPEAK:
+"Welcome to the fifth video of Week 6.
+
+Prevention is a design-time decision. You write code with a rule —
+lock ordering — and deadlock cannot occur. But there is another
+approach that is more flexible: avoidance. Instead of preventing
+deadlocks by rule, we allow them in principle but check at runtime
+whether each request would lead there, and refuse the request if so.
+
+The classic algorithm for this is called the Banker's Algorithm. It
+is elegant, mathematically sound, and — as we will see — not actually
+used in real operating systems. But understanding it builds the
+intuition of "safe states," which is valuable far beyond the
+algorithm itself."
+
+[PAUSE]
+
+[SLIDE 2 — The key concept: safe state]
+
+SPEAK:
+"Let me define the central concept: a safe state.
+
+A system is in a safe state if there exists at least one order in
+which all currently running threads can complete without exceeding
+the available resources. That order is called a safe sequence.
+
+If the system is in a safe state, deadlock is impossible. Not just
+unlikely — impossible. Because the safe sequence describes a
+possible world where everything finishes.
+
+Here is the trick that makes avoidance work. Before granting a
+request, the OS checks whether the resulting state would still be
+safe. If it would be, the request is granted. If it would not be,
+the request is refused — the thread is told to wait, even though
+resources are physically available."
+
+[SLIDE 3 — The data structures]
+
+SPEAK:
+"Banker's Algorithm works with four tables for a system with n threads
+and m resource types.
+
+Available: an array of length m. How many instances of each resource
+are currently unallocated.
+
+Max: an n-by-m matrix. For each thread and each resource, the maximum
+number of instances of that resource the thread will need over its
+life.
+
+Allocation: an n-by-m matrix. How many instances of each resource each
+thread currently holds.
+
+Need: an n-by-m matrix. How many additional instances each thread
+might still need. Need is simply Max minus Allocation, computed per
+cell."
+
+[PAUSE]
+
+[SLIDE 4 — The safety check]
+
+SPEAK:
+"Here is the safety check algorithm.
+
+Step one: make a copy of the Available vector. Call it Work. Set up a
+Finish array, one entry per thread, all initialized to false.
+
+Step two: find a thread that has not finished and whose Need is less
+than or equal to Work across every resource type. That is, a thread
+that could finish using only the resources currently available.
+
+Step three: if such a thread exists, pretend it runs to completion
+and releases everything it holds. So add its Allocation to Work, and
+mark it as finished.
+
+Step four: go back to step two and look for another such thread. If
+you find one, repeat step three. If you do not find one, check
+whether all threads are finished.
+
+If all threads are finished, the state is safe. The sequence in which
+you found the finished threads is one valid safe sequence. If not all
+threads are finished, the state is unsafe."
+
+[SLIDE 5 — Walk through the example]
+
+SPEAK:
+"Let me walk through the numeric example from the lecture text.
+
+We have three resource types — A, B, C — with totals 10, 5, 7. Five
+threads. Each thread has an Allocation and a Max.
+
+First, we compute Need = Max − Allocation for each thread. Then we
+compute Available, which is the totals minus the sum of allocations.
+The lecture shows this works out to Available equal to 3, 3, 2.
+
+Now the safety check. Work starts as 3, 3, 2.
+
+Can P0 run? Its Need is 7, 4, 3 — too much. Skip.
+
+Can P1 run? Its Need is 1, 2, 2 — fits. Yes. So Work becomes 3 plus
+P1's allocation 2, 0, 0 — that is 5, 3, 2.
+
+Can P2 run now? Its Need is 6, 0, 0 — too much. Skip.
+
+Can P3 run? Its Need is 0, 1, 1 — fits. Yes. Work becomes 5 + 2, 3
++ 1, 2 + 1 — that is 7, 4, 3.
+
+Can P4 run? Its Need is 4, 3, 1 — fits. Yes. Work becomes 7 + 0, 4
++ 0, 3 + 2 — that is 7, 4, 5.
+
+Can P0 run now? Its Need is 7, 4, 3 — fits. Yes. Work becomes 7 + 0,
+4 + 1, 5 + 0 — that is 7, 5, 5.
+
+Can P2 run? Its Need is 6, 0, 0 — fits. Yes. Work becomes 10, 5, 7.
+
+All threads finished. The state is safe. One safe sequence is P1, P3,
+P4, P0, P2."
+
+[PAUSE]
+
+[SLIDE 6 — Granting a request]
+
+SPEAK:
+"Now suppose P1 asks for an additional A and two more Cs. That is,
+request equals 1, 0, 2.
+
+Step one: check that the request is within P1's Need. P1's Need was
+1, 2, 2. Our request 1, 0, 2 is within it. So the request is legal.
+
+Step two: check that the request is within Available. Available was
+3, 3, 2. Request 1, 0, 2 fits. So there are enough resources.
+
+Step three: pretend to grant. Available becomes 2, 3, 0. Allocation
+for P1 becomes 3, 0, 2. Need for P1 becomes 0, 2, 0.
+
+Step four: run the safety check on this new state. If it is safe,
+grant. If it is unsafe, roll back and refuse.
+
+The lecture walks through it. The new state is safe. So the request
+is granted."
+
+[SLIDE 7 — Why Banker's is not used in practice]
+
+SPEAK:
+"So why isn't Banker's Algorithm used in every operating system on
+Earth? It is provably correct. It prevents all deadlocks. What could
+be wrong?
+
+Four reasons.
+
+First: threads must declare their maximum needs in advance. Real
+programs do not know this. A web server does not know how many file
+descriptors it will open over its lifetime. A compiler does not know
+how much memory it needs before it has parsed the input.
+
+Second: the model assumes threads are independent. But real threads
+communicate, wait on each other, and spawn new threads. The clean
+"n threads each needing at most m resources" model breaks.
+
+Third: the declared maximums can become stale. A thread's needs can
+change over time. What was the maximum when the thread started might
+not be its maximum later.
+
+Fourth: the algorithm is conservative. It refuses requests that would
+actually be fine in practice. This hurts utilization, and in
+performance-critical systems, that cost is unacceptable.
+
+So Banker's Algorithm lives in the classroom, not in the data center.
+But its concept of a "safe state" is used everywhere — in databases,
+in real-time systems, and in reasoning about correctness in general."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+Avoidance checks at runtime whether granting a request would lead to
+an unsafe state, and refuses requests that would.
+
+Banker's Algorithm is the classic avoidance algorithm, using Maximum,
+Allocation, and Available tables, and a safety check based on finding
+a safe sequence.
+
+The state is safe if some sequence of thread completions is possible
+without exceeding resources.
+
+Banker's is provably correct but not used in practice — because real
+threads cannot declare maximums, are not independent, and are
+sensitive to the conservatism of the algorithm.
+
+In the next video we look at the third major strategy: detection and
+recovery. Instead of preventing deadlocks, we detect them at runtime
+and break them."
+
+[END OF VIDEO 6.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.6 — Detection and Recovery                                  ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deadlock Detection & Recovery"]
+
+SPEAK:
+"Welcome to the sixth video of Week 6.
+
+Prevention and avoidance both try to keep deadlocks from happening.
+The third approach accepts that deadlocks will happen, and provides
+mechanisms to detect them and recover from them.
+
+This is the approach used by most real-world systems. Detecting a
+deadlock is often much easier than preventing it in advance, and
+recovery — while costly — is usually acceptable when deadlocks are
+rare."
+
+[PAUSE]
+
+[SLIDE 2 — The wait-for graph]
+
+SPEAK:
+"The detection approach starts with a simplification of the Resource
+Allocation Graph.
+
+If every resource in the system has exactly one instance, we can
+collapse the RAG into a wait-for graph. In this graph, nodes are only
+threads. There is an edge from T1 to T2 if T1 is waiting for a
+resource that T2 holds.
+
+A wait-for graph is much simpler to work with — no resource nodes, no
+multiple instances. And detecting a deadlock in a wait-for graph is
+exactly detecting a cycle, which is a well-studied problem.
+
+If there is a cycle in the wait-for graph, there is a deadlock. No
+ambiguity — the cycle and the deadlock are the same thing.
+
+For multi-instance resources, the wait-for graph is not enough. We
+fall back to running a safety check similar to Banker's Algorithm,
+but without needing the maximum-needs table. If the safety check
+finds that no complete sequence of thread completions exists, some
+threads are deadlocked."
+
+[SLIDE 3 — When to run detection]
+
+SPEAK:
+"Detection is not free, so we do not want to run it continuously.
+There are two common policies.
+
+Periodic detection: run the detection algorithm every second, or
+every minute. Simple and predictable. The deadlock might not be
+detected immediately after it forms, but it will be detected within
+one period. This is the policy of choice in batch systems.
+
+On-demand detection: run the algorithm when there is a signal that
+something is wrong. The most common signal is low CPU utilization —
+if the system should be busy but the CPU is idle, perhaps some
+threads are blocked. Another signal is a timeout on a long-running
+operation. On-demand detection is more efficient on average, but
+more complex to implement."
+
+[SLIDE 4 — Recovery options]
+
+SPEAK:
+"Once a deadlock is detected, we must break it. There are three main
+recovery strategies.
+
+The first, and simplest, is thread termination. Kill one thread in
+the cycle. Its resources are released, and the remaining threads can
+proceed. The killed thread loses its work.
+
+Choosing which thread to kill is not obvious. In systems where we
+know something about each thread's work so far and restart cost, we
+may pick the thread whose restart would be cheapest.
+
+The second strategy is resource preemption. Take a resource away from
+one thread and give it to another. This only works if the resource
+type supports preemption — for example, if the thread's work can be
+rolled back cleanly. Databases do this with transactions, but
+general-purpose operating systems rarely have the infrastructure.
+
+The third strategy is rollback. If we have been taking periodic
+checkpoints of thread state, we can roll the whole system back to a
+point before the deadlock formed. Again, this is common in databases
+and rare in general-purpose operating systems."
+
+[SLIDE 5 — The victim-selection problem]
+
+SPEAK:
+"When we terminate or preempt, we have to pick a victim. This is
+harder than it sounds.
+
+An ideal victim is a thread that will cost the least to restart. It
+has done the least work so far. It holds the fewest resources. It has
+the fewest dependencies on other threads.
+
+But we often do not have that information. So real systems use
+heuristics — the thread that has been rolled back the fewest times,
+or the thread that holds the fewest locks, or the thread that has
+done the least CPU work.
+
+The risk is a new kind of failure: livelock by repeated preemption.
+If the same thread keeps being chosen as the victim, it keeps
+restarting and getting preempted again before it can finish. It
+never makes progress. Real systems include the number of times a
+thread has been rolled back in the victim-selection heuristic
+precisely to prevent this."
+
+[SLIDE 6 — Databases as the canonical example]
+
+SPEAK:
+"If you want to see deadlock detection in action, look at any serious
+database. PostgreSQL, MySQL, Oracle, and SQL Server all use detection,
+and they all work roughly the same way.
+
+There is a background thread that periodically inspects the
+transaction table for cycles in the wait-for graph.
+
+When it finds a cycle, it aborts one transaction — typically the one
+that has done the least work — with a "deadlock detected" error.
+
+The aborted transaction's client gets the error and is expected to
+retry.
+
+Every database application developer learns this pattern early: when
+you write a transaction, be prepared for it to fail. Wrap the
+transaction in a loop that retries on deadlock errors. This is one
+of the fundamental patterns of database programming, and it is
+directly analogous to the phase-fair lock and backoff techniques we
+saw in Week 4."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Detection accepts that deadlocks will happen, and provides two
+mechanisms: detection and recovery.
+
+Detection uses a wait-for graph for single-instance resources, and a
+safety check for multi-instance resources. Both reduce to finding a
+cycle or proving that no completion sequence exists.
+
+Recovery is by thread termination, resource preemption, or rollback.
+Choosing a good victim requires care, to avoid livelock by repeated
+preemption.
+
+Databases are the canonical example — they detect and recover
+routinely, and applications are expected to retry.
+
+In the next video we look at the Dining Philosophers problem once
+more, now that we have all the tools to solve it properly."
+
+[END OF VIDEO 6.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.7 — The Dining Philosophers, Solved                          ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Dining Philosophers, Solved"]
+
+SPEAK:
+"Welcome to the seventh video of Week 6.
+
+In Week 4, I introduced the Dining Philosophers problem as a preview
+of deadlock, without solving it. Today we are going to solve it —
+fully, with all five classic solutions.
+
+Each solution breaks one of Coffman's conditions, or adds a
+structural discipline. Once you see how each one works, you have a
+tremendous toolkit for reasoning about multi-resource acquisition in
+general."
+
+[PAUSE]
+
+[SLIDE 2 — Recap of the problem]
+
+SPEAK:
+"Very briefly, the setup. Five philosophers sit around a round
+table. Between each pair of neighbors lies one fork — five forks
+total. Each philosopher needs two forks to eat. They alternate
+between thinking and eating. The problem: design a protocol so no
+philosopher starves.
+
+The naive solution is: pick up your left fork, then pick up your
+right fork. This works fine in isolation. But if every philosopher
+picks up their left fork at the same time, every philosopher holds
+exactly one fork, and every philosopher is waiting for the fork their
+neighbor holds. Five threads holding five forks, each waiting for
+another. Classic deadlock."
+
+[SLIDE 3 — Solution 1: Semaphore seat limit]
+
+SPEAK:
+"Solution one: limit the number of philosophers who may try to eat at
+the same time.
+
+Use a counting semaphore initialized to four. Each philosopher, before
+trying to pick up forks, must call sem_wait on this semaphore. It
+blocks if four philosophers are already eating.
+
+With at most four philosophers competing for five forks, at least
+one philosopher will always be able to get both forks. So a complete
+deadlock is impossible.
+
+After the philosopher finishes eating and releases both forks, it
+calls sem_post to allow another philosopher in.
+
+Why does this work? Because the maximum number of philosophers
+trying to eat is four, and there are five forks. There is always at
+least one spare fork somewhere in the circle. So no cycle of "every
+philosopher holds one fork and waits" can form.
+
+This is Coffman's circular wait condition broken by a structural
+trick."
+
+[SLIDE 4 — Solution 2: Asymmetric pickup]
+
+SPEAK:
+"Solution two: break the symmetry between philosophers.
+
+Let four of the philosophers pick up their left fork first and then
+their right fork — as before. But let one philosopher — say, the one
+at the "last" position — pick up their right fork first, and then
+their left.
+
+Now consider what happens if every philosopher tries to grab their
+first fork simultaneously. Four grab their left fork, one grabs their
+right fork. The one philosopher who grabbed right-first is now
+holding a different fork than the philosopher to his right, who
+grabbed left-first. So the philosopher to his right can still grab
+their other fork and eat.
+
+But at any given moment, at least one philosopher will be able to
+proceed. The deadlock cannot form.
+
+This is the seed of the lock-ordering technique. By making one
+participant use the opposite ordering, we break the possibility of a
+cycle."
+
+[SLIDE 5 — Solution 3: The waiter]
+
+SPEAK:
+"Solution three: introduce a waiter — a single arbiter whose
+permission must be obtained before picking up forks.
+
+The waiter holds a single mutex. Before picking up any fork, a
+philosopher must lock this mutex. After putting down both forks, the
+philosopher unlocks the mutex.
+
+Because only one philosopher can be picking up forks or putting them
+down at any moment, the graph of who waits for whom cannot form a
+cycle. Every philosopher's pickup is a critical section protected by
+the same lock.
+
+The cost is reduced parallelism — only one philosopher can be picking
+up forks at once. But correctness is guaranteed."
+
+[SLIDE 6 — Solution 4: Atomic both-fork]
+
+SPEAK:
+"Solution four: combine the two forks into a single resource.
+
+Instead of two forks, imagine that each philosopher's spot at the
+table has a "both forks" resource — the left and right forks of
+that philosopher, treated as a unit. A philosopher either has both
+forks or has neither.
+
+To eat, a philosopher acquires this combined resource. It is a mutex
+or semaphore protecting both forks together.
+
+This breaks Coffman's hold-and-wait condition. A philosopher never
+holds one fork while waiting for the other, because there is no
+intermediate state."
+
+[SLIDE 7 — Solution 5: Chandy–Misra]
+
+SPEAK:
+"Solution five: the Chandy–Misra algorithm.
+
+This is a distributed algorithm. There is no central arbiter. Each
+philosopher has state — thinking, hungry, eating — and communicates
+with its neighbors to detect cycles.
+
+When a philosopher becomes hungry, it sends a request to its
+neighbors. If a cycle of requests forms, the algorithm detects it
+and resolves it by having one participant back off. There is no
+deadlock possible.
+
+This is the general solution for distributed systems, and it
+influences many real distributed algorithms — from distributed
+databases to distributed file systems."
+
+[SLIDE 8 — Which to use in practice]
+
+SPEAK:
+"So which solution should you use in real code?
+
+For most cases, solution two — asymmetric pickup, which is really
+lock ordering — is the answer. It requires minimal overhead, it is
+easy to reason about, and it works at any scale.
+
+If you cannot enforce the ordering — for example, because the lock
+acquisition is inside a library you do not control — then solution
+three, the arbiter, is the next simplest choice.
+
+Solution one — the seat limit — is useful when the resources
+themselves are what you are managing. And solution four — combining
+resources — is useful when the resources are naturally pair-able.
+
+Every one of these is a perfectly good technique. The point of
+studying all five is that you develop the intuition to recognize
+which technique fits a given problem."
+
+[SLIDE 9 — Summary]
+
+SPEAK:
+"To summarize.
+
+The Dining Philosophers problem has five well-known solutions:
+a seat-limiting semaphore, asymmetric pickup order, an arbiter,
+combining the forks into a single resource, and the Chandy–Misra
+algorithm.
+
+Each solution breaks one of Coffman's conditions, or adds a
+structural discipline that makes a cycle impossible.
+
+In practice, asymmetric pickup — lock ordering — is the go-to
+solution for most real systems, with the arbiter as a fallback when
+ordering cannot be enforced.
+
+In the next video, we get hands-on. We will build a Banker's
+Algorithm simulator in Python and use it to evaluate some real system
+states."
+
+[END OF VIDEO 6.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.8 — Touch Lab: Banker's Algorithm in Python                 ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Banker's Algorithm in Python"]
+
+SPEAK:
+"Welcome to the practical side of Week 6. In this video, we are
+going to write a Python implementation of the Banker's Algorithm.
+We will run it on the exact data we walked through in the theory
+video, and then on some variations that show unsafe states.
+
+Make sure your Ubuntu VM is running, and Python 3 is installed. It
+is pre-installed on Ubuntu Server, so you should have it already.
+Let's get started."
+
+[SCREENCAST — terminal]
+
+SPEAK:
+"First, create the script file.
+
+nano banker.py"
+
+[SCREENCAST — nano opens]
+
+SPEAK:
+"Paste in the script I am showing. It is only about a hundred lines,
+so let me walk you through the structure.
+
+At the top, we import the sys module, and then define a function
+called is_safe. This function takes the allocation matrix, the max
+need matrix, the available vector, and the counts n and m.
+
+Inside is_safe, the first thing we do is compute the Need matrix.
+That is simply Max minus Allocation, computed cell by cell.
+
+Then we set up the algorithm. Finish is an array of false values.
+Work is a copy of Available. Sequence is an empty list.
+
+The main loop runs until all threads are finished. In each
+iteration, it looks for a thread that is not finished, and whose Need
+fits into Work. If it finds one, it pretends to run that thread to
+completion, adds its Allocation back into Work, marks it as
+finished, and appends it to the sequence.
+
+If no thread fits, the loop breaks — there is no safe sequence, and
+the state is unsafe.
+
+After the loop, if the sequence contains all threads, we return
+True and the sequence. Otherwise False.
+
+Then in main, we set up the specific data from the lecture. Five
+threads, three resource types, totals 10, 5, and 7. The allocation
+and max_need matrices are hardcoded.
+
+We compute the Available vector by subtracting the sum of
+allocations from the totals. Then we call is_safe and print the
+result.
+
+Save with Ctrl+O, press Enter, then Ctrl+X."
+
+[SCREENCAST — run]
+
+SPEAK:
+"Now run it.
+
+python3 banker.py
+
+You will see the totals, the used resources, the available vector,
+and the safety verdict. The output confirms what we computed by
+hand: the state is safe, and one valid safe sequence is P1, P3, P4,
+P0, P2."
+
+[PAUSE]
+
+[SCREENCAST — modify to unsafe state]
+
+SPEAK:
+"Let's modify the script to see what an unsafe state looks like.
+
+Open the file again with nano. Change P0's max_need from 7, 5, 3 to
+8, 5, 3.
+
+Save, exit, and run again.
+
+python3 banker.py
+
+Now the output says UNSAFE STATE. Notice that nothing about the
+resources has changed — the totals are the same, the allocation is
+the same. Only the maximum declared by P0 has changed.
+
+This is exactly the point of Banker's Algorithm. Whether a state is
+safe or unsafe depends not just on what is happening now, but on
+what the threads are allowed to request in the future. By declaring
+a higher maximum for P0, we constrained the future — and the
+previously safe state became unsafe."
+
+[PAUSE]
+
+[SCREENCAST — show the request function]
+
+SPEAK:
+"Finally, let me add a small function that tests whether a specific
+request can be granted. This is what the OS does on every resource
+request when using Banker's Algorithm.
+
+The function is called try_request. It takes the thread index and the
+request vector. It checks that the request does not exceed the
+thread's Need, and that it does not exceed Available. If either check
+fails, the request is refused.
+
+If both checks pass, it pretends to grant the request — subtracting
+from Available, adding to Allocation — and calls is_safe on the new
+state. If the new state is safe, the request is grantable. If not,
+it is refused even though the resources are technically available.
+
+Add a call to this function in main, with the request we discussed
+in theory — P1 asks for 1, 0, 2. Run the script again. The output
+confirms the request is grantable, and prints the new safe sequence.
+
+Try a different request — for example, P0 asking for 4, 4, 4. The
+script will report that the request is refused, and explain why —
+either the request exceeds need, exceeds available, or leads to an
+unsafe state."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we built a working Banker's Algorithm simulator. We ran
+it on the textbook example and confirmed the safe sequence. We
+modified it to see an unsafe state. We added a request-testing
+function that models the runtime decision of an OS using avoidance.
+
+What I want you to take away is that the difference between a safe
+state and an unsafe state is a precise, computable notion — not a
+vague heuristic. When we say that Banker's Algorithm prevents
+deadlocks, we mean it in a mathematically exact sense: it never
+grants a request that could lead to a deadlock.
+
+Experiment with the script on your own. Try different resource
+totals, different thread counts, and different maximums. Watch how
+the safety check reacts. The intuition you build here will serve you
+well in any systems course and any interview."
+
+[END OF VIDEO 6.8]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 6.9 — Touch Lab: Diagnosing a Real Deadlock                   ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Diagnosing a Real Deadlock"]
+
+SPEAK:
+"Welcome to the final video of Week 6. In this video, we are going to
+write a real program that deadlocks on purpose. Then we will diagnose
+the deadlock using the tools available on every Linux system — gdb
+and pstack.
+
+This is the skill that turns deadlocks from a nightmare into a
+manageable problem. You will leave this video knowing how to walk up
+to a hung multi-threaded program and figure out exactly what went
+wrong."
+
+[SCREENCAST — create the deadlock program]
+
+SPEAK:
+"First, let's create the source file. I will call it deadlock.c.
+
+nano deadlock.c
+
+Paste in the code I am showing. It has two mutexes, lock_a and
+lock_b. It has two threads. Thread A acquires lock_a first, then
+sleeps for one second, then tries to acquire lock_b. Thread B
+acquires lock_b first, sleeps for one second, then tries to acquire
+lock_a.
+
+The sleep is critical — it guarantees that both threads have acquired
+their first lock before either tries to acquire their second. That
+makes the deadlock essentially certain on the first run.
+
+Save and exit."
+
+[SCREENCAST — compile and run]
+
+SPEAK:
+"Compile and run it.
+
+gcc -Wall -pthread -o deadlock deadlock.c
+./deadlock
+
+You will see the first few printf messages from each thread. Then the
+program will hang. Press Ctrl+C to kill it and get your prompt back.
+
+Notice what we saw: each thread printed that it acquired its first
+lock. Then each thread printed that it was trying its second lock.
+Then silence. That is the signature of a deadlock."
+
+[PAUSE]
+
+[SCREENCAST — running it in the background]
+
+SPEAK:
+"Now let's run it in the background so we can inspect it while it is
+hung.
+
+./deadlock &
+
+The shell gives us a job number and a PID. Let us say the PID is
+6120.
+
+Now let's inspect it. The fastest tool for this is pstack.
+
+pstack 6120
+
+Pstack prints a full stack trace of every thread in that process. In
+our case, it will show two threads, both stuck in pthread_mutex_lock.
+One is stuck in lock_a, one in lock_b.
+
+Let me read the output with you.
+
+For thread one, the backtrace shows it is stuck in
+pthread_mutex_lock, called from thread_a at line 19 of deadlock.c.
+Line 19 is the pthread_mutex_lock of lock_b. So this thread holds
+lock_a and is waiting for lock_b.
+
+For thread two, the backtrace shows it is stuck at line 33 of
+deadlock.c. That is the pthread_mutex_lock of lock_a, inside
+thread_b. So this thread holds lock_b and is waiting for lock_a.
+
+That is the deadlock. Thread A holds lock_a, wants lock_b. Thread B
+holds lock_b, wants lock_a. Complete cycle. Textbook case."
+
+[SCREENCAST — using gdb for more detail]
+
+SPEAK:
+"If pstack is not installed on your system, you can use gdb directly.
+It gives you the same information, plus the ability to interact.
+
+gdb -p 6120
+
+At the gdb prompt, type:
+
+info threads
+
+You will see two threads listed. Both are in the __lll_lock_wait
+function — that is the low-level function that waits on a futex, which
+is what glibc uses to implement mutexes.
+
+Now use:
+
+thread apply all bt
+
+This prints a backtrace of every thread. You will see the same
+information pstack gives you: which line of user code led to the
+pthread_mutex_lock call.
+
+Type quit to exit gdb."
+
+[SCREENCAST — cleanup]
+
+SPEAK:
+"Now let's clean up.
+
+kill %1
+
+Some deadlocked processes refuse to die with a regular SIGTERM. If
+that happens, escalate to SIGKILL.
+
+kill -9 %1
+
+Done."
+
+[SCREENCAST — the fix]
+
+SPEAK:
+"Now let's fix the code. The fix is one line — and it is exactly
+what we predicted from the theory.
+
+Open deadlock.c again. Find thread_b. Change the first
+pthread_mutex_lock from lock_b to lock_a. And change the second
+pthread_mutex_lock from lock_a to lock_b.
+
+That is it. Both threads now acquire the locks in the same order —
+lock_a then lock_b. The deadlock becomes impossible.
+
+Recompile, and run the program a dozen times.
+
+gcc -Wall -pthread -o deadlock deadlock.c
+for i in $(seq 1 10); do ./deadlock; done
+
+Every run completes cleanly. The "Never prints" message at the
+bottom will now print every time. The lock-ordering discipline has
+turned a hung program into a working one."
+
+[SLIDE — What you learned]
+
+SPEAK:
+"Let me spell out what you learned in this lab.
+
+First: how to write a program that deadlocks on purpose, so you can
+study the situation.
+
+Second: how to recognize a deadlock from the outside — threads hang
+in pthread_mutex_lock, and the program makes no progress.
+
+Third: how to inspect the hung process using pstack or gdb — with
+info threads and thread apply all bt, you can see exactly where
+each thread is stuck.
+
+Fourth: how to read the output and identify the cycle — which thread
+holds which lock and waits for which other lock.
+
+Fifth: how to fix it with lock ordering — the same technique we
+learned in theory, applied directly in code.
+
+This is the workflow you will use throughout your career whenever you
+encounter a hung multi-threaded process. The details will be
+different, but the tools and the mental model are the same."
+
+[SLIDE — Week 6 wrap-up]
+
+SPEAK:
+"That wraps up Week 6. We have covered a lot of ground: what
+deadlocks are, Coffman's four conditions, resource allocation graphs,
+prevention, avoidance with Banker's Algorithm, detection and
+recovery, the dining philosophers solved, and two hands-on labs.
+
+Deadlocks are one of the most feared failure modes in systems
+programming, but they are also one of the most well understood. If
+you use lock ordering consistently, you eliminate the vast majority
+of them. And if one slips through, you now know how to find and fix
+them quickly.
+
+Please complete the written homework assignment for this week. It
+involves both numerical problems on Banker's Algorithm and practical
+exercises on the deadlock detection labs.
+
+Next week, we enter a very different area: memory management and
+virtual memory. How does the operating system give each process the
+illusion of having its own private address space? How does paging
+work? What is the TLB, and why does it matter? All of that is Week 7.
+
+See you then."
+
+[END OF VIDEO 6.9 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 6
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~135 minutes of raw footage
+After editing and trimming: ~110–120 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

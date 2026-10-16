@@ -1,0 +1,1350 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 8 — File Systems, I/O & Midterm Exam
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  eight short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the last theory week before the midterm. Leave adequate
+  time at the end for exam-related announcements and review advice.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.1 — Files & Directories                                     ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "File Systems, I/O & Midterm Exam"]
+
+SPEAK:
+"Welcome to Week 8 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+We have spent seven weeks building up the theory of an operating
+system in the running state — processes, threads, synchronization,
+scheduling, deadlocks, and memory. But we have never asked where the
+data actually lives between runs.
+
+Today, we change that. This is the last theory week before your
+midterm. So let me say up front what we are doing and how it fits.
+
+In the first part of today, we are going to look at file systems —
+how the OS turns raw disk blocks into the abstractions of files and
+directories that you use every single day. Then, in the second part,
+I am going to give you a short overview of the midterm — what it
+covers, how it is structured, and how to prepare for it.
+
+Let's get started."
+
+[PAUSE]
+
+[SLIDE 2 — Files and what they contain]
+
+SPEAK:
+"Here is a question to start us off: what is a file?
+
+Let me give you the definition I want you to remember. A file is a
+named sequence of bytes, stored on a non-volatile medium, and
+accessed through system calls rather than memory addresses.
+
+The three key phrases are: named — because a file has an identifier;
+non-volatile — because it survives power cycles; and system calls —
+because you do not touch a file through pointers or memory addresses
+the way you touch RAM.
+
+Under the surface, a file carries a bundle of metadata. It has a
+name, a size, a type — whether it is a regular file, directory,
+symbolic link, or something special. It has permission bits that
+say who can read, write, or execute it. It has an owner and a
+group. It has timestamps for creation, last access, and last
+modification. And it has an inode number, which is the identifier
+the file system uses internally."
+
+[PAUSE]
+
+[SLIDE 3 — Two names for every file]
+
+SPEAK:
+"Here is the first deep idea about Unix files. Every file on a
+Unix-like system has two names.
+
+The first is the pathname — a human-readable string like
+/home/student/notes.txt. This is what you type into the shell. The
+kernel resolves it step by step as it walks the directory tree.
+
+The second is the inode number — a plain integer like
+1310752. This is what the kernel actually uses. It is unique within
+a file system, and it identifies the file's metadata record.
+
+Two pathnames that point at the same inode number are called hard
+links. On Linux, this is a completely normal thing — you can have
+as many names as you want pointing at one file."
+
+[SLIDE 4 — Directories are just files]
+
+SPEAK:
+"Now the second deep idea, and it is the one that makes Unix's
+design beautiful.
+
+A directory is not a container. It is not a box that files live
+inside. A directory is a file whose contents are a table of name
+to inode number mappings. That is the entire definition. Nothing
+more.
+
+What this means in practice is that when you rename a file — mv
+a.txt b.txt — you are not moving any data. You are changing one
+entry in one directory. The file's data never moves. That is why
+renaming a ten-gigabyte file takes the same amount of time as
+renaming a ten-byte file. It is one write to one directory, in
+both cases.
+
+This is a very Unix way of thinking about things. Files do not
+belong in directories. They are merely referenced by them. The data
+lives in the inode's data blocks, and the inode lives wherever the
+kernel put it. The directory just provides a name that leads there."
+
+[PAUSE]
+
+[SLIDE 5 — The file system API]
+
+SPEAK:
+"The Unix file API is famously small. A handful of system calls
+cover everything you would ever want to do:
+
+open opens a file and returns a file descriptor — a small integer
+the kernel uses to identify the open file.
+
+read reads bytes from the current file offset into a user buffer.
+
+write writes bytes to the current file offset.
+
+lseek moves the file offset. This is what gives you random access.
+
+close releases the file descriptor.
+
+stat returns metadata about a file — size, permissions, timestamps,
+inode number.
+
+unlink removes a directory entry, decrementing the file's link
+count.
+
+And fsync forces all buffered writes out to stable storage.
+
+That is the entire API. Everything else — Python's open, Java's
+FileInputStream, every application that has ever touched disk —
+ultimately calls down into these system calls."
+
+[SLIDE 6 — The buffering trap]
+
+SPEAK:
+"One extremely important point about write. If you call write on a
+file descriptor, the kernel does not necessarily write to the disk.
+Most of the time it just copies your data into the page cache — the
+same page cache we met in Week 7 when we studied memory — and returns
+immediately.
+
+Your data has not reached physical storage yet. If the machine loses
+power a few milliseconds later, that data is gone.
+
+To actually force the data to disk, you must call fsync. Only after
+fsync returns can you be sure the data survives a crash.
+
+This is one of the most common sources of bugs in real applications.
+Someone writes a database commit, forgets to call fsync, and then
+loses data on a power failure. The disk buffered the write. The
+write was never durable.
+
+If you remember one practical thing from this video, remember this:
+write is not durability. fsync is durability."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+A file is a named, non-volatile sequence of bytes, carrying metadata.
+
+Every file has two names: a pathname and an inode number.
+
+A directory is just a file mapping names to inode numbers — the
+reason renames are free.
+
+The Unix file API is small: open, read, write, lseek, close, stat,
+unlink, fsync.
+
+And durability is not write — durability is fsync. Do not forget.
+
+In the next video, we look at how the file system actually tracks
+which blocks belong to which file — the allocation methods."
+
+[END OF VIDEO 8.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.2 — Allocation Methods                                      ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "How Disks Store Files — Allocation Methods"]
+
+SPEAK:
+"Welcome back. In the previous video, we learned what a file is and
+what a directory is. Now we get to the mechanical question: how does
+the file system actually decide where on the disk a file's bytes
+should live?
+
+This is the file system's central problem. The disk is a grid of
+fixed-size blocks — typically four kilobytes in modern systems.
+Accessing a random block on a spinning disk takes about five
+milliseconds, because the head has to physically move. Accessing
+adjacent blocks is nearly free, because the head is already there.
+
+So the file system has to decide: how should it place the blocks of
+each file, so that reads and writes are fast, and so that space is
+not wasted?"
+
+[PAUSE]
+
+[SLIDE 2 — Contiguous allocation]
+
+SPEAK:
+"The simplest answer is called contiguous allocation. When you create
+a file, the file system reserves a run of consecutive blocks on disk
+large enough to hold it. The file's location is described by just two
+numbers: the starting block, and the length.
+
+This is very fast. Sequential reads of a contiguous file are the
+happiest workload for a spinning disk — the head moves once and then
+streams. Random access is also fast, because you can compute any
+block's location with a single addition.
+
+But there is a serious problem. What happens when you want to grow
+a file? The blocks after its end might be used by another file. To
+extend it, you have to relocate the entire file to a larger free
+region. And finding a large free region, on a file system that has
+been in use for a while, is not easy.
+
+This is the exact external-fragmentation problem we saw with memory
+management in Week 7, applied to disk. Free space exists, but not in
+one contiguous chunk. So contiguous allocation works well for media
+that is written once and never modified — like CD-ROMs — but poorly
+for the general case."
+
+[SLIDE 3 — Linked allocation]
+
+SPEAK:
+"The opposite extreme is linked allocation. Each block of a file
+stores a small pointer at the end saying where the next block lives.
+The first block's location is stored in the inode or directory
+entry. To read the file, you follow the chain.
+
+Linked allocation is very flexible. Any free block will do — there
+is no contiguity requirement — so the file system can just grab the
+next available block whenever the file grows. No external
+fragmentation whatsoever.
+
+The problem is random access. To read block number five hundred of
+a file, you have to follow five hundred pointers. On a slow disk,
+that is catastrophic. And if any one pointer is corrupted, the rest
+of the file is lost.
+
+The FAT file system is a variant of this idea — instead of storing
+pointers in the blocks, the FAT file system stores them all in one
+central table at the start of the volume. The table can be cached
+in RAM, so pointer following is fast. But the FAT approach has its
+own problems, which we will talk about in a moment."
+
+[SLIDE 4 — Indexed allocation]
+
+SPEAK:
+"Now the third and most important approach, the one modern operating
+systems actually use: indexed allocation.
+
+The file system keeps a special block — called an index block — that
+contains a list of pointers to the file's data blocks. The inode
+points to the index block. To read any arbitrary block of the file,
+you just look it up in the index. Random access is O(1).
+
+Indexed allocation combines the best of both worlds. It gives you
+the flexibility of linked allocation — any free block will do — with
+the random-access speed of contiguous allocation. It is, in the
+classical sense, the right answer.
+
+The Unix inode itself works this way. I want to take a moment to
+explain the inode's layout, because it is one of the most elegant
+designs in operating systems.
+
+Each inode contains twelve direct pointers — each pointing straight
+at a data block. Then one single-indirect pointer — pointing at a
+block full of pointers. Then one double-indirect — pointing at a
+block full of pointers to single-indirect blocks. And one
+triple-indirect, going one level deeper.
+
+Why this baroque-looking structure? Because it makes small files
+cheap. If your file fits in twelve blocks — which is forty-eight
+kilobytes — none of the indirect blocks are ever allocated. You pay
+nothing for indirection you do not need.
+
+Only when the file grows beyond forty-eight kilobytes does the
+single-indirect come into play. And so on, up the chain.
+
+The maximum size works out to roughly sixty-four gigabytes with four
+kilobyte blocks. Which is a lot of space for a single file, while
+still fitting the entire inode — all of its metadata — into a small,
+fixed-size record."
+
+[SLIDE 5 — The three methods compared]
+
+SPEAK:
+"Let me put the three side by side.
+
+Contiguous — fast random and sequential access, but rigid. Growth
+requires relocation, and external fragmentation is a constant threat.
+Used historically, and still used for write-once media like CDs.
+
+Linked — flexible and simple, but slow random access. Each block
+wastes a few bytes on the pointer. A single broken pointer loses the
+rest of the file. Used by FAT on floppies, and still used by FAT32 on
+USB drives.
+
+Indexed — the winner. Fast random access, easy growth, no external
+fragmentation. Used by ext2, ext3, ext4, XFS, ZFS, NTFS, APFS — in
+other words, every file system you would actually use for serious
+storage today.
+
+That is the historical story in one slide."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize this video.
+
+Contiguous allocation is fast but rigid — it cannot easily grow
+files, and it suffers from external fragmentation.
+
+Linked allocation is flexible but slow — random access requires
+traversing the chain.
+
+Indexed allocation is the modern answer — the inode holds direct
+and indirect pointers to data blocks, giving fast access with easy
+growth.
+
+The tiered inode layout — 12 direct pointers, plus single, double,
+and triple indirect — lets small files be cheap while allowing very
+large files to exist.
+
+In the next video, we look at two complete file system designs based
+on these allocation strategies: Unix's inodes, and MS-DOS's FAT."
+
+[END OF VIDEO 8.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.3 — Inodes vs FAT                                           ║
+║  Target duration: ~14 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Inodes vs FAT — Two Philosophies"]
+
+SPEAK:
+"Welcome back. In the previous video we saw three allocation methods:
+contiguous, linked, and indexed. Now let's look at how these methods
+translate into complete file system designs.
+
+There are two dominant traditions in the world of file systems.
+Unix's inode-based design, which is the ancestor of ext2, ext3, ext4,
+XFS, ZFS, and most of the file systems you would encounter on servers
+today. And MS-DOS's FAT design, which lives on in FAT32, exFAT, and
+the memory cards in your camera."
+
+[PAUSE]
+
+[SLIDE 2 — The inode]
+
+SPEAK:
+"An inode — short for index node — is a fixed-size record on disk.
+It is the file system's per-file metadata. Every file, directory,
+symbolic link, or device on a Unix-like system has an inode.
+
+The inode stores: the file type and permissions, the owner and group,
+the file size, timestamps for access, modification, and metadata
+change, a link count, a count of allocated blocks, and — the
+important part — pointers to the file's data blocks. Twelve direct
+pointers, plus single, double, and triple indirect.
+
+The name of the file is not stored in the inode. That is deliberate.
+The name lives in the directory. The inode only knows the file
+through its contents and metadata — not through its name. That is
+the design that makes hard links possible. Two directory entries,
+each with a different name, can point to the same inode. From the
+file system's perspective, they are the same file.
+
+And notice something interesting: the inode is a fixed size. It
+has to be, because the file system allocates inodes as an array on
+disk, and they need to be indexed directly by inode number. That
+is why the number of data block pointers is fixed at fifteen — the
+inode has to fit in a specific number of bytes."
+
+[SLIDE 3 — The FAT table]
+
+SPEAK:
+"Now, MS-DOS's file system — FAT — takes a completely opposite
+approach.
+
+Where the inode puts the linkage information inside the metadata
+structure for each file, FAT moves it to one central table at the
+start of the volume. The File Allocation Table has one entry per
+block on the disk. Each entry says one of three things: this block
+is free; this block is the last block of a file; or the next block
+of this file is at block N.
+
+To locate a file, you read its directory entry — which contains the
+starting block — and then follow the FAT chain.
+
+The advantage is that the entire FAT can be cached in memory. Once
+it is loaded, following the chain is fast — it is just RAM access,
+not disk access. For a small disk, this works beautifully.
+
+But for a large disk, it is a disaster. The FAT has one entry per
+block. A one-terabyte disk with four-kilobyte blocks has two hundred
+and fifty million blocks, and each entry is at least four bytes.
+That is a gigabyte of table that has to live on disk, and be loaded
+into RAM to use efficiently.
+
+This is one of the reasons FAT32 caps out at thirty-two gigabytes —
+the table would be too large otherwise."
+
+[SLIDE 4 — Comparing the two designs]
+
+SPEAK:
+"Let me put the differences in a table.
+
+Inodes: metadata per file, fixed-size, data block pointers inside
+each one. Easy to support permissions, ownership, hard links, and
+timestamps. Storage overhead scales with the number of files.
+
+FAT: metadata centralized, variable-size table, chain in one place.
+Permissions and ownership are basically missing. No hard links
+possible — a block belongs to exactly one file. Storage overhead
+scales with the size of the disk.
+
+Which is better? For a modern general-purpose OS, inodes win easily.
+The inode's per-file metadata limit is not really a limit — you just
+size the inode array generously at format time. And the design
+scales cleanly to very large volumes.
+
+FAT survives today mostly due to its simplicity. Every operating
+system and every hardware device — cameras, phones, embedded
+systems — can read FAT. That universality is worth a lot for
+removable media. That is why your SD card is almost certainly
+formatted as FAT32 or exFAT, even though your laptop's internal disk
+is ext4 or APFS."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize.
+
+The inode is Unix's per-file metadata structure. It is fixed-size
+and contains block pointers. It separates the name (in the directory)
+from the file (in the inode) — which is what makes hard links
+possible.
+
+FAT is MS-DOS's centralized table of block chains. Simpler and more
+universally supported, but it does not scale to large disks, and it
+cannot express permissions, ownership, or hard links.
+
+Modern Linux file systems — ext4, XFS, ZFS, Btrfs — all use inode-style
+designs. FAT survives on removable media because of its universality.
+
+In the next video, we will look at how file systems survive crashes —
+the journaling mechanism."
+
+[END OF VIDEO 8.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.4 — Journaling & Crash Consistency                          ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Journaling & Crash Consistency"]
+
+SPEAK:
+"Welcome to the fourth video of Week 8. So far we have talked about
+how file systems are laid out — how files, inodes, and directories
+are structured on disk. Now I want to talk about a nasty problem
+that every serious file system has to solve.
+
+What happens when the power goes out in the middle of a write?"
+
+[PAUSE]
+
+[SLIDE 2 — The multi-write problem]
+
+SPEAK:
+"To see why this is hard, consider a simple operation: creating a
+new file.
+
+To make a file appear, the kernel has to, at minimum: allocate an
+inode and mark it as used in the free-inode bitmap; write metadata
+like the file size and timestamp into that inode; update the parent
+directory to add a new entry mapping the file's name to the inode
+number; and possibly update the free-space bitmap and the
+superblock's counters.
+
+That is at least four separate writes to four different parts of
+the disk. And there is no atomic 'do all of them or do none of them'
+primitive at the hardware level.
+
+So what happens if the machine crashes after write three, but before
+write four?
+
+You now have a directory entry pointing at an inode — but the
+free-inode bitmap thinks that inode is unused. The next time a new
+file is created, it might be assigned the same inode number. Now two
+directory entries point to the same inode. That is silent, catastrophic
+corruption.
+
+This is the crash-consistency problem. It is not a rare edge case. On
+a busy server, it happens every time the power goes out."
+
+[SLIDE 3 — fsck]
+
+SPEAK:
+"The historical solution was to accept that crashes leave the file
+system in a bad state, and to run a checker at boot. That checker is
+called fsck — file system check.
+
+fsck scans the entire file system, looking for inconsistencies.
+Orphaned inodes, mismatched link counts, directory entries pointing
+to freed blocks, block allocation conflicts. When it finds a problem,
+it tries to repair it — either by reconstructing the missing
+information or by removing whatever seems inconsistent.
+
+fsck works, but it has two serious problems. First, it is slow. On a
+large file system, it can take minutes or hours. That is why
+production systems are so careful not to lose power — a fsck on a
+multi-terabyte volume can be painful.
+
+Second, fsck has to guess. Given an inconsistent state, it cannot
+always know what the correct state should have been. Sometimes it
+picks the wrong thing to keep, silently losing data.
+
+fsck is a repair mechanism. It is not a prevention mechanism. We want
+something better."
+
+[SLIDE 4 — Journaling]
+
+SPEAK:
+"The better mechanism is journaling. And the idea is simple and
+elegant. Instead of writing changes directly to the file system, we
+first write them into a special append-only region on disk called the
+journal. Only after they are safely in the journal do we apply them
+to the real location.
+
+Let me walk through the sequence for any metadata operation.
+
+Step one: write-ahead. We write the intended changes to the journal.
+This is a single contiguous write, fast and easy.
+
+Step two: commit. We write a small commit record into the journal,
+which tells the file system that this transaction is complete.
+
+Step three: apply or checkpoint. We perform the actual change to the
+file system's real metadata structures.
+
+Step four: free. We mark the journal entry as complete and available
+for reuse.
+
+Now what happens after a crash? It does not matter where in this
+sequence the crash occurred.
+
+If the crash happened before the commit record was written, the
+journal entry is incomplete. Recovery discards it. The operation
+never happened. Clean.
+
+If the crash happened after the commit record was written, the
+journal entry is complete. Recovery replays it — applies it to the
+real file system. The operation completed. Clean.
+
+There is no inconsistent state. Every operation either fully happens
+or does not happen at all. That is the entire value of journaling."
+
+[SLIDE 5 — Journaling modes]
+
+SPEAK:
+"Not all journaling is the same. Linux's ext3 and ext4 offer three
+modes, depending on what gets journaled.
+
+The first mode is called journal — sometimes also called data=journal.
+Both metadata and file data are written to the journal. This is the
+strongest and slowest option. Every write is duplicated — once to the
+journal, once to the real file system — so throughput is roughly
+halved.
+
+The second mode is called ordered — and it is the default on Linux.
+Only metadata goes to the journal. But file data is written to disk
+before the metadata commit. This means that when a file is created or
+extended, its data blocks are already on disk by the time the metadata
+says they exist. That is a nice guarantee. It is faster than full
+journaling, and safer than writeback.
+
+The third mode is called writeback. Only metadata is journaled, and
+there is no ordering constraint on the file data. This is the fastest
+mode, but it has a subtle problem: after a crash, the metadata might
+say a file has a certain size, but the data at the end of the file
+might still be garbage — whatever was on those blocks before. For
+most workloads this is fine, but some applications care."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Every file system operation is multiple disk writes, and crashes
+between writes leave the file system inconsistent.
+
+fsck was the original solution — scan the whole disk, repair what
+you can find. It works but is slow and can only guess what to fix.
+
+Journaling is the modern solution. Write changes to a journal, then
+commit, then apply. Recovery only needs to scan the journal, not the
+whole disk. Fast, correct, and the reason your laptop boots in
+seconds instead of minutes.
+
+Linux offers three modes — journal, ordered, writeback. The default
+is ordered: fast enough, safe enough.
+
+In the next video, we will look at an entirely different kind of
+reliability — redundancy across multiple disks, which is what RAID
+provides."
+
+[END OF VIDEO 8.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.5 — RAID                                                    ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "RAID — Redundancy Across Disks"]
+
+SPEAK:
+"Welcome back. Journaling protects against crashes. But there is one
+failure mode that no file system can survive gracefully: the physical
+failure of the disk itself.
+
+Every disk dies eventually. For spinning disks, the average lifetime
+is around three to five years. For SSDs, it depends heavily on write
+volume, but eventually they too wear out. If you store important data
+on a single disk, you are betting on that disk not failing. That is a
+bet you will eventually lose.
+
+RAID solves this problem by combining multiple physical disks into
+one logical volume — so that the failure of any one disk does not
+lose data. The name originally stood for Redundant Array of
+Inexpensive Disks, and it is now usually expanded to Redundant Array
+of Independent Disks. But the point is the same — use several disks
+to get something you cannot get from one."
+
+[PAUSE]
+
+[SLIDE 2 — RAID 0]
+
+SPEAK:
+"The simplest configuration is RAID 0 — striping. Take each file's
+data and split it across multiple disks. If you have four disks and
+write a one-megabyte file, each disk stores two hundred and fifty
+kilobytes. The disks work in parallel, so read and write throughput
+scale roughly linearly with the number of disks.
+
+Four-way RAID 0 gives you four times the throughput and four times
+the capacity. There is a single, fatal catch though. There is no
+redundancy. If any one of those four disks fails, the entire array is
+gone. Every byte of every file is lost, because the missing data
+blocks were on the dead disk.
+
+RAID 0 is fast and cheap. It is not safe. It is sometimes used for
+scratch space or temporary data where speed matters and durability
+does not."
+
+[SLIDE 3 — RAID 1]
+
+SPEAK:
+"The opposite approach is RAID 1 — mirroring. Every write goes to two
+or more disks. Each disk is an exact copy of the others.
+
+Reliability is very high. If one disk fails, you keep running on the
+survivor. Rebuild is easy — just copy the surviving disk to a
+replacement.
+
+But you pay for it in capacity. Two one-terabyte disks in a RAID 1
+mirror give you one terabyte of usable space, not two. Fifty percent
+of your investment goes to redundancy. Read performance is actually
+good — both disks can serve reads — but writes must go to every
+mirror, so write throughput does not improve."
+
+[SLIDE 4 — RAID 5]
+
+SPEAK:
+"RAID 5 is the clever middle ground — striping with distributed
+parity. It spreads data across N disks, but on each stripe it also
+stores a parity block. The parity is computed with XOR: if you know
+the parity and N minus one data blocks, you can reconstruct the
+missing one.
+
+The practical result: RAID 5 can survive the failure of any single
+disk. If one disk dies, all the data can be reconstructed on the fly
+from the surviving disks. And you only pay one disk of overhead. With
+four one-terabyte disks in RAID 5, you get three terabytes of usable
+space — much better than RAID 1's two terabytes.
+
+But RAID 5 has a nasty weakness: if a second disk fails while the
+array is still rebuilding from the first failure, you lose everything.
+Rebuilding a large RAID 5 volume can take hours — during which time
+you are one failure away from total loss. And on modern high-capacity
+disks, that window of vulnerability is uncomfortably long.
+
+This is why RAID 5 is being replaced in many production setups by
+RAID 6 — which uses two parity blocks and can survive two simultaneous
+failures — or by RAID 10."
+
+[SLIDE 5 — RAID 10]
+
+SPEAK:
+"RAID 10 — pronounced 'RAID one-zero' — combines mirroring and
+striping. The data is striped across multiple mirrored pairs.
+
+Imagine four disks. Disk 1 and disk 2 form a mirrored pair. Disk 3
+and disk 4 form another mirrored pair. Then data is striped across
+the two pairs.
+
+You get the performance benefits of striping and the reliability of
+mirroring. You can lose up to one disk from each pair — in a four-disk
+setup, that means up to two failures — and still survive.
+
+The cost is fifty percent capacity overhead. Four one-terabyte disks
+give you two terabytes of usable space, same as RAID 1.
+
+But RAID 10 has a huge advantage over RAID 5 that is easy to overlook:
+its rebuild is fast. When a disk fails, you just copy the surviving
+mirror to a replacement. No parity calculations, no slow reads from
+multiple disks. On high-capacity disks, RAID 10 rebuilds in an hour
+where RAID 5 might take a day.
+
+Because of this, RAID 10 is the standard choice for databases and
+other performance-sensitive workloads where the cost of the extra
+capacity is worth the faster recovery."
+
+[SLIDE 6 — Choosing a RAID level]
+
+SPEAK:
+"So how do you choose? Let me give you a short decision guide.
+
+If you need maximum performance and can tolerate data loss — use
+RAID 0.
+
+If you need maximum reliability and have the budget for it — use
+RAID 1 or 10.
+
+If you want a middle ground between capacity, safety, and cost —
+use RAID 5 or 6.
+
+For production databases, RAID 10 is almost always the answer.
+The extra capacity cost is small compared to the cost of a slow
+rebuild.
+
+For file servers or backup storage, RAID 5 or 6 is common because
+you get more capacity and can tolerate the longer rebuild.
+
+But remember this: RAID is not a backup. RAID protects against disk
+failure. It does not protect against accident, corruption, or
+ransomware — those attacks replicate across every disk in the
+array. Always keep a separate backup, off-site if possible."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+RAID combines multiple physical disks into one logical volume.
+
+RAID 0 is striping — fast but no redundancy.
+
+RAID 1 is mirroring — safe but capacity-expensive.
+
+RAID 5 strikes a balance — striping with distributed parity, tolerates
+one disk failure, only one disk of overhead.
+
+RAID 10 combines both — fast and safe, but fifty percent overhead.
+
+In every case, RAID is not a backup. It is a way to keep a live system
+running when a disk fails. Backups are a separate concern, and you
+should always have them.
+
+That is the theory of file systems. Next, we move to the practical
+side — how to explore a real Linux file system from the command line."
+
+[END OF VIDEO 8.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.6 — Disk Scheduling                                         ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Disk Scheduling"]
+
+SPEAK:
+"Welcome to the sixth video of Week 8. Before we get to the practical
+lab work, I want to cover one more piece of theory: how the OS decides
+which of several pending disk requests to service first.
+
+This is called disk scheduling, and for spinning disks, it makes an
+enormous difference. For SSDs, it is irrelevant, and I will explain
+why in a moment."
+
+[PAUSE]
+
+[SLIDE 2 — The physics of a spinning disk]
+
+SPEAK:
+"A mechanical hard drive has two costs associated with any I/O
+operation.
+
+The first cost is seek time — the time it takes for the read head to
+physically move to the track containing the requested block. On a
+modern drive, this is on the order of five to ten milliseconds.
+
+The second cost is rotational latency — the time waiting for the
+correct sector to rotate under the head. This averages about two to
+four milliseconds, depending on the RPM.
+
+Adding those up, each random read costs roughly seven to ten
+milliseconds of pure mechanical delay. In that time, the CPU can
+execute tens of millions of instructions. The disk is essentially a
+thousand times slower than RAM for random access.
+
+Given that, if the OS has several pending I/O requests, the order in
+which it services them matters enormously. Getting the order right
+can literally double or triple throughput."
+
+[SLIDE 3 — The standard example]
+
+SPEAK:
+"Let me set up the same example we will use for all four algorithms.
+
+We have a disk with two hundred cylinders. The head is currently at
+cylinder fifty-three, and it is moving toward higher numbers.
+
+The pending requests are: cylinder 98, 183, 37, 122, 14, 124, 65, and
+67. They arrived in that order.
+
+For each algorithm, I will compute the total head movement in
+cylinders. The lower the number, the better, because less head
+movement means less time."
+
+[SLIDE 4 — FCFS and SSTF]
+
+SPEAK:
+"First Come First Served is the simplest. Service the requests in
+arrival order.
+
+Start at 53. Move to 98. That is 45 cylinders. Then to 183 — 85 more.
+Then to 37 — 146 more. Then to 122 — 85 more. Then to 14 — 108. Then
+to 124 — 110. Then to 65 — 59. Then to 67 — 2.
+
+Total head movement: 640 cylinders.
+
+That is a lot. The head is sweeping wildly back and forth across the
+disk. FCFS is completely fair — no request starves — but it is
+inefficient.
+
+Now, Shortest Seek Time First. Always service the request that is
+closest to the current head position.
+
+Starting at 53: the closest pending request is 65. Move 12 to 65.
+Then 67 — 2 more. Then 37 — 30. Then 14 — 23. Then 98 — 84. Then 122
+— 24. Then 124 — 2. Then 183 — 59.
+
+Total head movement: 236 cylinders. That is nearly three times better
+than FCFS.
+
+But SSTF has a problem. Notice that request 183 was slightly delayed
+by waiting for all the closer requests. If new requests keep arriving
+at low cylinder numbers, a request at 199 could be starved
+indefinitely. SSTF optimizes the current step but not the overall
+fairness."
+
+[SLIDE 5 — SCAN and C-SCAN]
+
+SPEAK:
+"SCAN — also called the elevator algorithm — moves the head in one
+direction, serves all requests it encounters, and then reverses. Just
+like an elevator that goes up until there are no more requested
+floors, then goes down.
+
+Starting at 53 moving up: 65, 67, 98, 122, 124, 183 — serve all of
+these. Then the head reaches the end of the disk and reverses.
+
+Total movement going up: 130 cylinders. Coming back down, serve 37
+and 14: 16 from end to 183, then 183 to 37 is 146, then 37 to 14 is
+23.
+
+Total: 331 cylinders. A bit worse than SSTF, but with a much better
+fairness property — every request is guaranteed to be served within
+one sweep.
+
+C-SCAN — Circular SCAN — is a variation. Instead of reversing at the
+end, the head quickly returns to the other end and starts a new sweep.
+The return trip does not service requests. This gives more uniform
+service times across all cylinders.
+
+C-SCAN movement on our example: roughly 382 cylinders. Slightly worse
+than SCAN on this workload, but with better uniformity."
+
+[SLIDE 6 — SSD scheduling]
+
+SPEAK:
+"Now let me address SSDs directly. Solid-state disks have no moving
+parts. They have no seek time and no rotational latency. The access
+time to any block is essentially the same — a few tens of microseconds,
+regardless of where on the disk it lives.
+
+The consequence is that disk scheduling algorithms for SSDs are much
+less important. Some SSDs even benefit from being accessed as a
+parallel array, so reordering requests to maximize parallelism is
+more useful than reordering by physical position.
+
+Linux's I/O scheduler has adapted to this. For SSDs, the default is
+a scheduler called none — which just processes requests in arrival
+order — or mq-deadline, which ensures that requests are not starved.
+Position-based reordering is essentially gone, because there is no
+position.
+
+But for spinning disks, which are still common in backup storage,
+archival systems, and some cloud environments, SCAN-style algorithms
+remain important. So it is worth knowing them."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+FCFS is fair but inefficient — the head sweeps wildly.
+
+SSTF minimizes current head movement but can starve distant requests.
+
+SCAN — the elevator — sweeps one direction, serves everyone, then
+reverses. Good fairness and good throughput.
+
+C-SCAN is like SCAN but jumps back to the start instead of reversing
+— more uniform service times.
+
+And for SSDs, disk scheduling is mostly irrelevant. No moving parts,
+no seek time — so position-based reordering does not help.
+
+In the next two videos, we move to the practical side. We will explore
+the real Linux file system with df, mount, ls -i, and the kernel's
+view in /proc."
+
+[END OF VIDEO 8.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.7 — Touch Lab: Exploring the File System                    ║
+║  Target duration: ~16 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Exploring the File System"]
+
+SPEAK:
+"Welcome to the practical side of Week 8. Now we are going to see
+all of this theory in action on our Ubuntu VM.
+
+Log in to your VM. Make sure you have at least some free disk space
+to work with — everything we will do today is read-only or creates
+very small files."
+
+[SCREENCAST — df -h]
+
+SPEAK:
+"First, let's look at what is mounted on our system.
+
+df -h
+
+The -h flag means human-readable — sizes are shown as gigabytes or
+megabytes instead of raw numbers.
+
+Let me read this with you.
+
+The first column is the device name or virtual file system identifier.
+/dev/sda1 is our root file system — real disk storage. tmpfs devices
+are RAM-backed virtual file systems. They exist only in memory and go
+away at reboot.
+
+The second column is total size. The third is used space. The fourth
+is available space. The fifth is percent used. And the sixth is where
+in the directory tree the file system is mounted.
+
+Notice that our root file system has a Use percent we want to keep
+low. If it hits one hundred, many services will start misbehaving.
+System administrators monitor this value carefully."
+
+[PAUSE]
+
+[SCREENCAST — df -i]
+
+SPEAK:
+"Now let's look at inode usage. This is a less common view, but an
+important one.
+
+df -i
+
+Each file system has a certain number of inodes available. On ext4,
+the number is fixed at format time. Once inodes run out, no new files
+can be created — even if disk space is still free.
+
+Why does this matter? Imagine an application that writes millions of
+tiny files. Each file consumes one inode. Even if the files are
+essentially empty, the inode table fills up. And then the file system
+stops accepting new files, and it is not at all obvious why, because
+df -h still shows free space.
+
+This is a classic sysadmin emergency. If df -h shows free space but
+file creation fails, check df -i."
+
+[SCREENCAST — ls -li]
+
+SPEAK:
+"Now let's look at individual files and their inodes.
+
+cd /etc
+ls -li | head -10
+
+The -i flag shows the inode number as the first column. And the -l
+flag shows the long form with all the metadata.
+
+Let me read the columns.
+
+The first character is the file type. 'd' means directory, '-' means
+regular file, 'l' means symbolic link.
+
+The next nine characters are the permission bits. Three groups of
+three: owner, group, and others. Each group has read, write, and
+execute flags.
+
+The next number is the link count — how many directory entries point
+to this inode.
+
+Then the owner and group. Then the size in bytes. Then the
+modification timestamp. Then the name."
+
+[PAUSE]
+
+[SCREENCAST — creating hard and soft links]
+
+SPEAK:
+"Let's make a file and create both kinds of links.
+
+cd ~
+echo 'hello world' > original.txt
+ln original.txt hardlink.txt
+ln -s original.txt softlink.txt
+ls -li original.txt hardlink.txt softlink.txt
+
+Look carefully at the output. The first two files — original and
+hardlink — share the same inode number. Their link counts are both
+2. They are literally the same file with two names.
+
+The third file — softlink — has a different inode number, and the
+file type character is 'l' — lowercase L — indicating a symbolic
+link. Its contents are the path to the target.
+
+Now let's see what happens when we delete the original:
+
+rm original.txt
+ls -li hardlink.txt softlink.txt
+cat hardlink.txt
+cat softlink.txt
+
+The hard link still works. It is just a name that points at an inode.
+Deleting one of the two names simply decrements the link count. The
+inode still has one reference, so the data is still there.
+
+The soft link is broken. Its contents are still the string
+'original.txt' — but that path no longer exists. That is what we call
+a dangling symbolic link.
+
+This is the essential difference between hard and soft links, and
+the reason the inode design supports the one but not the other."
+
+[SCREENCAST — mount]
+
+SPEAK:
+"Let's look at all mounted file systems.
+
+mount | head -15
+
+Each line has the format: device on mount point type file system type
+with options.
+
+A few of these are worth noting.
+
+The proc, sysfs, and devtmpfs file systems are virtual. They do not
+exist on disk at all. Every read from them queries the kernel.
+We saw this back in Week 2 when we looked at /proc/PID/status.
+
+The tmpfs file systems are RAM-backed. On this machine, /run is a
+tmpfs — writes go to memory, not disk. Good for performance,
+but everything is lost at reboot.
+
+And the /dev/sda1 device is our real root file system, formatted
+ext4, mounted read-write."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we've seen the file system from several angles.
+
+df -h showed us disk usage per mount.
+
+df -i showed us inode usage.
+
+ls -li showed us inodes, permissions, and file types.
+
+Creating hard and soft links demonstrated the difference between a
+name and a reference.
+
+And mount showed us the whole tree — real devices, virtual file
+systems, and RAM-backed partitions.
+
+What I want you to take away is that the file system is not a
+mystery. Every piece of it can be inspected, understood, and
+diagnosed from the command line."
+
+[END OF VIDEO 8.7]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 8.8 — Touch Lab: The Kernel's View & Midterm Prep             ║
+║  Target duration: ~18 minutes (screencast + summary)                 ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Kernel's View & Midterm Prep"]
+
+SPEAK:
+"Welcome to the final video of Week 8. In this video we will peer one
+level deeper — into the kernel itself — and then I want to spend a
+few minutes talking about the midterm.
+
+Let's start with the practical part."
+
+[SCREENCAST — /proc/partitions]
+
+SPEAK:
+"Everything that df and mount showed us originally came from the
+kernel. Let's see what the kernel itself says.
+
+cat /proc/partitions
+
+The columns are major, minor, blocks, and name.
+
+Major number identifies the driver. 8 is the standard SCSI and SATA
+disk driver. 253 is device-mapper, used by LVM and encrypted
+volumes. 259 is NVMe.
+
+Minor number identifies the specific device or partition within
+that driver.
+
+The blocks column is the size in one kilobyte blocks.
+
+And the name is the device node — sda is the whole disk, sda1 is
+its first partition, and so on.
+
+Scanning this file is how utilities like lsblk discover what disks
+are available."
+
+[SCREENCAST — /proc/mounts]
+
+SPEAK:
+"Similarly, the kernel exposes its mount table at /proc/mounts.
+
+cat /proc/mounts | head -10
+
+This is the authoritative source. Every tool — mount, df, findmnt —
+ultimately reads this file. Each line has all the fields we saw in
+the mount command output: device, mount point, file system type,
+options.
+
+Look at the mount options for the root file system, ext4, on
+/dev/sda1. Relatime means the kernel updates access timestamps less
+aggressively, which saves disk bandwidth. Errors equal remount-ro
+means that if the file system detects corruption, it remounts
+read-only rather than continuing to write. These options have a
+large impact on system behavior.
+
+And that is the whole trick of reading configuration from the
+command line. Whenever a command shows you a summarized view, you
+can find the raw truth underneath in /proc or /sys."
+
+[SCREENCAST — tune2fs]
+
+SPEAK:
+"One more command before we move on. tune2fs -l shows detailed
+information about an ext-family file system.
+
+sudo tune2fs -l /dev/sda1 | head -20
+
+There are many fields here, but let me point out the ones that
+matter.
+
+Filesystem state — clean means it was unmounted properly. Any other
+value means it may need a check.
+
+Filesystem UUID — a unique identifier assigned at format time. This
+is what most fstab entries use to identify file systems, because it
+is more stable than a device name. If you move the disk to a
+different controller, the device name might change from sda1 to sdb1,
+but the UUID stays the same.
+
+Inode count and Free inodes — the total and remaining inode slots.
+This is the raw data that df -i reports.
+
+Block size — the fundamental allocation unit. Typically 4 KB.
+
+Mount count — how many times the file system has been mounted since
+its last check. Some old configurations trigger an automatic fsck
+after a certain number of mounts."
+
+[SLIDE — Midterm overview]
+
+SPEAK:
+"Alright. Now let me talk about the midterm.
+
+The exam is worth twenty percent of your final grade. It is ninety
+minutes long. It covers weeks one through seven — the entire theory
+phase so far.
+
+The format is mixed. You will see multiple choice questions, short
+answer questions, and problem solving. The problem-solving section
+is where most of the differentiation happens — it is where knowing
+the formulas and the diagrams really matters.
+
+You may bring one A4 sheet, handwritten on both sides. Nothing
+printed. The idea is that you can prepare a condensed summary, and
+the process of preparing it is itself a form of studying.
+
+Calculators are not allowed. All the numbers are designed to be
+workable by hand. If you find yourself needing a calculator, you
+have probably made an arithmetic error somewhere."
+
+[SLIDE — The seven topics]
+
+SPEAK:
+"Let me review the seven topics covered.
+
+Week one was introduction. You need to know the two roles of an OS,
+the distinction between user mode and kernel mode, the three kinds
+of control transfer — system call, interrupt, trap — and the three
+kernel architectures.
+
+Week two was processes. Program versus process, the five process
+states, the PCB, context switching, fork/exec/wait, IPC mechanisms.
+
+Week three was threads. Process versus thread, what threads share
+and what they own, the three thread models, race conditions, and
+the pthread API.
+
+Week four was synchronization. Critical sections, mutual exclusion,
+progress, bounded waiting, mutexes, semaphores, condition variables,
+the classic problems, monitors, and Helgrind.
+
+Week five was scheduling. The metrics, FCFS, SJF, SRTF, Round Robin,
+Priority, MLFQ, and Linux CFS.
+
+Week six was deadlocks. Coffman's four conditions, resource
+allocation graphs, prevention, Banker's Algorithm, detection and
+recovery.
+
+Week seven was memory. Virtual memory, paging, the TLB, multi-level
+page tables, demand paging, FIFO/LRU/Optimal/Clock page replacement,
+and thrashing."
+
+[SLIDE — Preparation tips]
+
+SPEAK:
+"Let me give you some concrete preparation advice.
+
+First, re-do the numerical problems in your homework assignments.
+These are the exact kind of questions that will be on the exam. Compute
+the average waiting time for various scheduling algorithms. Compute
+the fault count for page replacement. Apply Banker's Algorithm. These
+are all things you should be able to do on paper, without hesitation.
+
+Second, practice drawing the diagrams from memory. The five process
+states, the three thread models, the resource allocation graph, the
+multi-level page table, the MLFQ structure. If you can draw it, you
+understand it. If you cannot, you do not.
+
+Third, for each lecture ask yourself: what is the core problem this
+solves? What is the solution? What is the trade-off? Every topic in
+this course can be reduced to those three questions.
+
+Fourth, know the key numbers. How much slower is a page fault than a
+memory access? By what factor is a mutex slower when contended versus
+uncontended? What is the typical cost of a context switch? These
+numbers tell you which way to optimize.
+
+And fifth, bring your one-page card with whatever formulas you find
+hardest to remember. Write it by hand. The act of writing forces you
+to think about which formulas actually matter."
+
+[SLIDE — Final words]
+
+SPEAK:
+"That is the end of the theory phase.
+
+Starting next week, we enter Phase Two — six weeks of deep practical
+Linux work. Shell, users, permissions, systemd, DHCP, DNS, HTTP,
+MariaDB. This is where all the theory you have been studying comes
+together into things you can build and run.
+
+But before that, you have your midterm. Study hard. Review your notes.
+Do the practice problems. Practice drawing the diagrams. Get a good
+night's sleep the night before.
+
+You have covered a lot of material in these eight weeks. Be proud of
+that. And do not be surprised if some of it feels overwhelming —
+operating systems is a genuinely hard subject, and the fact that you
+can now reason about threads, scheduling, deadlocks, and virtual
+memory means you have already come a long way.
+
+Good luck on the midterm. And I will see you next week, in Phase Two.
+
+Until then — keep exploring."
+
+[END OF VIDEO 8.8 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 8
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~124 minutes of raw footage
+After editing and trimming: ~105–115 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework
++ midterm exam preparation)
+
+═══════════════════════════════════════════════════════════════════════
+PHASE 1 COMPLETE — The theory phase ends here.
+Phase 2 begins next week with Linux shell, users, permissions, and
+systemd. The midterm exam is administered separately after this week.
+═══════════════════════════════════════════════════════════════════════

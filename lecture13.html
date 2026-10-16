@@ -1,0 +1,2079 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 13: MariaDB – Database Service</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 13</span>
+            <span class="green"><i class="fas fa-terminal"></i> Phase 2 · Linux Practical</span>
+            <span><i class="fas fa-laptop-code"></i> Deep Lab</span>
+        </div>
+
+        <h1>MariaDB – Database Service</h1>
+        <p class="lecture-sub">
+            Based on the <em>MariaDB official documentation</em>, the <em>MySQL Reference Manual</em> (MariaDB
+            is a community fork of MySQL, and much of the documentation overlaps), and best practices from
+            the <em>UNIX and Linux System Administration Handbook</em>.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#why">13.1 · Why a Database Service</a>
+            <a href="#relational">13.2 · Relational Model &amp; SQL</a>
+            <a href="#install">13.3 · Installing MariaDB</a>
+            <a href="#secure">13.4 · Securing the Installation</a>
+            <a href="#sql-basics">13.5 · Databases, Tables &amp; SQL</a>
+            <a href="#users">13.6 · Users, Hosts &amp; Privileges</a>
+            <a href="#webapp">13.7 · Connecting from a Web App</a>
+            <a href="#backup">13.8 · Backup &amp; Restore</a>
+            <a href="#lab-deploy">13.9 · Lab: Deploy MariaDB</a>
+            <a href="#lab-fullstack">13.10 · Lab: Full-Stack Integration</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 13.1 WHY A DATABASE SERVICE                                  -->
+        <!-- ============================================================ -->
+        <h2 id="why"><i class="fas fa-database"></i> 13.1 · Why a Database Service</h2>
+
+        <p>
+            For the last four weeks, we have been building up the pieces of a small Linux stack. In Week 10 we
+            learned to install packages and configure networks, and we built a DHCP server. In Week 11 we built a
+            DNS server that resolves names for our own internal domain. In Week 12 we deployed Nginx as a web
+            server and set it up as a reverse proxy in front of a Python application.
+        </p>
+
+        <p>
+            But every one of those services has the same limitation. The state they hold lives in RAM, and it
+            disappears when the process restarts. Our DHCP leases vanish. Our DNS zone is a set of files that
+            must be edited by hand. Our web application stores its data in Python dictionaries that evaporate
+            the moment the process exits.
+        </p>
+
+        <p>
+            To build a real service, we need <strong>persistent structured storage</strong>. That is what a
+            database service provides — and this week, we are going to install, configure, and administer one
+            of the most widely used open-source database systems in the world: <strong>MariaDB</strong>.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>One-line definition:</strong> MariaDB is a community-developed fork of MySQL. It is a
+            relational database management system — it stores structured data in tables, provides ACID
+            transactional guarantees, and speaks the SQL language over a network socket.
+        </div>
+
+        <h3>Why MariaDB and not MySQL?</h3>
+
+        <p>
+            In 2009, Oracle acquired Sun Microsystems, which had previously acquired MySQL AB, the company
+            behind MySQL. Concerned about Oracle's stewardship of the project, the original MySQL developers
+            forked the codebase and created MariaDB. It is named after Maria Widenius, the younger daughter of
+            MySQL's founder — the elder daughter, My, gave MySQL its name.
+        </p>
+
+        <p>
+            From a technical perspective, MariaDB and MySQL are remarkably similar. MariaDB maintains
+            drop-in compatibility with MySQL at the protocol level, the SQL-language level, and the client-tool
+            level. Any application that speaks MySQL can talk to MariaDB, and vice versa. For most workloads,
+            you can switch between them without changing a line of code.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Aspect</th>
+                    <th>MariaDB vs MySQL</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Licensing</strong></td>
+                    <td>MariaDB is 100% open source under the GPL. MySQL is dual-licensed, with proprietary
+                        enterprise features managed by Oracle.</td>
+                </tr>
+                <tr>
+                    <td><strong>Development</strong></td>
+                    <td>MariaDB is community-governed through the MariaDB Foundation. MySQL is developed and
+                        released by Oracle.</td>
+                </tr>
+                <tr>
+                    <td><strong>Storage engines</strong></td>
+                    <td>Both support InnoDB (transactions) and MyISAM (legacy). MariaDB adds Aria, ColumnStore,
+                        and other engines.</td>
+                </tr>
+                <tr>
+                    <td><strong>Compatibility</strong></td>
+                    <td>MariaDB is a drop-in replacement for MySQL 5.7 in most cases. Some features diverge
+                        after MySQL 8.0.</td>
+                </tr>
+                <tr>
+                    <td><strong>Default on Ubuntu</strong></td>
+                    <td>Ubuntu ships MariaDB in its default repositories. MySQL is also available but not the
+                        default.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            For this course, we use MariaDB because it is the default on Ubuntu, and because installing it
+            requires no third-party repositories. But everything we learn — SQL, users, privileges, backups —
+            applies directly to MySQL and to any other relational database you might use later.
+        </p>
+
+        <h3>The role of a database in a Linux stack</h3>
+
+        <p>
+            In a typical Linux service stack, the database is the layer that persists state. Consider a
+            simple web application:
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg"
+                aria-label="Database in a Linux service stack">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The database is the persistence layer of the stack</text>
+
+                <!-- Browser -->
+                <rect x="50" y="70" width="150" height="60" rx="8" fill="rgba(59, 130, 246, 0.14)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="125" y="95" font-family="Inter" font-size="12" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">Browser</text>
+                <text x="125" y="115" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">the user</text>
+
+                <line x1="200" y1="100" x2="280" y2="100" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#dbArrow)" />
+
+                <!-- Nginx -->
+                <rect x="280" y="70" width="150" height="60" rx="8" fill="rgba(245, 158, 11, 0.14)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="355" y="95" font-family="Inter" font-size="12" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">Nginx</text>
+                <text x="355" y="115" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">reverse proxy</text>
+
+                <line x1="430" y1="100" x2="510" y2="100" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#dbArrow)" />
+
+                <!-- Backend -->
+                <rect x="510" y="70" width="150" height="60" rx="8" fill="rgba(16, 185, 129, 0.14)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="585" y="95" font-family="Inter" font-size="12" fill="#34d399"
+                    text-anchor="middle" font-weight="700">Backend app</text>
+                <text x="585" y="115" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">Flask / Node / PHP</text>
+
+                <line x1="585" y1="130" x2="585" y2="200" stroke="#94a3b8" stroke-width="2"
+                    stroke-dasharray="5,3" marker-end="url(#dbArrow)" />
+
+                <!-- Database -->
+                <rect x="490" y="200" width="190" height="70" rx="8" fill="rgba(139, 92, 246, 0.16)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="585" y="228" font-family="Inter" font-size="13" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">MariaDB</text>
+                <text x="585" y="248" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">persistent, ACID, SQL</text>
+
+                <!-- Database disk -->
+                <line x1="585" y1="270" x2="585" y2="285" stroke="#94a3b8" stroke-width="2"
+                    stroke-dasharray="4,3" />
+
+                <rect x="490" y="285" width="190" height="10" rx="4" fill="rgba(139, 92, 246, 0.25)"
+                    stroke="#8b5cf6" />
+
+                <text x="410" y="160" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Each layer depends on the ones below it:
+                </text>
+                <text x="410" y="180" font-family="Inter" font-size="11" fill="#a7f3d0" text-anchor="middle">
+                    HTTP needs the app, the app needs SQL, SQL needs the database service
+                </text>
+
+                <defs>
+                    <marker id="dbArrow" markerWidth="10" markerHeight="10" refX="8" refY="3"
+                        orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">A database service sits at the bottom of the stack. When it goes down, everything above it stops working.</div>
+        </div>
+
+        <p>
+            The database holds the state that everything else depends on. Customer records, orders, sessions,
+            configuration, analytics — all of it lives here. And this makes the database's job difficult: it
+            must be fast, reliable, consistent, and durable. A web server crashing is an annoyance. A database
+            losing data is a catastrophe.
+        </p>
+
+        <h3>What "relational" means</h3>
+
+        <p>
+            The word <strong>relational</strong> comes from the mathematical concept of relations — tables,
+            essentially. The relational model was proposed by Edgar F. Codd in 1970 and was one of the
+            foundational advances in database theory.
+        </p>
+
+        <p>
+            The core idea: instead of storing records in hierarchies or pointers — the way network and
+            hierarchical databases did in the 1960s — you store them in <strong>flat tables</strong> of rows
+            and columns, and you relate tables to one another through <strong>primary and foreign keys</strong>.
+            Queries are expressed declaratively, using <strong>SQL</strong>.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Why relational databases won:</strong> because the model is simple, the query language is
+            standardized, and the computer science behind query optimization has been refined for fifty years.
+            Good relational databases answer arbitrary queries efficiently, without the application needing to
+            know how the data is physically stored.
+        </div>
+
+        <h3>What modern relational databases guarantee</h3>
+
+        <p>
+            Relational databases are usually described as providing <strong>ACID</strong> guarantees. Let me
+            unpack that because it explains what a database gives you that a file system does not.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Property</th>
+                    <th>Meaning</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Atomicity</strong></td>
+                    <td>A transaction — a group of operations — either fully succeeds or fully fails. There is
+                        no partial state.</td>
+                </tr>
+                <tr>
+                    <td><strong>Consistency</strong></td>
+                    <td>A transaction takes the database from one valid state to another. Constraints,
+                        invariants, and foreign-key relations are always honored.</td>
+                </tr>
+                <tr>
+                    <td><strong>Isolation</strong></td>
+                    <td>Concurrent transactions do not interfere with each other. To a reader, transactions
+                        appear to run in some serializable order.</td>
+                </tr>
+                <tr>
+                    <td><strong>Durability</strong></td>
+                    <td>Once a transaction has been committed, it survives crashes, power failures, and restarts.
+                        Often achieved with write-ahead logging.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>What ACID buys you:</strong> you can write an application that says "transfer ten dollars
+            from Alice's account to Bob's" as two operations, and be sure that if the process crashes between
+            them, the database will either have done both or neither. Implementing that guarantee yourself, on
+            top of the file system, is an enormous amount of work. Relational databases do it for you.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 13.2 RELATIONAL MODEL & SQL                                  -->
+        <!-- ============================================================ -->
+        <h2 id="relational"><i class="fas fa-table"></i> 13.2 · The Relational Model &amp; SQL</h2>
+
+        <p>
+            Before we install anything, let's make sure the vocabulary is clear. Every relational database
+            speaks in terms of a small set of concepts, and understanding them makes everything else
+            easier to reason about.
+        </p>
+
+        <h3>The units of structure</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Term</th>
+                    <th>Meaning</th>
+                    <th style="width: 25%;">Example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Database</strong></td>
+                    <td>A named collection of tables that belong together, usually accessed by one application.</td>
+                    <td><code>shop_app</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Table</strong></td>
+                    <td>A set of rows with the same structure. Analogous to a spreadsheet or a class of
+                        objects.</td>
+                    <td><code>customers</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Column</strong></td>
+                    <td>A field of a table — a name and a type. Every row has a value (or NULL) for each
+                        column.</td>
+                    <td><code>email VARCHAR(255)</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Row</strong></td>
+                    <td>A single record. Equivalent to an instance of a class, or a line in a spreadsheet.</td>
+                    <td><code>(1, 'Alice', 'alice@example.com')</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Primary key</strong></td>
+                    <td>A column (or set of columns) that uniquely identifies a row. Cannot be NULL, must be
+                        unique.</td>
+                    <td><code>id INT PRIMARY KEY</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Foreign key</strong></td>
+                    <td>A column that references the primary key of another table. Enforces referential
+                        integrity.</td>
+                    <td><code>customer_id INT REFERENCES customers(id)</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Index</strong></td>
+                    <td>A data structure that speeds up lookups on a column or set of columns. Takes up extra
+                        space.</td>
+                    <td><code>CREATE INDEX ON customers(email);</code></td>
+                </tr>
+                <tr>
+                    <td><strong>View</strong></td>
+                    <td>A stored query that appears like a table. Useful for abstracting complex queries.</td>
+                    <td><code>CREATE VIEW active_customers AS SELECT ...</code></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>A concrete example</h3>
+
+        <p>
+            Let's build a small schema for an online store. Two tables, related by a foreign key.
+        </p>
+
+        <pre><code>-- Customers: one row per person
+
+CREATE TABLE customers (
+    id      INT AUTO_INCREMENT PRIMARY KEY,
+    name    VARCHAR(100) NOT NULL,
+    email   VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Orders: many orders per customer
+
+CREATE TABLE orders (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id  INT NOT NULL,
+    total        DECIMAL(10,2) NOT NULL,
+    placed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+);</code></pre>
+
+        <p>
+            Two things are worth pointing out.
+        </p>
+
+        <ul>
+            <li><strong>AUTO_INCREMENT</strong> tells the database to assign the next integer automatically
+                every time a new row is inserted. We do not have to keep track of IDs — the database does.</li>
+            <li><strong>The foreign key</strong> is enforceable metadata. If we try to insert an order with a
+                <code>customer_id</code> that does not exist, the database will refuse. This is the "consistency"
+                in ACID, enforced for us.</li>
+        </ul>
+
+        <h3>SQL in three families</h3>
+
+        <p>
+            Structured Query Language — SQL — is the language we use to talk to relational databases. It is
+            divided into several families of statements, and it is worth knowing which is which.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Family</th>
+                    <th>Stands for</th>
+                    <th>Statements</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>DDL</strong></td>
+                    <td>Data Definition Language</td>
+                    <td><code>CREATE</code>, <code>ALTER</code>, <code>DROP</code>, <code>TRUNCATE</code> —
+                        these define and modify the structure of tables.</td>
+                </tr>
+                <tr>
+                    <td><strong>DML</strong></td>
+                    <td>Data Manipulation Language</td>
+                    <td><code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> —
+                        these work with the rows.</td>
+                </tr>
+                <tr>
+                    <td><strong>DCL</strong></td>
+                    <td>Data Control Language</td>
+                    <td><code>GRANT</code>, <code>REVOKE</code> — these manage who can do what. We will use
+                        these extensively in the users-and-privileges section.</td>
+                </tr>
+                <tr>
+                    <td><strong>TCL</strong></td>
+                    <td>Transaction Control Language</td>
+                    <td><code>BEGIN</code>, <code>COMMIT</code>, <code>ROLLBACK</code> — these define
+                        transactional boundaries.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>SQL is declarative, not imperative.</strong> When you write <code>SELECT name FROM
+            customers WHERE email = 'alice@example.com'</code>, you are telling the database <em>what</em> you
+            want, not <em>how</em> to compute it. The database's query planner decides which indexes to use,
+            in what order to join tables, and which algorithm to apply. This is a big part of why relational
+            databases are so powerful: fifty years of research have made the query planner very good at this,
+            and you do not have to reason about it yourself.
+        </div>
+
+        <h3>Data types you will use most</h3>
+
+        <p>
+            MariaDB supports a rich set of data types. The following are the ones you will see in practice.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Type</th>
+                    <th>Used for</th>
+                    <th style="width: 30%;">Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>INT</code></td>
+                    <td>Integer numbers up to about two billion (signed).</td>
+                    <td>Use <code>BIGINT</code> for larger, or <code>INT UNSIGNED</code> for positives only.</td>
+                </tr>
+                <tr>
+                    <td><code>DECIMAL(p, s)</code></td>
+                    <td>Exact decimal numbers, with <code>p</code> total digits and <code>s</code> after the
+                        decimal point.</td>
+                    <td>Use for money. Never use <code>FLOAT</code> for currency.</td>
+                </tr>
+                <tr>
+                    <td><code>VARCHAR(n)</code></td>
+                    <td>Variable-length strings up to <code>n</code> characters.</td>
+                    <td>Preferred for names, usernames, and short text.</td>
+                </tr>
+                <tr>
+                    <td><code>TEXT</code></td>
+                    <td>Large text — up to 64 KB.</td>
+                    <td>Use for content, comments, descriptions.</td>
+                </tr>
+                <tr>
+                    <td><code>TIMESTAMP</code></td>
+                    <td>Date and time. Has special default behavior — can auto-update.</td>
+                    <td>Range limited to years 1970–2038. Use <code>DATETIME</code> for wider range.</td>
+                </tr>
+                <tr>
+                    <td><code>BOOLEAN</code></td>
+                    <td>Boolean values.</td>
+                    <td>MariaDB stores it as <code>TINYINT(1)</code> — true is 1, false is 0.</td>
+                </tr>
+                <tr>
+                    <td><code>ENUM('a','b','c')</code></td>
+                    <td>One value from a fixed list.</td>
+                    <td>Useful for status fields and categories.</td>
+                </tr>
+                <tr>
+                    <td><code>JSON</code></td>
+                    <td>Semi-structured JSON data with query support.</td>
+                    <td>MariaDB supports JSON as an alias for LONGTEXT with validation.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Never use <code>FLOAT</code> for money.</strong> Floating-point numbers cannot exactly
+            represent most decimal fractions. <code>0.1 + 0.2</code> in floating point is not <code>0.3</code>.
+            For currencies, totals, and anything that must be exact, use <code>DECIMAL</code>. This is a
+            classic beginner mistake that has cost companies real money.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 13.3 INSTALLING MARIADB                                      -->
+        <!-- ============================================================ -->
+        <h2 id="install"><i class="fas fa-download"></i> 13.3 · Installing MariaDB</h2>
+
+        <p>
+            Installing MariaDB on Ubuntu is one <code>apt</code> command. This is one of the reasons we used
+            Ubuntu for this course — MariaDB ships in the default repositories, so no third-party sources and
+            no key juggling are needed.
+        </p>
+
+        <h3>The install</h3>
+
+        <pre><code>sudo apt update
+sudo apt install mariadb-server mariadb-client</code></pre>
+
+        <p>
+            Two packages. The <code>mariadb-server</code> package contains the actual daemon — the process
+            that listens on a socket, keeps the data in memory, and writes to disk. <code>mariadb-client</code>
+            contains the command-line client we use to talk to it.
+        </p>
+
+        <p>
+            On Ubuntu, the package will automatically:
+        </p>
+
+        <ul>
+            <li>Create the <code>mysql</code> system user and group.</li>
+            <li>Create the data directory at <code>/var/lib/mysql/</code>.</li>
+            <li>Install a systemd unit file, enabling MariaDB to start at boot.</li>
+            <li>Start the service automatically.</li>
+        </ul>
+
+        <h3>Service management with systemd</h3>
+
+        <p>
+            MariaDB runs as a systemd service. Let's recall the pattern from Week 9:
+        </p>
+
+        <pre><code># Check the current status
+systemctl status mariadb
+
+# Start, stop, restart
+sudo systemctl start mariadb
+sudo systemctl stop mariadb
+sudo systemctl restart mariadb
+
+# Enable or disable start-at-boot
+sudo systemctl enable mariadb
+sudo systemctl disable mariadb
+
+# Follow the logs
+journalctl -u mariadb -f</code></pre>
+
+        <p>
+            After installing, check the status. You should see "active (running)" and a process ID for the
+            MariaDB daemon — which is named <code>mariadbd</code>.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>A naming note.</strong> If you look at logs or process lists, you may see MariaDB referred
+            to as <code>mysqld</code>, <code>mariadbd</code>, or simply <code>mysql</code>. The daemon is
+            usually called <code>mariadbd</code> on modern Ubuntu, but many files and directories retain their
+            <code>mysql</code> prefix for compatibility. This is worth remembering when you go looking for
+            where configuration lives.
+        </div>
+
+        <h3>How MariaDB is structured</h3>
+
+        <p>
+            MariaDB is a client-server system. There are three main pieces:
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg"
+                aria-label="MariaDB architecture">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">MariaDB is a client-server system — one daemon, many clients</text>
+
+                <!-- Server -->
+                <rect x="330" y="60" width="160" height="70" rx="8" fill="rgba(139, 92, 246, 0.16)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="410" y="85" font-family="Inter" font-size="13" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">mariadbd</text>
+                <text x="410" y="105" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">the daemon</text>
+                <text x="410" y="120" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">listens on a socket + port 3306</text>
+
+                <!-- Data dir -->
+                <rect x="330" y="180" width="160" height="60" rx="8" fill="rgba(245, 158, 11, 0.14)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="410" y="205" font-family="Inter" font-size="12" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">/var/lib/mysql/</text>
+                <text x="410" y="225" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">data files</text>
+
+                <line x1="410" y1="130" x2="410" y2="180" stroke="#8b5cf6" stroke-width="2"
+                    marker-end="url(#mdbArrow)" />
+
+                <!-- Client 1: command line -->
+                <rect x="50" y="60" width="150" height="60" rx="8" fill="rgba(59, 130, 246, 0.14)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="125" y="85" font-family="Inter" font-size="11" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">mariadb CLI</text>
+                <text x="125" y="105" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">interactive shell</text>
+
+                <line x1="200" y1="90" x2="330" y2="90" stroke="#3b82f6" stroke-width="2"
+                    marker-end="url(#mdbArrow)" />
+
+                <!-- Client 2: web app -->
+                <rect x="620" y="60" width="150" height="60" rx="8" fill="rgba(16, 185, 129, 0.14)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="695" y="85" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle" font-weight="700">Web app</text>
+                <text x="695" y="105" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">Python / PHP / Node</text>
+
+                <line x1="620" y1="90" x2="490" y2="90" stroke="#10b981" stroke-width="2"
+                    marker-end="url(#mdbArrow)" />
+
+                <!-- Client 3: mysqldump -->
+                <rect x="50" y="180" width="150" height="60" rx="8" fill="rgba(236, 72, 153, 0.14)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="125" y="205" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">mysqldump</text>
+                <text x="125" y="225" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">backup tool</text>
+
+                <line x1="200" y1="210" x2="330" y2="210" stroke="#ec4899" stroke-width="2"
+                    marker-end="url(#mdbArrow)" />
+
+                <text x="410" y="290" font-family="Inter" font-size="12" fill="#a7f3d0" text-anchor="middle"
+                    font-weight="700">
+                    All clients speak the same protocol — MySQL wire protocol
+                </text>
+                <text x="410" y="315" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Any MySQL-compatible client can talk to MariaDB — and vice versa
+                </text>
+
+                <defs>
+                    <marker id="mdbArrow" markerWidth="10" markerHeight="10" refX="8" refY="3"
+                        orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">The mariadbd daemon writes to <code>/var/lib/mysql/</code> and listens for clients on both a Unix socket and TCP port 3306.</div>
+        </div>
+
+        <h3>Connecting for the first time</h3>
+
+        <p>
+            On Ubuntu, the root user of the system can connect to MariaDB as the root database user without
+            a password — through the Unix socket only. This is by design: the initial configuration assumes
+            you are the system administrator and can prove it by using <code>sudo</code>.
+        </p>
+
+        <pre><code>sudo mariadb</code></pre>
+
+        <p>
+            You should get a MariaDB prompt:
+        </p>
+
+        <pre><code>Welcome to the MariaDB monitor.  Commands end with ; or \g.
+Your MariaDB connection id is 42
+Server version: 10.11.6-MariaDB-0ubuntu0.24.04.1 Ubuntu 24.04
+
+Type 'help;' or '\h' for help. Type '\c' to clear the current input statement.
+
+MariaDB [(none)]&gt;</code></pre>
+
+        <p>
+            The prompt shows <code>[(none)]</code> because we are not connected to any specific database yet.
+            Type <code>quit</code> or press Ctrl+D to exit.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>This initial state is not safe for production.</strong> Anyone with sudo on this machine
+            can log in as root. There is no password on the root database user. Anonymous users may exist.
+            The default installation serves only the local machine, so this is not immediately dangerous —
+            but we are about to fix it anyway.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 13.4 SECURING THE INSTALLATION                               -->
+        <!-- ============================================================ -->
+        <h2 id="secure"><i class="fas fa-shield-halved"></i> 13.4 · Securing the Installation</h2>
+
+        <p>
+            MySQL and MariaDB ship with a script that walks you through a handful of security hardening
+            steps. On MariaDB the script is called <code>mariadb-secure-installation</code> — on MySQL it is
+            <code>mysql_secure_installation</code>. Run it once after the very first install, before you put
+            any real data in the database.
+        </p>
+
+        <pre><code>sudo mariadb-secure-installation</code></pre>
+
+        <p>
+            The script asks a series of yes-or-no questions. Let's walk through them.
+        </p>
+
+        <h3>Step 1 — Set a root password</h3>
+
+        <p>
+            The first question asks whether you want to set a root password. In older versions, the root user
+            of MariaDB had no password by default and could only be accessed via the Unix socket. On modern
+            MariaDB, whether this is asked depends on the version and the distribution.
+        </p>
+
+        <p>
+            If you are asked, answer yes. Choose a strong password — this is a root account, equivalent to
+            system root for the database. Save it in a password manager. Do not use the same password as
+            your system account.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Why a root password at all?</strong> Because in production, an attacker who gets a valid
+            MariaDB client on the machine should not automatically have root in the database. A password is
+            a separate proof of identity. On our lab VM, the socket authentication is enough — but it is good
+            practice to set the password anyway, and it is required on most cloud databases.
+        </div>
+
+        <h3>Step 2 — Remove anonymous users</h3>
+
+        <p>
+            MariaDB ships with anonymous user accounts — a concept that made sense decades ago but is
+            dangerous today. Answer yes to remove them.
+        </p>
+
+        <h3>Step 3 — Disallow root login remotely</h3>
+
+        <p>
+            The root database user should only ever be allowed to connect from localhost. Allowing remote
+            root login means that anyone who knows the password can attack the database from anywhere on the
+            network. Answer yes to disallow remote root.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Do not allow remote root.</strong> When you need remote access to a database, create a
+            separate account for that, with the narrowest possible privileges, restricted to the specific
+            host that needs it. Root is for local administration only.
+        </div>
+
+        <h3>Step 4 — Remove the test database</h3>
+
+        <p>
+            MariaDB ships with a database named <code>test</code> that anyone can use. It is a long-standing
+            footgun. Answer yes to drop it.
+        </p>
+
+        <h3>Step 5 — Reload privilege tables</h3>
+
+        <p>
+            Finally, the script asks whether you want to reload the privilege tables. Answer yes. This
+            applies all the changes immediately without a restart.
+        </p>
+
+        <h3>What the secure script actually did</h3>
+
+        <p>
+            Under the hood, the script is running ordinary SQL commands against the <code>mysql</code> system
+            database. If you want to see exactly what it did, you can inspect the user table:
+        </p>
+
+        <pre><code>sudo mariadb -e "SELECT User, Host, plugin FROM mysql.user;"</code></pre>
+
+        <p>
+            Typical output after running the secure script:
+        </p>
+
+        <pre><code>+-------------+-----------+-----------------------+
+| User        | Host      | plugin                |
++-------------+-----------+-----------------------+
+| mariadb.sys | localhost | mysql_native_password |
+| root        | localhost | mysql_native_password |
++-------------+-----------+-----------------------+</code></pre>
+
+        <p>
+            Just two users remain. The <code>root</code> account can only log in from <code>localhost</code>.
+            No anonymous users exist. This is a good baseline.
+        </p>
+
+        <h3>Additional hardening beyond the script</h3>
+
+        <p>
+            The script covers the standard cases. For a production server, consider these additional
+            measures.
+        </p>
+
+        <ul>
+            <li><strong>Bind only to localhost by default.</strong> MariaDB should listen on
+                <code>127.0.0.1</code> or on a private interface — not on the public internet. If a web
+                application on the same machine needs the database, use the Unix socket, not TCP.</li>
+            <li><strong>Firewall the port.</strong> If you must allow remote connections, use
+                <code>ufw</code> or <code>iptables</code> to restrict port 3306 to specific source IPs.</li>
+            <li><strong>Enable binary logging and slow query logging.</strong> These let you audit what is
+                happening on the server and diagnose slow queries.</li>
+            <li><strong>Schedule backups.</strong> We will cover this in section 13.8.</li>
+            <li><strong>Keep the server patched.</strong> Security updates for MariaDB arrive through
+                <code>apt</code> like any other package.</li>
+        </ul>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Where things stand:</strong> after running the secure script, we have a clean, minimal
+            MariaDB install. Only root can log in, and only from localhost. No anonymous users, no test
+            database. This is the correct starting point for every deployment.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 13.5 DATABASES, TABLES & SQL                                 -->
+        <!-- ============================================================ -->
+        <h2 id="sql-basics"><i class="fas fa-code"></i> 13.5 · Databases, Tables &amp; SQL Basics</h2>
+
+        <p>
+            Now we use the database. In this section we will create a database, define a couple of tables,
+            insert some rows, query them back, and finally clean them up. Everything is done through the
+            MariaDB command-line client or from SQL scripts.
+        </p>
+
+        <h3>DDL — creating structure</h3>
+
+        <pre><code>-- Create a new database
+CREATE DATABASE shop_app;
+USE shop_app;
+
+-- Create the customers table
+CREATE TABLE customers (
+    id      INT AUTO_INCREMENT PRIMARY KEY,
+    name    VARCHAR(100) NOT NULL,
+    email   VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Create the orders table with a foreign key
+CREATE TABLE orders (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id  INT NOT NULL,
+    total        DECIMAL(10,2) NOT NULL,
+    placed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (customer_id) REFERENCES customers(id)
+        ON DELETE CASCADE
+);</code></pre>
+
+        <p>
+            A few things to note:
+        </p>
+
+        <ul>
+            <li><code>CREATE DATABASE</code> creates the container. <code>USE</code> selects it as the
+                current database for subsequent commands.</li>
+            <li><code>NOT NULL</code> means the column cannot contain null values. This is a constraint —
+                a kind of contract the database enforces.</li>
+            <li><code>UNIQUE</code> means no two rows may have the same value. So no two customers can
+                register with the same email.</li>
+            <li><code>DEFAULT CURRENT_TIMESTAMP</code> means that if you do not provide a value, the column
+                gets the current time. This is how <code>created_at</code> fills itself.</li>
+            <li><code>ON DELETE CASCADE</code> says: if a customer is deleted, delete their orders too.
+                Without this, the delete would fail because orders still reference the customer.</li>
+        </ul>
+
+        <h3>Showing what exists</h3>
+
+        <pre><code>SHOW DATABASES;
+SHOW TABLES;
+DESCRIBE customers;</code></pre>
+
+        <p>
+            <code>SHOW DATABASES</code> lists the databases on the server. <code>SHOW TABLES</code> lists the
+            tables inside the current database. <code>DESCRIBE</code> gives you the schema — columns,
+            types, keys, defaults. All three are essential when you first connect to a database you have
+            never seen before.
+        </p>
+
+        <h3>DML — manipulating data</h3>
+
+        <pre><code>-- Insert a customer
+INSERT INTO customers (name, email)
+VALUES ('Alice', 'alice@example.com');
+
+-- Insert a second
+INSERT INTO customers (name, email)
+VALUES ('Bob', 'bob@example.com');
+
+-- Insert an order for customer 1
+INSERT INTO orders (customer_id, total)
+VALUES (1, 49.99);
+
+-- Read them back
+SELECT * FROM customers;
+SELECT id, name FROM customers WHERE email LIKE '%example.com';
+
+-- Update
+UPDATE customers SET name = 'Alice Smith' WHERE id = 1;
+
+-- Delete
+DELETE FROM customers WHERE email = 'bob@example.com';</code></pre>
+
+        <p>
+            A few points about SQL statements.
+        </p>
+
+        <ul>
+            <li><strong>INSERT</strong> adds rows. You list the columns you are providing values for, and
+                then the values themselves. Columns you omit get their defaults — or NULL if no default
+                exists.</li>
+            <li><strong>SELECT</strong> reads rows. <code>SELECT *</code> means "all columns."
+                <code>WHERE</code> filters. <code>LIKE</code> does pattern matching with <code>%</code> as a
+                wildcard.</li>
+            <li><strong>UPDATE</strong> modifies existing rows. The <code>WHERE</code> clause determines
+                which rows. Every row matching the <code>WHERE</code> gets the change.</li>
+            <li><strong>DELETE</strong> removes rows. Again, the <code>WHERE</code> clause determines which.
+                <code>DELETE</code> with no <code>WHERE</code> clears the entire table.</li>
+        </ul>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>The most dangerous SQL commands.</strong> <code>UPDATE</code> and <code>DELETE</code>
+            without a <code>WHERE</code> clause affect <em>every row</em> in the table. There is no undo.
+            Every serious DBA has at one point in their career typed <code>DELETE FROM users;</code> without
+            a <code>WHERE</code>, on the wrong database, and watched the table empty in a fraction of a
+            second. Many production systems guard against this with a client setting that refuses unqualified
+            UPDATE and DELETE. Enable it.
+        </div>
+
+        <h3>Joins — reading related data</h3>
+
+        <p>
+            The real power of relational databases is joins — combining data from multiple tables. The most
+            common is an <code>INNER JOIN</code>, which returns rows that match in both tables.
+        </p>
+
+        <pre><code>-- Every order, with the name of the customer who placed it
+SELECT   orders.id,
+         orders.total,
+         customers.name,
+         customers.email
+FROM     orders
+JOIN     customers ON orders.customer_id = customers.id
+ORDER BY orders.placed_at DESC;</code></pre>
+
+        <p>
+            <code>JOIN ... ON</code> matches rows from the two tables where the specified condition is true.
+            Here, we match each order with the customer whose ID matches the order's
+            <code>customer_id</code>. This is the fundamental operation that makes normalized data
+            queryable.
+        </p>
+
+        <h3>Transactions</h3>
+
+        <p>
+            A transaction is a group of statements that must all succeed or all fail together. The classic
+            example is a bank transfer:
+        </p>
+
+        <pre><code>BEGIN;
+
+UPDATE accounts SET balance = balance - 100 WHERE id = 1;
+UPDATE accounts SET balance = balance + 100 WHERE id = 2;
+
+COMMIT;</code></pre>
+
+        <p>
+            If the process crashes between the two updates, or if we call <code>ROLLBACK</code> instead of
+            <code>COMMIT</code>, the database will not have applied either update. From outside, the transfer
+            either completed or did not happen. There is no in-between.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Why this matters.</strong> Without transactions, every application would have to
+            implement its own crash recovery. With transactions, the database provides it. This is one of
+            the biggest reasons relational databases are the default choice for any application that handles
+            money, personal data, or anything else where partial updates are unacceptable.
+        </div>
+
+        <h3>DDL for changes — ALTER and DROP</h3>
+
+        <pre><code>-- Add a column to an existing table
+ALTER TABLE customers ADD COLUMN phone VARCHAR(20);
+
+-- Add an index for a column you query often
+CREATE INDEX idx_customers_name ON customers(name);
+
+-- Remove a column
+ALTER TABLE customers DROP COLUMN phone;
+
+-- Delete a table (permanent!)
+DROP TABLE orders;
+
+-- Delete a whole database (also permanent!)
+DROP DATABASE shop_app;</code></pre>
+
+        <p>
+            <code>ALTER</code> modifies the structure of an existing table. <code>DROP</code> removes it.
+            There is no undo. On a production server, every <code>DROP</code> should be preceded by a
+            backup.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 13.6 USERS, HOSTS & PRIVILEGES                               -->
+        <!-- ============================================================ -->
+        <h2 id="users"><i class="fas fa-user-shield"></i> 13.6 · Users, Hosts &amp; Privileges</h2>
+
+        <p>
+            MariaDB's permission system is one of the most peculiar things about the product. It is also one
+            of the most important to understand, because misuse is a common source of security problems.
+        </p>
+
+        <h3>The critical concept: user@host</h3>
+
+        <p>
+            In MariaDB, a user account is not just a username. It is a pair: a username <strong>and</strong>
+            a host. Two accounts named <code>app</code> at different hosts are entirely separate accounts
+            with separate passwords and separate privileges.
+        </p>
+
+        <pre><code>app@localhost         -- app, connecting via the local socket or 127.0.0.1
+app@192.168.56.%      -- app, connecting from any address in the 192.168.56.0/24 subnet
+app@%.example.com     -- app, connecting from any host in the example.com domain
+app@%                 -- app, connecting from anywhere
+</code></pre>
+
+        <p>
+            The host field can be a literal IP address, a hostname, a wildcard pattern using <code>%</code> —
+            which matches any sequence of characters — or <code>_</code>, which matches exactly one
+            character.
+        </p>
+
+        <p>
+            Most hosts also use <code>%</code> as a well-known default — <code>app@%</code> means
+            "app from anywhere." This is exactly what you want for a user that must be accessed remotely,
+            and exactly what you do not want for a user that only needs local access.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Never grant <code>app@%</code> broad privileges on a server with a public IP.</strong>
+            That means the account is accessible from every machine on the internet. If a password leaks,
+            the attacker can log in from anywhere. Restrict by host whenever you can.
+        </div>
+
+        <h3>Creating a user</h3>
+
+        <pre><code>CREATE USER 'app'@'localhost' IDENTIFIED BY 'a-strong-password';
+CREATE USER 'app'@'192.168.56.%' IDENTIFIED BY 'a-strong-password';</code></pre>
+
+        <p>
+            The <code>IDENTIFIED BY</code> clause sets the password. Choose strong passwords. There is no
+            rate-limiting by default on MariaDB password attempts, so a weak password can be brute-forced
+            relatively quickly.
+        </p>
+
+        <h3>Granting privileges</h3>
+
+        <p>
+            A newly created user has almost no privileges. It can connect, but it cannot do anything.
+            Privileges are granted explicitly.
+        </p>
+
+        <pre><code>-- Give the app user full access to the shop_app database
+GRANT ALL PRIVILEGES ON shop_app.* TO 'app'@'localhost';
+
+-- Give the reporting user read-only access
+GRANT SELECT ON shop_app.* TO 'report'@'localhost';
+
+-- Give the app user only what it needs on the orders table
+GRANT SELECT, INSERT, UPDATE ON shop_app.orders TO 'app'@'192.168.56.%';
+
+-- Apply the changes
+FLUSH PRIVILEGES;</code></pre>
+
+        <p>
+            The <code>ON</code> clause specifies the scope of the grant. It can be:
+        </p>
+
+        <ul>
+            <li><code>*.*</code> — every database, every table. Extremely broad. Use sparingly.</li>
+            <li><code>shop_app.*</code> — every table in one database. Common for application users.</li>
+            <li><code>shop_app.orders</code> — a single table. Use this when the application only needs one
+                table.</li>
+        </ul>
+
+        <h3>The principle of least privilege</h3>
+
+        <p>
+            The single most important rule of database security: <strong>grant only what is actually
+            needed</strong>. Nothing more.
+        </p>
+
+        <p>
+            A web application that reads products and writes orders does not need <code>DROP TABLE</code>
+            permission. A reporting tool that only reads data does not need <code>INSERT</code> or
+            <code>DELETE</code>. A read replica's user does not need write access at all.
+        </p>
+
+        <p>
+            Every privilege that is granted is a capability that can be abused if the application is
+            compromised. An attacker who gains control of a web app is limited to what its database user can
+            do. Least privilege turns a catastrophic breach into a contained one.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Scenario</th>
+                    <th>Recommended grant</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Web application frontend</td>
+                    <td><code>SELECT, INSERT, UPDATE, DELETE</code> on the specific database, from the
+                        application server's IP only.</td>
+                </tr>
+                <tr>
+                    <td>Read-only reporting</td>
+                    <td><code>SELECT</code> only, from the reporting server's IP.</td>
+                </tr>
+                <tr>
+                    <td>Migration/deployment tool</td>
+                    <td><code>ALTER, CREATE, DROP, INDEX</code> plus DML, ideally used only during
+                        deployments.</td>
+                </tr>
+                <tr>
+                    <td>Backup tool</td>
+                    <td><code>SELECT, LOCK TABLES, SHOW VIEW, TRIGGER, EVENT</code> — enough to take a
+                        complete dump.</td>
+                </tr>
+                <tr>
+                    <td>Local administrator</td>
+                    <td><code>root@localhost</code>, socket-authenticated, no remote access.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Listing users and their privileges</h3>
+
+        <pre><code>-- List all users
+SELECT User, Host FROM mysql.user ORDER BY User;
+
+-- Show what privileges a user has
+SHOW GRANTS FOR 'app'@'localhost';
+
+-- Show column-by-column privileges
+SELECT * FROM mysql.user WHERE User = 'app'\G</code></pre>
+
+        <p>
+            <code>SHOW GRANTS</code> is the beginning of every audit conversation. Whenever you are not sure
+            what an account can do, run it, read the output carefully, and ask: does this account actually
+            need all of these? If the answer is no, revoke what is not needed.
+        </p>
+
+        <h3>Revoking and dropping</h3>
+
+        <pre><code>-- Take away a specific privilege
+REVOKE DELETE ON shop_app.* FROM 'app'@'localhost';
+
+-- Remove the user entirely
+DROP USER 'app'@'localhost';</code></pre>
+
+        <p>
+            <code>REVOKE</code> removes specific privileges. <code>DROP USER</code> removes the account. Both
+            are trivially reversible by an administrator, so there is no reason to be reluctant to clean up
+            accounts you no longer need.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 13.7 CONNECTING FROM A WEB APP                               -->
+        <!-- ============================================================ -->
+        <h2 id="webapp"><i class="fas fa-plug"></i> 13.7 · Connecting from a Web App</h2>
+
+        <p>
+            Recall from Week 12 that we built a Flask application running on <code>127.0.0.1:5000</code>
+            behind Nginx as a reverse proxy. That application had no persistence — its data lived in Python
+            dictionaries and vanished on restart. Now we connect it to a real database.
+        </p>
+
+        <h3>The connection parameters</h3>
+
+        <p>
+            To connect to a MariaDB server from an application, you need five things:
+        </p>
+
+        <ul>
+            <li><strong>Host</strong> — <code>localhost</code> if the app is on the same machine, or the
+                database server's IP if not.</li>
+            <li><strong>Port</strong> — 3306 by default.</li>
+            <li><strong>Database name</strong> — <code>shop_app</code> in our example.</li>
+            <li><strong>Username and password</strong> — the MariaDB user@host account the app uses.</li>
+        </ul>
+
+        <p>
+            Here is a minimal Flask application that reads from the database:
+        </p>
+
+        <pre><code>from flask import Flask, jsonify
+import mysql.connector
+
+app = Flask(__name__)
+
+def get_db():
+    return mysql.connector.connect(
+        host='localhost',
+        user='app',
+        password='a-strong-password',
+        database='shop_app'
+    )
+
+@app.route('/customers')
+def list_customers():
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute('SELECT id, name, email FROM customers ORDER BY id')
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/customers/&lt;int:cid&gt;')
+def show_customer(cid):
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute('SELECT * FROM customers WHERE id = %s', (cid,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        return jsonify({'error': 'not found'}), 404
+    return jsonify(row)
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000)</code></pre>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Never embed credentials in source code.</strong> The example above has the password
+            hardcoded for brevity, but in any real application, connection credentials belong in environment
+            variables, a configuration file with restrictive permissions, or a secrets manager. If the code
+            is committed to a git repository — even a private one — the password is now stored in the git
+            history forever.
+        </div>
+
+        <h3>Always use parameterized queries</h3>
+
+        <p>
+            Notice the second route uses <code>%s</code> as a placeholder and passes the value separately:
+        </p>
+
+        <pre><code>cur.execute('SELECT * FROM customers WHERE id = %s', (cid,))</code></pre>
+
+        <p>
+            This is critical. Never build SQL by string concatenation:
+        </p>
+
+        <pre><code># DANGEROUS — never do this
+cur.execute(f'SELECT * FROM customers WHERE id = {cid}')</code></pre>
+
+        <p>
+            Concatenating user input into SQL is how SQL injection vulnerabilities happen. An attacker who
+            can control <code>cid</code> in the dangerous version can substitute their own SQL — drop a
+            table, read all data, or in some configurations execute code on the database server.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>SQL injection is one of the most common web vulnerabilities in the world.</strong> It has
+            been number one on OWASP's top ten for decades. Parameterized queries — passing values separately
+            from the SQL string — are the correct defense. Every database driver supports them. Use them
+            without exception.
+        </div>
+
+        <h3>Connection pooling</h3>
+
+        <p>
+            Opening a new database connection for every request is expensive. Each connection involves a
+            TCP handshake, authentication, and allocating a thread on the server. Under load, this becomes
+            the bottleneck.
+        </p>
+
+        <p>
+            The fix is a <strong>connection pool</strong>. The application maintains a small pool of open
+            connections and reuses them. Every major framework has this built in or available as a library.
+        </p>
+
+        <pre><code>from mysql.connector import pooling
+
+pool = pooling.MySQLConnectionPool(
+    pool_name='mypool',
+    pool_size=5,
+    host='localhost',
+    user='app',
+    password='a-strong-password',
+    database='shop_app'
+)
+
+def get_db():
+    return pool.get_connection()</code></pre>
+
+        <p>
+            Five connections is plenty for a small app. In a production deployment, you would tune the pool
+            size based on the number of worker processes and the expected request concurrency.
+        </p>
+
+        <h3>What the database sees</h3>
+
+        <p>
+            When the application connects, MariaDB logs the connection. Any administrator can see what is
+            currently connected:
+        </p>
+
+        <pre><code>SHOW PROCESSLIST;</code></pre>
+
+        <p>
+            This shows every active connection: its ID, the user, the host it came from, which database it
+            is using, its current command, how long it has been running, and what state it is in. The output
+            is indispensable when you are diagnosing why the database is overloaded.
+        </p>
+
+        <p>
+            If you see a query that has been running for minutes, something is wrong. If you see the same
+            user opening dozens of connections, the pool size is wrong or connections are leaking. If you
+            see a lot of <code>Sleep</code> commands, the application is not actually using those
+            connections — they should be closed.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 13.8 BACKUP & RESTORE                                        -->
+        <!-- ============================================================ -->
+        <h2 id="backup"><i class="fas fa-box-archive"></i> 13.8 · Backup &amp; Restore</h2>
+
+        <p>
+            Backups are the single most important thing a database administrator does. Every other task can
+            be deferred. Backups cannot. The three scenarios that destroy a database without a backup are:
+            hardware failure, human error, and ransomware. RAID does not help with any of them — RAID keeps
+            a running system running, it does not protect against a mistaken DROP or a corrupted file.
+        </p>
+
+        <h3>The classic tool: mysqldump</h3>
+
+        <p>
+            <code>mysqldump</code> — also installed as <code>mariadb-dump</code> on modern MariaDB — connects
+            to the server, reads the data, and writes a <strong>logical backup</strong>: a text file
+            containing SQL statements that will recreate the data when played back.
+        </p>
+
+        <pre><code># Dump one database to a file
+mysqldump -u root -p shop_app &gt; shop_app.sql
+
+# Dump all databases
+mysqldump -u root -p --all-databases &gt; all_databases.sql
+
+# Dump the schema only (no data)
+mysqldump -u root -p --no-data shop_app &gt; shop_app_schema.sql
+
+# Dump just a few tables
+mysqldump -u root -p shop_app customers orders &gt; shop_subset.sql</code></pre>
+
+        <p>
+            The output is a plain text SQL file. You can open it, read it, edit it, split it, diff it,
+            commit it to a repository. This is a huge advantage when you need to inspect a backup or
+            reconstruct a specific row.
+        </p>
+
+        <h3>Restoring from a dump</h3>
+
+        <pre><code># Restore into a (freshly created) database
+mysql -u root -p shop_app &lt; shop_app.sql
+
+# Or: create the database first if it does not exist
+mysql -u root -p -e "CREATE DATABASE shop_app;"
+mysql -u root -p shop_app &lt; shop_app.sql</code></pre>
+
+        <p>
+            The restore replays every SQL statement in the file, in order. When it finishes, the database is
+            in the same state as when the dump was taken.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>A dump is a snapshot, not a live replica.</strong> Between the moment you start the dump
+            and the moment it finishes, the live database keeps receiving writes. The dump is consistent — it
+            captures a specific point in time — but it does not contain changes made after that point. If you
+            need continuous replication, you need a different mechanism — MariaDB's binary log replication,
+            or a hot-standby product.
+        </div>
+
+        <h3>Automating backups</h3>
+
+        <p>
+            A backup you take by hand once is not a backup strategy. What you want is a script that runs on a
+            schedule, produces reliable dumps, rotates old ones, and warns you if it fails. On Linux, the
+            standard scheduler is <code>cron</code>.
+        </p>
+
+        <p>
+            A minimal backup script:
+        </p>
+
+        <pre><code>#!/bin/bash
+# /usr/local/bin/backup-mariadb.sh
+
+set -euo pipefail
+
+BACKUP_DIR=/var/backups/mariadb
+DATE=$(date +%Y-%m-%d_%H-%M-%S)
+FILE="$BACKUP_DIR/shop_app_$DATE.sql.gz"
+
+mkdir -p "$BACKUP_DIR"
+
+# Dump and compress in one pass
+mysqldump -u backup -p"$BACKUP_PASSWORD" --single-transaction shop_app | gzip &gt; "$FILE"
+
+# Keep only the last 14 daily backups
+find "$BACKUP_DIR" -name 'shop_app_*.sql.gz' -mtime +14 -delete
+
+echo "Backup complete: $FILE"</code></pre>
+
+        <p>
+            And the corresponding cron entry:
+        </p>
+
+        <pre><code># Run at 02:30 every day
+30 2 * * * /usr/local/bin/backup-mariadb.sh &gt;&gt; /var/log/mariadb-backup.log 2&gt;&amp;1</code></pre>
+
+        <p>
+            Let me point out the two important flags in the dump.
+        </p>
+
+        <ul>
+            <li><strong><code>--single-transaction</code></strong> makes the dump consistent without locking
+                the tables. This is only correct for InnoDB tables, which is what you should be using. For
+                MyISAM tables, you need <code>--lock-tables</code>, which blocks writes.</li>
+            <li><strong>Compression with <code>gzip</code></strong> reduces the dump size by a factor of ten
+                or more. SQL text compresses very well.</li>
+        </ul>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>A backup you have never restored is not a backup.</strong> It is a hopeful collection of
+            bytes. Once a month, restore your most recent backup into a test database and confirm that the
+            data is there and the application works against it. This catches silent failures: the backup
+            script that stopped running three months ago, the password that expired, the disk that filled up.
+        </div>
+
+        <h3>Beyond dumps: physical backups and replication</h3>
+
+        <p>
+            <code>mysqldump</code> is fine for databases up to a few gigabytes. Beyond that, it becomes slow
+            — both to produce and to restore — and it competes with the live workload.
+        </p>
+
+        <p>
+            For larger deployments, consider:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Method</th>
+                    <th>What it does</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>mariabackup</strong></td>
+                    <td>Physical backup tool derived from Percona XtraBackup. Copies the data files directly, without stopping the server.</td>
+                </tr>
+                <tr>
+                    <td><strong>Filesystem snapshots</strong></td>
+                    <td>LVM, ZFS, or Btrfs snapshots of <code>/var/lib/mysql/</code>. Instantaneous and cheap, if the filesystem supports it.</td>
+                </tr>
+                <tr>
+                    <td><strong>Binary log replication</strong></td>
+                    <td>Streams every write to a replica server. The replica is a live, up-to-date copy of the primary. Requires more infrastructure but gives continuous availability.</td>
+                </tr>
+                <tr>
+                    <td><strong>Cloud-managed backups</strong></td>
+                    <td>Most cloud providers offer automated backups and point-in-time restoration for managed databases. Recommended if you are on a cloud platform.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The rule to remember:</strong> a proper backup strategy has three parts — <em>produce</em>
+            regularly, <em>test</em> regularly, and <em>store the backup somewhere other than the server</em>.
+            A backup that lives on the same machine as the database is not a backup — it is an additional
+            copy, and it will disappear with the original.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 13.9 LAB: DEPLOY MARIADB                                     -->
+        <!-- ============================================================ -->
+        <h2 id="lab-deploy"><i class="fas fa-laptop-code"></i> 13.9 · Deep Lab — Deploy MariaDB &amp; Create a Database</h2>
+
+        <p>
+            Now we build. In this lab we will install MariaDB, secure it, create a database with tables and
+            data, and set up an application user with the least privilege it needs.
+        </p>
+
+        <h3>Step 1 — Install</h3>
+
+        <pre><code>sudo apt update
+sudo apt install mariadb-server mariadb-client -y
+
+systemctl status mariadb</code></pre>
+
+        <p>
+            The service should be running. If it is not, check <code>journalctl -u mariadb -n 50</code> for
+            the reason.
+        </p>
+
+        <h3>Step 2 — Secure the installation</h3>
+
+        <pre><code>sudo mariadb-secure-installation</code></pre>
+
+        <p>
+            Answer the prompts as follows:
+        </p>
+
+        <ul>
+            <li><strong>Set root password?</strong> Yes — choose a strong one.</li>
+            <li><strong>Remove anonymous users?</strong> Yes.</li>
+            <li><strong>Disallow root login remotely?</strong> Yes.</li>
+            <li><strong>Remove test database?</strong> Yes.</li>
+            <li><strong>Reload privilege tables?</strong> Yes.</li>
+        </ul>
+
+        <h3>Step 3 — Verify the resulting users</h3>
+
+        <pre><code>sudo mariadb -e "SELECT User, Host FROM mysql.user;"</code></pre>
+
+        <p>
+            You should see only <code>root@localhost</code> and the internal
+            <code>mariadb.sys</code> account. No anonymous users.
+        </p>
+
+        <h3>Step 4 — Create a database and tables</h3>
+
+        <pre><code>sudo mariadb</code></pre>
+
+        <p>At the MariaDB prompt:</p>
+
+        <pre><code>CREATE DATABASE shop_app CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+USE shop_app;
+
+CREATE TABLE customers (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE orders (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id  INT NOT NULL,
+    total        DECIMAL(10,2) NOT NULL,
+    placed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;</code></pre>
+
+        <p>
+            Notice the <code>ENGINE=InnoDB</code> at the end of each table. This is the default engine on
+            MariaDB, but stating it explicitly is good practice — we want InnoDB, not the legacy MyISAM
+            engine, because InnoDB supports transactions and foreign keys.
+        </p>
+
+        <p>
+            Also notice <code>utf8mb4</code> as the character set. This is the modern UTF-8 collation that
+            handles the full Unicode range, including emoji and many non-Latin scripts. The old
+            <code>utf8</code> collation in MySQL/MariaDB is actually a limited three-byte variant and causes
+            surprising bugs.
+        </p>
+
+        <h3>Step 5 — Insert some data</h3>
+
+        <pre><code>INSERT INTO customers (name, email) VALUES
+    ('Alice',   'alice@example.com'),
+    ('Bob',     'bob@example.com'),
+    ('Carol',   'carol@example.com');
+
+INSERT INTO orders (customer_id, total) VALUES
+    (1, 49.99),
+    (1, 99.50),
+    (2, 12.00),
+    (3, 210.75);
+
+SELECT * FROM customers;
+SELECT * FROM orders;</code></pre>
+
+        <h3>Step 6 — Create the application user</h3>
+
+        <pre><code>-- Application runs on this same machine
+CREATE USER 'shop'@'localhost' IDENTIFIED BY 'a-strong-password';
+
+-- Grant only what the app needs
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON shop_app.*
+    TO 'shop'@'localhost';
+
+FLUSH PRIVILEGES;
+
+-- Verify
+SHOW GRANTS FOR 'shop'@'localhost';</code></pre>
+
+        <p>
+            The <code>SHOW GRANTS</code> output should show exactly four privileges —
+            <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> — on
+            <code>shop_app.*</code>, and nothing else.
+        </p>
+
+        <h3>Step 7 — Test the application user</h3>
+
+        <pre><code>quit
+
+mysql -u shop -p shop_app</code></pre>
+
+        <p>Enter the password you set. Then try some queries:</p>
+
+        <pre><code>SELECT * FROM customers;                   -- should work
+INSERT INTO customers (name, email) VALUES ('Dave', 'dave@example.com');  -- should work
+DROP TABLE customers;                      -- should FAIL: no DROP privilege
+CREATE DATABASE another_app;               -- should FAIL: no CREATE DATABASE privilege</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What you just proved:</strong> the <code>shop</code> user can do exactly what the web
+            application needs and nothing more. If the application is compromised, the attacker cannot drop
+            tables, create users, or access other databases. This is the principle of least privilege in
+            action.
+        </div>
+
+        <h3>Step 8 — Check the process list</h3>
+
+        <pre><code>sudo mariadb -e "SHOW PROCESSLIST;"</code></pre>
+
+        <p>
+            You will see your own queries and perhaps a Sleep connection from your earlier login. This is
+            what an administrator looks at when the database is under load.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 13.10 LAB: FULL-STACK INTEGRATION                            -->
+        <!-- ============================================================ -->
+        <h2 id="lab-fullstack"><i class="fas fa-diagram-project"></i> 13.10 · Deep Lab — Full-Stack Integration</h2>
+
+        <p>
+            In this lab, we connect everything we have built across Phase 2. We will take the Flask app from
+            Week 12, add a real database backend, and serve it through Nginx on a lab domain. When we are
+            done, the whole stack — DNS, HTTP, MariaDB — will be running on one VM.
+        </p>
+
+        <h3>Step 1 — Install the Python MySQL connector</h3>
+
+        <pre><code>sudo apt install python3-mysql.connector -y</code></pre>
+
+        <p>
+            Ubuntu ships a package for <code>mysql.connector</code>. Alternatively, you can install it with
+            pip in a virtual environment.
+        </p>
+
+        <h3>Step 2 — Write the Flask app</h3>
+
+        <pre><code>sudo tee /opt/myapp/app.py &gt; /dev/null &lt;&lt;'EOF'
+from flask import Flask, jsonify, request
+import mysql.connector
+from mysql.connector import pooling
+
+app = Flask(__name__)
+
+pool = pooling.MySQLConnectionPool(
+    pool_name='mypool',
+    pool_size=5,
+    host='localhost',
+    user='shop',
+    password='a-strong-password',
+    database='shop_app'
+)
+
+def db():
+    return pool.get_connection()
+
+@app.route('/')
+def index():
+    return '&lt;h1&gt;Shop API&lt;/h1&gt;&lt;p&gt;Try /customers&lt;/p&gt;'
+
+@app.route('/customers')
+def list_customers():
+    conn = db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute('SELECT id, name, email, created_at FROM customers ORDER BY id')
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return jsonify(rows)
+
+@app.route('/customers/&lt;int:cid&gt;')
+def show_customer(cid):
+    conn = db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute('SELECT id, name, email FROM customers WHERE id = %s', (cid,))
+    row = cur.fetchone()
+    cur.close()
+    conn.close()
+    if row is None:
+        return jsonify({'error': 'customer not found'}), 404
+    return jsonify(row)
+
+@app.route('/customers', methods=['POST'])
+def create_customer():
+    data = request.get_json() or {}
+    name = data.get('name')
+    email = data.get('email')
+    if not name or not email:
+        return jsonify({'error': 'name and email are required'}), 400
+
+    conn = db()
+    cur = conn.cursor()
+    try:
+        cur.execute(
+            'INSERT INTO customers (name, email) VALUES (%s, %s)',
+            (name, email)
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+    except mysql.connector.errors.IntegrityError:
+        conn.rollback()
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'email already exists'}), 409
+    finally:
+        cur.close()
+        conn.close()
+
+    return jsonify({'id': new_id, 'name': name, 'email': email}), 201
+
+@app.route('/health')
+def health():
+    # Verify the DB is reachable
+    try:
+        conn = db()
+        cur = conn.cursor()
+        cur.execute('SELECT 1')
+        cur.fetchone()
+        cur.close()
+        conn.close()
+        return 'OK', 200
+    except Exception as e:
+        return f'DB unreachable: {e}', 503
+
+if __name__ == '__main__':
+    app.run(host='127.0.0.1', port=5000)
+EOF</code></pre>
+
+        <h3>Step 3 — Run the app</h3>
+
+        <pre><code>python3 /opt/myapp/app.py &amp;</code></pre>
+
+        <h3>Step 4 — Test locally</h3>
+
+        <pre><code>curl http://127.0.0.1:5000/customers
+curl http://127.0.0.1:5000/customers/1
+curl -X POST http://127.0.0.1:5000/customers \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Eve","email":"eve@example.com"}'</code></pre>
+
+        <p>
+            The first call returns the JSON array of customers from the database. The second returns one
+            specific customer. The third inserts a new one and returns it with a 201 status code.
+        </p>
+
+        <h3>Step 5 — Put Nginx in front</h3>
+
+        <p>
+            Recall from Week 12 the reverse proxy config. We will create
+            <code>/etc/nginx/sites-available/shop.local</code>:
+        </p>
+
+        <pre><code>server {
+    listen 80;
+    server_name shop.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}</code></pre>
+
+        <pre><code>sudo ln -s /etc/nginx/sites-available/shop.local \
+           /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx</code></pre>
+
+        <h3>Step 6 — Point DNS at it</h3>
+
+        <p>
+            From Week 11, our BIND9 server manages the <code>lab.local</code> zone. Edit the forward zone
+            file and add:
+        </p>
+
+        <pre><code>shop    IN  A   192.168.56.1</code></pre>
+
+        <p>
+            Increment the serial, run <code>named-checkzone</code>, reload BIND9. Now the name
+            <code>shop.lab.local</code> resolves to our VM.
+        </p>
+
+        <p>
+            On the client, verify:
+        </p>
+
+        <pre><code>dig shop.lab.local
+curl http://shop.lab.local/customers</code></pre>
+
+        <h3>Step 7 — Test the full flow</h3>
+
+        <p>
+            From the client machine, create a customer through the stack:
+        </p>
+
+        <pre><code>curl -X POST http://shop.lab.local/customers \
+     -H "Content-Type: application/json" \
+     -d '{"name":"Frank","email":"frank@example.com"}'</code></pre>
+
+        <p>
+            Then list them:
+        </p>
+
+        <pre><code>curl http://shop.lab.local/customers</code></pre>
+
+        <p>
+            The new customer is there. And if you log into MariaDB, you can confirm the row is actually
+            persisted:
+        </p>
+
+        <pre><code>sudo mariadb shop_app -e "SELECT * FROM customers WHERE email='frank@example.com';"</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What you just built:</strong> a complete three-tier web application. A client resolves
+            a name via our own DNS server, HTTP requests are proxied by Nginx to a Flask backend, and the
+            backend reads and writes persistent data in our own MariaDB instance. This is the exact
+            architecture of thousands of real-world deployments.
+        </div>
+
+        <h3>Step 8 — Test crash behavior</h3>
+
+        <p>
+            Restart the database and see what happens:
+        </p>
+
+        <pre><code>sudo systemctl restart mariadb
+sleep 2
+curl http://shop.lab.local/customers</code></pre>
+
+        <p>
+            The Flask app's connection pool may briefly fail, but after a moment it should reconnect and
+            serve requests again. This is the value of connection pooling — the app recovers on its own
+            without a restart.
+        </p>
+
+        <p>
+            Now stop the database and see the failure:
+        </p>
+
+        <pre><code>sudo systemctl stop mariadb
+curl -i http://shop.lab.local/customers</code></pre>
+
+        <p>
+            You will get a 500-level error, because the application cannot reach the database. The
+            <code>/health</code> endpoint correctly reports the failure:
+        </p>
+
+        <pre><code>curl http://shop.lab.local/health</code></pre>
+
+        <p>
+            This is exactly how a real system behaves. The health endpoint tells the load balancer that this
+            instance is unhealthy, and traffic gets routed elsewhere — or, if there is no "elsewhere," the
+            service is down.
+        </p>
+
+        <p>Bring the database back up:</p>
+
+        <pre><code>sudo systemctl start mariadb</code></pre>
+
+        <h3>Step 9 — Back up the database</h3>
+
+        <pre><code>mysqldump -u root -p shop_app &gt; /tmp/shop_app_$(date +%F).sql
+ls -lh /tmp/shop_app_*.sql</code></pre>
+
+        <p>
+            Open the file with <code>less</code> to see what a dump looks like. You will see the entire
+            database recreated as SQL statements — <code>CREATE TABLE</code>, <code>INSERT</code>,
+            <code>ALTER</code> — ready to be replayed on another server.
+        </p>
+
+        <p>
+            Restore it into a test database:
+        </p>
+
+        <pre><code>mysql -u root -p -e "CREATE DATABASE shop_app_restore;"
+mysql -u root -p shop_app_restore &lt; /tmp/shop_app_*.sql
+mysql -u root -p shop_app_restore -e "SELECT COUNT(*) FROM customers;"</code></pre>
+
+        <p>
+            The count should match the original. You have round-tripped a database through a backup and
+            restore.
+        </p>
+
+        <h3>Step 10 — Clean up</h3>
+
+        <pre><code>mysql -u root -p -e "DROP DATABASE shop_app_restore;"
+pkill -f /opt/myapp/app.py
+sudo rm /etc/nginx/sites-enabled/shop.local
+sudo systemctl reload nginx</code></pre>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 13 — Deep Assignment</h3>
+            <p>
+                This assignment combines conceptual questions with a substantial hands-on database lab. It
+                is the largest practical assignment of the course. Submit your written answers, SQL output
+                and dump files as a PDF plus the SQL file as an attachment.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain what a relational database is in your own words. What are the four concepts
+                    (database, table, row, column), and how do primary keys and foreign keys relate them?</li>
+                <li>Define ACID. For each property, describe a scenario where violating it would cause real
+                    harm to a business application.</li>
+                <li>What is the difference between DDL, DML, DCL, and TCL? Give two example statements for
+                    each.</li>
+                <li>Explain the <code>user@host</code> concept in MariaDB. Why does it exist? Give one case
+                    where you would use <code>app@localhost</code> and one where you would use
+                    <code>app@192.168.1.%</code>.</li>
+                <li>What is SQL injection? Describe the mechanism, and explain how parameterized
+                    queries prevent it.</li>
+                <li>Why does the principle of least privilege matter in databases? Give three concrete
+                    privileges you would grant and three you would not, for a typical web application.</li>
+            </ol>
+
+            <h4>Part II — SQL Lab (40 points)</h4>
+            <p>
+                On your Ubuntu VM, create a database called <code>library</code> with the following tables.
+                Include the SQL you write in your submission.
+            </p>
+            <ul>
+                <li><code>authors</code> — with columns <code>id</code>, <code>name</code>,
+                    <code>nationality</code>.</li>
+                <li><code>books</code> — with columns <code>id</code>, <code>title</code>,
+                    <code>author_id</code> (foreign key to <code>authors</code>), <code>year_published</code>,
+                    <code>isbn</code> (unique).</li>
+                <li><code>loans</code> — with columns <code>id</code>, <code>book_id</code>,
+                    <code>borrower_name</code>, <code>borrowed_at</code>, <code>returned_at</code> (nullable).</li>
+            </ul>
+
+            <ol>
+                <li>Write the <code>CREATE TABLE</code> statements for all three tables.</li>
+                <li>Insert at least five authors, fifteen books, and ten loans. Include the SQL.</li>
+                <li>Write and run a query that returns every book with the name of its author, sorted by the
+                    author's name. Paste the output.</li>
+                <li>Write and run a query that returns every author with a count of how many books they have
+                    written. Include authors who have zero books.</li>
+                <li>Write and run a query that returns every book that is currently on loan — meaning it has
+                    a loan row with <code>returned_at IS NULL</code> — along with the borrower's name.</li>
+                <li>Update one loan to mark it as returned. Show the <code>UPDATE</code> statement and the
+                    subsequent query result.</li>
+                <li>Create a MariaDB user <code>library_reader</code> that has only <code>SELECT</code>
+                    access on the <code>library</code> database. Prove that it cannot insert or delete.</li>
+            </ol>
+
+            <h4>Part III — Full Stack + Backup (30 points)</h4>
+            <ol>
+                <li>Modify the Flask application from Week 12 to read and write data in the
+                    <code>library</code> database. Add at least one GET endpoint and one POST endpoint.</li>
+                <li>Configure Nginx to proxy requests to your Flask app. Test with <code>curl</code> from a
+                    client machine on the same host-only network.</li>
+                <li>Take a <code>mysqldump</code> of your <code>library</code> database. Attach the
+                    <code>.sql</code> file as part of your submission.</li>
+                <li>Restore your dump into a database called <code>library_restore</code>. Run a count on
+                    each table in both databases and show that the counts match.</li>
+                <li>Write a shell script <code>backup-library.sh</code> that dumps the <code>library</code>
+                    database to <code>/var/backups/mariadb/</code> with a timestamped filename, compresses it
+                    with gzip, and prunes backups older than 14 days. Submit the script and prove that it
+                    runs without errors.</li>
+                <li>Look at the process list with <code>SHOW PROCESSLIST</code> while your application is
+                    running. Paste the output and identify which rows belong to the Flask app's connection
+                    pool.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF plus the <code>.sql</code> dump file and your
+                <code>backup-library.sh</code> script to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 13 Summary</h3>
+            <ul>
+                <li><strong>MariaDB</strong> is a community fork of MySQL. It is a relational database
+                    management system — the persistence layer of every realistic web stack.</li>
+                <li><strong>The relational model</strong> organizes data into tables of rows and columns,
+                    related by primary and foreign keys. Queries are expressed declaratively in SQL.</li>
+                <li><strong>ACID guarantees</strong> — atomicity, consistency, isolation, durability — are
+                    what databases provide that file systems do not.</li>
+                <li><strong>Installation</strong> on Ubuntu is <code>apt install mariadb-server</code>. The
+                    service is managed by systemd like any other.</li>
+                <li><strong>Securing the installation</strong> with <code>mariadb-secure-installation</code>
+                    removes anonymous users, disallows remote root, and removes the test database.</li>
+                <li><strong>SQL</strong> is divided into DDL, DML, DCL, and TCL. The core commands you need
+                    are CREATE, INSERT, SELECT, UPDATE, DELETE, and GRANT.</li>
+                <li><strong>MariaDB users are user@host pairs</strong> — the host is part of the identity.
+                    Grant privileges only for what an application actually needs, from the narrowest possible
+                    host.</li>
+                <li><strong>Connecting from a web app</strong> uses a client library and parameterized
+                    queries. Never build SQL by string concatenation — that is SQL injection.</li>
+                <li><strong>Backups</strong> use <code>mysqldump</code> for logical backups — a SQL text
+                    file that can be replayed. Automate them, test them, and store them off-server.</li>
+                <li><strong>The full stack</strong> — DNS + Nginx + Flask + MariaDB — is a complete three-tier
+                    application, running entirely on VMs you built yourself.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on the <strong>MariaDB documentation</strong>, the <strong>MySQL Reference Manual</strong>,
+                and the <strong>UNIX/Linux System Administration Handbook</strong> | Instructor:
+                <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

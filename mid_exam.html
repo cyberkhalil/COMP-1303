@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Midterm Exam — Operating Systems</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span class="warn"><i class="fas fa-graduation-cap"></i> Week 8 · Midterm Exam</span>
+            <span><i class="fas fa-clock"></i> 90 Minutes</span>
+            <span class="violet"><i class="fas fa-file-pen"></i> 20% of Final Grade</span>
+        </div>
+
+        <h1>Midterm Exam — Operating Systems Theory</h1>
+        <p class="lecture-sub">
+            Covers Weeks 1 through 7 · Based on <em>OSTEP</em>, <em>Silberschatz (Operating System Concepts)</em>,
+            and the complete set of lecture notes for Phase 1.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#info">Exam Info</a>
+            <a href="#topics">Topics Covered</a>
+            <a href="#section-a">A · Multiple Choice</a>
+            <a href="#section-b">B · Short Answer</a>
+            <a href="#section-c">C · Numerical</a>
+            <a href="#section-d">D · Diagrams</a>
+            <a href="#formulas">Formula Sheet</a>
+            <a href="#tips">Preparation</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- EXAM INFO                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="info"><i class="fas fa-circle-info"></i> Midterm Exam Information</h2>
+
+        <div class="exam-hero">
+            <h3><i class="fas fa-file-pen"></i> Exam Details</h3>
+            <table>
+                <tr><td>Duration</td><td>90 minutes</td></tr>
+                <tr><td>Weight</td><td>20% of final course grade</td></tr>
+                <tr><td>Format</td><td>Mixed — Multiple choice, short answer, numerical problems, and diagram labeling</td></tr>
+                <tr><td>Coverage</td><td>Weeks 1 – 7 (entire Phase 1 theory)</td></tr>
+                <tr><td>Allowed materials</td><td>One A4 sheet, handwritten on both sides. Nothing printed.</td></tr>
+                <tr><td>Calculators</td><td>Not permitted — all numbers are designed for hand calculation</td></tr>
+                <tr><td>Total marks</td><td>100 points (Section A = 20, B = 30, C = 30, D = 20)</td></tr>
+            </table>
+        </div>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Instructions.</strong> Answer all questions. Show all working for numerical
+            problems — partial credit is awarded for correct methodology. Write clearly; illegible
+            answers cannot be graded. Use of a calculator, phone, or internet-enabled device results
+            in an automatic zero on the exam.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TOPICS COVERED                                                -->
+        <!-- ============================================================ -->
+        <h2 id="topics"><i class="fas fa-list-check"></i> Topics Covered</h2>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 18%;">Week</th>
+                    <th>Core Concepts Assessed</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Week 1</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Introduction</span></td>
+                    <td>Two roles of an OS · user vs kernel mode · syscall / interrupt / trap · kernel architectures (monolithic, microkernel, hybrid) · LKMs</td>
+                </tr>
+                <tr>
+                    <td><strong>Week 2</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Processes</span></td>
+                    <td>Program vs process · address space layout · 5-state model · PCB contents · context switching · fork/exec/wait · IPC mechanisms</td>
+                </tr>
+                <tr>
+                    <td><strong>Week 3</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Threads</span></td>
+                    <td>Thread vs process · shared vs private state · 1:1 / N:1 / M:N models · race conditions · pthread API · LWPs and Tgid</td>
+                </tr>
+                <tr>
+                    <td><strong>Week 4</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Synchronization</span></td>
+                    <td>Critical sections · 3 properties of a solution · mutexes · semaphores · condition variables · spurious wakeups · producer-consumer · RW locks · monitors</td>
+                </tr>
+                <tr>
+                    <td><strong>Week 5</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Scheduling</span></td>
+                    <td>Metrics (turnaround, waiting, response) · FCFS / SJF / SRTF · Round Robin · Priority & aging · MLFQ · Linux CFS · vruntime · nice values</td>
+                </tr>
+                <tr>
+                    <td><strong>Week 6</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Deadlocks</span></td>
+                    <td>Coffman's four conditions · RAG · lock ordering · Banker's Algorithm · safe sequence · detection & recovery · dining philosophers solutions</td>
+                </tr>
+                <tr>
+                    <td><strong>Week 7</strong><br><span style="font-size:0.78rem;color:#94a3b8;">Memory</span></td>
+                    <td>Virtual memory · segmentation vs paging · TLB & ASIDs · multi-level page tables · demand paging · FIFO / LRU / Optimal / Clock · Belady's anomaly · thrashing & working set</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ============================================================ -->
+        <!-- SECTION A — MULTIPLE CHOICE                                   -->
+        <!-- ============================================================ -->
+        <h2 id="section-a"><i class="fas fa-circle-check"></i> Section A — Multiple Choice (20 points)</h2>
+        <p><em>Choose exactly one answer per question. Each question is worth 1 point.</em></p>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.1</h4>
+            <p>Which of the following instructions can be executed in user mode?</p>
+            <ul class="opts">
+                <li>Modifying the page table base register</li>
+                <li>Reading a value from general-purpose memory</li>
+                <li>Disabling timer interrupts</li>
+                <li>Executing the HLT instruction</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.2</h4>
+            <p>When a thread calls <code>fork()</code> and the fork succeeds, what does the child process see as the return value?</p>
+            <ul class="opts">
+                <li>The child's own PID</li>
+                <li>The parent's PID</li>
+                <li>Zero</li>
+                <li>Negative one</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.3</h4>
+            <p>Which of the following is <strong>private</strong> to each thread of a multi-threaded process?</p>
+            <ul class="opts">
+                <li>The global variables in the data segment</li>
+                <li>The heap allocation area</li>
+                <li>The open file descriptor table</li>
+                <li>The stack and CPU registers</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.4</h4>
+            <p>On Linux, which system call does the pthread library ultimately invoke to create a new thread?</p>
+            <ul class="opts">
+                <li><code>fork()</code></li>
+                <li><code>vfork()</code></li>
+                <li><code>clone()</code> with CLONE_VM and CLONE_FILES</li>
+                <li><code>execve()</code></li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.5</h4>
+            <p>Why must <code>pthread_cond_wait</code> always be called inside a <code>while</code> loop rather than an <code>if</code>?</p>
+            <ul class="opts">
+                <li>Because <code>if</code> statements are not thread-safe in C</li>
+                <li>Because the condition variable may wake up spuriously and the condition may no longer hold</li>
+                <li>Because the mutex must be re-locked in every iteration</li>
+                <li>Because <code>while</code> loops are faster than <code>if</code> statements</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.6</h4>
+            <p>Which scheduling algorithm is provably optimal for minimizing average waiting time when all jobs arrive simultaneously and burst times are known in advance?</p>
+            <ul class="opts">
+                <li>Round Robin</li>
+                <li>FCFS</li>
+                <li>Shortest Job First</li>
+                <li>Priority Scheduling</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.7</h4>
+            <p>In Linux CFS, what does the <em>vruntime</em> of a thread represent?</p>
+            <ul class="opts">
+                <li>The wall-clock time since the thread was created</li>
+                <li>Its priority value as a nice value</li>
+                <li>Its total consumed CPU time, weighted by its priority</li>
+                <li>The number of times the thread has been preempted</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.8</h4>
+            <p>Which condition is <strong>NOT</strong> required for a deadlock to be possible (per Coffman)?</p>
+            <ul class="opts">
+                <li>Mutual exclusion</li>
+                <li>Hold and wait</li>
+                <li>Priority inversion</li>
+                <li>Circular wait</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.9</h4>
+            <p>In Banker's Algorithm, a state is <strong>safe</strong> if and only if:</p>
+            <ul class="opts">
+                <li>Available ≥ sum of all allocations</li>
+                <li>There exists an ordering of threads in which all can complete without exceeding resources</li>
+                <li>No thread currently holds more resources than it needs</li>
+                <li>The number of resource types is less than or equal to the number of threads</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.10</h4>
+            <p>Which page-replacement algorithm can exhibit Belady's anomaly?</p>
+            <ul class="opts">
+                <li>LRU</li>
+                <li>Optimal</li>
+                <li>FIFO</li>
+                <li>Clock</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.11</h4>
+            <p>What is the primary purpose of the TLB?</p>
+            <ul class="opts">
+                <li>To cache recently used disk blocks</li>
+                <li>To cache recent virtual-to-physical address translations</li>
+                <li>To store the page table on disk</li>
+                <li>To cache the results of arithmetic operations</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.12</h4>
+            <p>Which of the following is <strong>not</strong> a valid IPC mechanism on Linux?</p>
+            <ul class="opts">
+                <li>Named pipes (FIFOs)</li>
+                <li>Shared memory segments</li>
+                <li>Unix domain sockets</li>
+                <li>Stack frames</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.13</h4>
+            <p>A <code>fork()</code> on modern Linux is fast even for large parent processes mainly because of:</p>
+            <ul class="opts">
+                <li>The use of huge pages during forking</li>
+                <li>Copy-on-write page sharing between parent and child</li>
+                <li>The kernel skips copying the stack</li>
+                <li>All memory is stored in swap during the fork</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.14</h4>
+            <p>Which process state is <strong>not</strong> part of the classic five-state model?</p>
+            <ul class="opts">
+                <li>Ready</li>
+                <li>Suspended</li>
+                <li>Waiting</li>
+                <li>Terminated</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.15</h4>
+            <p>In a multi-level page table on x86-64, how many memory accesses are required for a full page-table walk?</p>
+            <ul class="opts">
+                <li>1</li>
+                <li>2</li>
+                <li>4</li>
+                <li>8</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.16</h4>
+            <p>Which of the following is the correct order for the DORA process?</p>
+            <ul class="opts">
+                <li>Discover → Request → Offer → Acknowledge</li>
+                <li>Discover → Offer → Request → Acknowledge</li>
+                <li>Offer → Discover → Acknowledge → Request</li>
+                <li>Request → Offer → Discover → Acknowledge</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.17</h4>
+            <p>Which of the following best describes why MLFQ uses a periodic "priority boost"?</p>
+            <ul class="opts">
+                <li>To improve CPU cache locality</li>
+                <li>To prevent starvation of CPU-bound threads</li>
+                <li>To increase context switch frequency</li>
+                <li>To reduce the number of kernel threads</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.18</h4>
+            <p>What is the primary purpose of a semaphore initialized to <strong>N &gt; 1</strong>?</p>
+            <ul class="opts">
+                <li>To provide mutual exclusion on a critical section</li>
+                <li>To limit concurrent access to some resource to at most N threads</li>
+                <li>To guarantee FIFO ordering between threads</li>
+                <li>To prevent deadlocks automatically</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.19</h4>
+            <p>A zombie process is best described as:</p>
+            <ul class="opts">
+                <li>A process that has entered an infinite loop</li>
+                <li>A process holding a mutex it will never release</li>
+                <li>A terminated child whose parent has not yet called <code>wait()</code></li>
+                <li>A process scheduled at the lowest priority level</li>
+            </ul>
+        </div>
+
+        <div class="question-box mc">
+            <h4><i class="fas fa-list"></i> Question A.20</h4>
+            <p>Which file system guarantees crash-consistency by writing changes to a dedicated region on disk before applying them to the real filesystem structures?</p>
+            <ul class="opts">
+                <li>FAT32</li>
+                <li>ext2</li>
+                <li>FAT16</li>
+                <li>ext4 with journaling enabled</li>
+            </ul>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SECTION B — SHORT ANSWER                                      -->
+        <!-- ============================================================ -->
+        <h2 id="section-b"><i class="fas fa-pen-to-square"></i> Section B — Short Answer (30 points)</h2>
+        <p><em>Answer each question in 2–4 complete sentences. Each question is worth 3 points.</em></p>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.1</h4>
+            <p>Explain the difference between a <strong>mode switch</strong> (user ↔ kernel) and a
+            <strong>context switch</strong> (process ↔ process). Give one concrete example of a
+            situation where each occurs.</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.2</h4>
+            <p>What is the <strong>convoy effect</strong> in FCFS scheduling? Why does Shortest-Job-First
+            (SJF) not suffer from this problem?</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.3</h4>
+            <p>Define a <strong>race condition</strong>. Give one concrete example other than the
+            counter-increment example from the lectures, and explain why it happens.</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.4</h4>
+            <p>Why must <code>pthread_cond_wait</code> be called with the mutex held? What would go
+            wrong if this contract were broken?</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.5</h4>
+            <p>Explain the concept of <strong>lock ordering</strong> as a deadlock-prevention mechanism.
+            Illustrate with a two-lock example where the rule is applied correctly.</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.6</h4>
+            <p>Why is Banker's Algorithm not used in real operating systems, despite being provably
+            correct? Give at least two concrete reasons.</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.7</h4>
+            <p>Explain what <strong>thrashing</strong> is, and describe the <strong>death spiral</strong>
+            that makes it progressively worse. What is the working-set model's role in preventing it?</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.8</h4>
+            <p>Describe the difference between the <strong>accessed bit</strong> and the
+            <strong>dirty bit</strong> in a page table entry. How does each one help the Clock
+            page-replacement algorithm?</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.9</h4>
+            <p>Explain why a directory in a Unix file system is itself just a file. What does it
+            actually contain, and how does this make hard links possible?</p>
+        </div>
+
+        <div class="question-box short">
+            <h4><i class="fas fa-comment-dots"></i> Question B.10</h4>
+            <p>In Linux, what is a "lightweight process" (LWP)? How does the relationship between a
+            thread's PID and its Tgid support Linux's unified model of processes and threads?</p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SECTION C — NUMERICAL                                         -->
+        <!-- ============================================================ -->
+        <h2 id="section-c"><i class="fas fa-calculator"></i> Section C — Numerical Problems (30 points)</h2>
+        <p><em>Show all working. Partial credit is awarded for correct methodology even if the
+        final answer is wrong.</em></p>
+
+        <div class="question-box num">
+            <h4><i class="fas fa-calculator"></i> Question C.1 — Scheduling (10 points)</h4>
+            <p>Five processes arrive at time 0 with the following burst times and priorities
+            (lower priority number = higher priority):</p>
+            <table class="comparison-table">
+                <thead>
+                    <tr><th>Process</th><th>Burst</th><th>Priority</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>P1</td><td>8</td><td>3</td></tr>
+                    <tr><td>P2</td><td>4</td><td>1</td></tr>
+                    <tr><td>P3</td><td>9</td><td>4</td></tr>
+                    <tr><td>P4</td><td>5</td><td>2</td></tr>
+                    <tr><td>P5</td><td>2</td><td>5</td></tr>
+                </tbody>
+            </table>
+            <ol>
+                <li>Draw the Gantt chart for <strong>FCFS</strong> (arrival order P1..P5). Compute the average waiting time and average turnaround time.</li>
+                <li>Draw the Gantt chart for <strong>SJF</strong> (non-preemptive). Compute both averages.</li>
+                <li>Draw the Gantt chart for <strong>Priority scheduling</strong> (non-preemptive). Compute both averages.</li>
+                <li>Draw the Gantt chart for <strong>Round Robin</strong> with a time slice of 4. Compute both averages.</li>
+                <li>Which algorithm gives the best average waiting time? Which gives the best average response time? Justify with your numbers.</li>
+            </ol>
+        </div>
+
+        <div class="question-box num">
+            <h4><i class="fas fa-calculator"></i> Question C.2 — Banker's Algorithm (10 points)</h4>
+            <p>Consider a system with three resource types A, B, C where the total instances
+            are A = 10, B = 5, C = 7. Four processes share the resources with the following state:</p>
+            <table class="comparison-table">
+                <thead>
+                    <tr><th>Process</th><th>Allocation (A, B, C)</th><th>Max (A, B, C)</th></tr>
+                </thead>
+                <tbody>
+                    <tr><td>P0</td><td>1, 1, 0</td><td>4, 3, 2</td></tr>
+                    <tr><td>P1</td><td>2, 0, 1</td><td>3, 2, 3</td></tr>
+                    <tr><td>P2</td><td>0, 2, 2</td><td>5, 3, 4</td></tr>
+                    <tr><td>P3</td><td>3, 1, 1</td><td>6, 3, 2</td></tr>
+                </tbody>
+            </table>
+            <ol>
+                <li>Compute the <strong>Available</strong> vector.</li>
+                <li>Compute the <strong>Need</strong> matrix.</li>
+                <li>Is the system currently in a <strong>safe state</strong>? If so, give one safe sequence. If not, explain which process prevented completion.</li>
+                <li>Process P1 issues a request for (0, 1, 1). Show whether the request can be granted under the safe-state check.</li>
+                <li>Process P3 issues a request for (2, 1, 0). Show whether the request can be granted.</li>
+            </ol>
+        </div>
+
+        <div class="question-box num">
+            <h4><i class="fas fa-calculator"></i> Question C.3 — Page Replacement (10 points)</h4>
+            <p>Given the reference string (from left to right, most recent at the right):</p>
+            <pre><code>2  3  2  1  5  2  4  5  3  2  5  2</code></pre>
+            <p>Assume three physical page frames, initially empty. For each algorithm below,
+            show the state of the frames after each access, and compute the total number of
+            page faults.</p>
+            <ol>
+                <li><strong>FIFO</strong></li>
+                <li><strong>LRU</strong></li>
+                <li><strong>Optimal (OPT)</strong></li>
+                <li>Now repeat FIFO with <strong>four</strong> frames. Does the number of faults go up, down, or stay the same? If it goes up, identify this as Belady's anomaly and explain why it occurs.</li>
+            </ol>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SECTION D — DIAGRAMS                                          -->
+        <!-- ============================================================ -->
+        <h2 id="section-d"><i class="fas fa-diagram-project"></i> Section D — Diagram Labeling (20 points)</h2>
+        <p><em>Draw and label the requested diagram. Clarity and completeness matter more than
+        artistic quality.</em></p>
+
+        <div class="question-box diag">
+            <h4><i class="fas fa-diagram-project"></i> Question D.1 (7 points)</h4>
+            <p>Draw the <strong>five-state process model</strong>. Label each of the five states,
+            and label every transition with the event that triggers it (e.g., admit, dispatch,
+            preempt, I/O request, I/O completion, exit).</p>
+        </div>
+
+        <div class="question-box diag">
+            <h4><i class="fas fa-diagram-project"></i> Question D.2 (7 points)</h4>
+            <p>Draw a <strong>resource allocation graph</strong> representing a two-thread deadlock.
+            Include two thread nodes, two resource nodes with single instances each, one assignment
+            edge for each thread, and one request edge for each thread. Circle the cycle that
+            demonstrates the deadlock.</p>
+        </div>
+
+        <div class="question-box diag">
+            <h4><i class="fas fa-diagram-project"></i> Question D.3 (6 points)</h4>
+            <p>Draw the layout of a <strong>multi-threaded process address space</strong> with
+            three threads. Show the code segment, data segment, heap, and the three separate stacks.
+            Indicate on the diagram which regions are shared between threads and which are private.</p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- FORMULA SHEET                                                 -->
+        <!-- ============================================================ -->
+        <h2 id="formulas"><i class="fas fa-square-root-variable"></i> Formula Sheet</h2>
+
+        <p>The following formulas may appear on your A4 sheet. All are used in the numerical
+        problems on this exam.</p>
+
+        <h3>Scheduling Metrics</h3>
+        <pre><code>Turnaround time  = Completion time − Arrival time
+Waiting time     = Turnaround time − Burst time
+Response time    = First run time − Arrival time
+CPU utilisation  = (Total busy time) / (Total elapsed time)
+Throughput       = (Number of completed jobs) / (Total elapsed time)</code></pre>
+
+        <h3>Effective Access Time with Paging</h3>
+        <pre><code>EAT = (1 − p) × memory_access_time
+    + p × page_fault_service_time
+
+where p = page fault rate
+
+If a TLB is present:
+EAT = hit_ratio × (TLB_time + memory_access_time)
+    + miss_ratio × (TLB_time + 2 × memory_access_time)</code></pre>
+
+        <h3>File System — Inode Capacity (ext4-like, 4 KB blocks, 4-byte pointers)</h3>
+        <pre><code>Pointers per block = 4096 / 4 = 1024
+
+Max file size = (12 direct
+              + 1 × 1024 single-indirect
+              + 1 × 1024² double-indirect
+              + 1 × 1024³ triple-indirect) × 4 KB</code></pre>
+
+        <h3>Coffman's Four Conditions (mnemonic: M-H-N-C)</h3>
+        <pre><code>M — Mutual exclusion
+H — Hold and wait
+N — No preemption
+C — Circular wait</code></pre>
+
+        <h3>Belady's Anomaly — FIFO Reference String</h3>
+        <pre><code>Reference string: 1 2 3 4 1 2 5 1 2 3 4 5
+
+FIFO with 3 frames → 9 faults
+FIFO with 4 frames → 10 faults  (anomaly!)</code></pre>
+
+        <!-- ============================================================ -->
+        <!-- TIPS                                                         -->
+        <!-- ============================================================ -->
+        <h2 id="tips"><i class="fas fa-lightbulb"></i> Preparation Tips</h2>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>1. Practice the numericals.</strong> The scheduling, Banker's, and page-replacement
+            problems on this exam are the exact kind you have solved in homework. Do them again from
+            scratch — no peeking at previous solutions — until you can solve each in under 10 minutes.
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>2. Draw your diagrams from memory.</strong> The five-state model, the threading
+            models, the RAG, the multi-level page table, and the MLFQ structure. If you can sketch
+            each one on a blank page without reference, you own the concept.
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>3. Learn the "core problem / solution / trade-off" pattern.</strong> Almost every
+            concept in this course fits it. For example: <em>problem</em> = the OS cannot fetch pages
+            fast enough to keep every process running; <em>solution</em> = demand paging with LRU
+            approximation; <em>trade-off</em> = page-fault cost vs. memory pressure.
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>4. Memorise the key numbers.</strong> Memory access ≈ 100 ns; TLB hit ≈ 1 ns;
+            page-table walk ≈ 200–500 ns; page fault from SSD ≈ 50–100 µs; page fault from spinning
+            disk ≈ 5–10 ms. These tell you which side of an optimization actually matters.
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>5. Prepare the A4 sheet by hand.</strong> Write — do not print — the formulas
+            above. The physical act of writing consolidates memory. Include the "unusual" formulas:
+            EAT, inode capacity, Belady's example. When in doubt, include it — the sheet is a
+            safety net, not a cheat.
+        </div>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Common pitfalls to avoid.</strong>
+            <ul style="margin-top: 0.6rem;">
+                <li>Confusing <em>turnaround</em> with <em>response</em> time. Read the question twice.</li>
+                <li>Forgetting to increment the serial when declaring a safe sequence — the exam does not care, but a good habit for real life.</li>
+                <li>Mixing up FIFO and LRU in page-replacement traces. FIFO evicts by arrival; LRU evicts by last access.</li>
+                <li>Reporting "safe" for a Banker's state without finding an actual safe sequence. In a written exam, always show the sequence.</li>
+                <li>Skipping the working for a numerical answer. Partial credit is real — method matters.</li>
+            </ul>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-flag-checkered"></i> Exam Summary</h3>
+            <ul>
+                <li><strong>Section A (20 pts):</strong> 20 multiple-choice questions spanning all of Weeks 1–7.</li>
+                <li><strong>Section B (30 pts):</strong> 10 short-answer conceptual questions, 3 pts each.</li>
+                <li><strong>Section C (30 pts):</strong> 3 numerical problems — scheduling, Banker's Algorithm, and page replacement.</li>
+                <li><strong>Section D (20 pts):</strong> 3 diagram-labeling questions.</li>
+                <li><strong>Allowed materials:</strong> one handwritten A4 sheet, both sides. No calculators, phones, or other devices.</li>
+                <li><strong>Passing benchmark:</strong> 50 points total. Aim for above 80 for a strong grade.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical · Midterm Exam</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> | Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 9: Linux Shell, Users, Permissions &amp; systemd</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 9</span>
+            <span class="green"><i class="fas fa-terminal"></i> Phase 2 · Linux Practical</span>
+            <span><i class="fas fa-laptop-code"></i> Deep Lab</span>
+        </div>
+
+        <h1>Linux Shell, Users, Permissions &amp; systemd</h1>
+        <p class="lecture-sub">
+            Based on <em>The Linux Command Line</em> by William Shotts, <em>How Linux Works</em> by Brian Ward,
+            and the <em>UNIX and Linux System Administration Handbook</em>.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#shell-fhs">9.1 · Shell &amp; FHS</a>
+            <a href="#pipes">9.2 · Pipes &amp; Redirection</a>
+            <a href="#users">9.3 · Users &amp; Groups</a>
+            <a href="#permissions">9.4 · File Permissions</a>
+            <a href="#special-bits">9.5 · Special Bits</a>
+            <a href="#identity">9.6 · su, sudo &amp; Identity</a>
+            <a href="#systemd">9.7 · systemd Services</a>
+            <a href="#journalctl">9.8 · journalctl</a>
+            <a href="#lab-users">9.9 · Lab: Multi-User</a>
+            <a href="#lab-systemd">9.10 · Lab: systemd Service</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- 9.1 -->
+        <h2 id="shell-fhs"><i class="fas fa-terminal"></i> 9.1 · The Linux Shell &amp; Filesystem Hierarchy</h2>
+
+        <p>
+            Welcome to Phase 2. From this week onward, we stop talking about operating systems in the abstract and
+            start working with a real Linux system every single day. The first tool you must master is the
+            <strong>shell</strong>.
+        </p>
+
+        <p>
+            A shell is a command interpreter. It reads the commands you type, expands them, and asks the kernel to
+            execute the resulting programs. The default shell on nearly every Linux distribution is <code>bash</code>
+            — the Bourne-Again SHell. But other shells exist: <code>zsh</code>, <code>fish</code>, <code>dash</code>,
+            and <code>ksh</code>.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Shell</th>
+                    <th>Typical use</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>bash</code></td><td>Default on most Linux systems</td><td>Powerful, widely documented, POSIX-compatible with extensions</td></tr>
+                <tr><td><code>zsh</code></td><td>Interactive power users</td><td>Better autocompletion, themes, plugins</td></tr>
+                <tr><td><code>fish</code></td><td>Friendly interactive shell</td><td>Not POSIX-compatible, but very user-friendly</td></tr>
+                <tr><td><code>dash</code></td><td><code>/bin/sh</code> on Debian/Ubuntu</td><td>Minimal, fast, used for scripts</td></tr>
+            </tbody>
+        </table>
+
+        <h3>The Filesystem Hierarchy Standard — FHS</h3>
+
+        <p>
+            Linux organizes everything into one single tree, starting at <code>/</code>. Unlike Windows, there are
+            no drive letters. Every disk, partition, USB stick, and network share is mounted somewhere inside this
+            one tree.
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 420" xmlns="http://www.w3.org/2000/svg" aria-label="Linux filesystem hierarchy">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The Linux Filesystem Hierarchy — one tree, starting at /</text>
+
+                <rect x="360" y="45" width="100" height="40" rx="6" fill="rgba(59, 130, 246, 0.22)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="410" y="70" font-family="Courier New" font-size="14" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">/</text>
+
+                <!-- branches -->
+                <line x1="410" y1="85" x2="100" y2="130" stroke="#475569" />
+                <line x1="410" y1="85" x2="260" y2="130" stroke="#475569" />
+                <line x1="410" y1="85" x2="410" y2="130" stroke="#475569" />
+                <line x1="410" y1="85" x2="560" y2="130" stroke="#475569" />
+                <line x1="410" y1="85" x2="720" y2="130" stroke="#475569" />
+
+                <rect x="40" y="130" width="120" height="34" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" />
+                <text x="100" y="152" font-family="Courier New" font-size="11" fill="#34d399"
+                    text-anchor="middle">/bin</text>
+
+                <rect x="200" y="130" width="120" height="34" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" />
+                <text x="260" y="152" font-family="Courier New" font-size="11" fill="#34d399"
+                    text-anchor="middle">/etc</text>
+
+                <rect x="350" y="130" width="120" height="34" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" />
+                <text x="410" y="152" font-family="Courier New" font-size="11" fill="#34d399"
+                    text-anchor="middle">/home</text>
+
+                <rect x="500" y="130" width="120" height="34" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" />
+                <text x="560" y="152" font-family="Courier New" font-size="11" fill="#34d399"
+                    text-anchor="middle">/var</text>
+
+                <rect x="660" y="130" width="120" height="34" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" />
+                <text x="720" y="152" font-family="Courier New" font-size="11" fill="#34d399"
+                    text-anchor="middle">/tmp</text>
+
+                <!-- second row -->
+                <line x1="410" y1="200" x2="160" y2="240" stroke="#475569" />
+                <line x1="410" y1="200" x2="410" y2="240" stroke="#475569" />
+                <line x1="410" y1="200" x2="660" y2="240" stroke="#475569" />
+
+                <rect x="100" y="240" width="120" height="34" rx="5" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" />
+                <text x="160" y="262" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle">/usr</text>
+
+                <rect x="350" y="240" width="120" height="34" rx="5" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" />
+                <text x="410" y="262" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle">/opt</text>
+
+                <rect x="600" y="240" width="120" height="34" rx="5" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" />
+                <text x="660" y="262" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle">/dev</text>
+
+                <!-- third row -->
+                <line x1="410" y1="310" x2="260" y2="350" stroke="#475569" />
+                <line x1="410" y1="310" x2="560" y2="350" stroke="#475569" />
+
+                <rect x="200" y="350" width="120" height="34" rx="5" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" />
+                <text x="260" y="372" font-family="Courier New" font-size="11" fill="#f472b6"
+                    text-anchor="middle">/proc</text>
+
+                <rect x="500" y="350" width="120" height="34" rx="5" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" />
+                <text x="560" y="372" font-family="Courier New" font-size="11" fill="#f472b6"
+                    text-anchor="middle">/sys</text>
+
+                <text x="410" y="410" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    /proc and /sys are virtual — they do not exist on disk. They are windows into the kernel.
+                </text>
+            </svg>
+            <div class="svg-caption">The Linux filesystem hierarchy. Every device, partition, and network share is mounted somewhere inside this single tree.</div>
+        </div>
+
+        <h3>Essential navigation commands</h3>
+
+        <pre><code>pwd                 # print working directory
+ls -la              # list all files, long format
+cd /etc             # change to /etc
+cd ..               # go up one directory
+cd ~                # go to your home directory
+cd -                # go back to previous directory
+tree                # show directory tree (may need to install)
+which bash          # show path of a command
+type ls             # show how a command is interpreted</code></pre>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Absolute vs relative paths:</strong> an absolute path starts at <code>/</code> — for example
+            <code>/etc/hosts</code>. A relative path starts from your current directory — for example
+            <code>hosts</code> if you are already inside <code>/etc</code>. The shortcuts <code>.</code> and
+            <code>..</code> mean “this directory” and “parent directory”.
+        </div>
+
+        <!-- 9.2 -->
+        <h2 id="pipes"><i class="fas fa-shuffle"></i> 9.2 · Pipes, Redirection &amp; Text Processing</h2>
+
+        <p>
+            The real power of the shell is not in running single commands — it is in combining commands into
+            pipelines. Unix gives every program three standard streams:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Stream</th>
+                    <th>Descriptor</th>
+                    <th>Default</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>stdin</strong></td><td>0</td><td>Keyboard input</td></tr>
+                <tr><td><strong>stdout</strong></td><td>1</td><td>Terminal screen</td></tr>
+                <tr><td><strong>stderr</strong></td><td>2</td><td>Terminal screen</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Redirection operators</h3>
+
+        <pre><code>command &gt; file        # write stdout to file (overwrite)
+command &gt;&gt; file       # append stdout to file
+command &lt; file        # read stdin from file
+command 2&gt; file       # write stderr to file
+command &amp;&gt; file       # write both stdout and stderr to file
+command | other       # pipe stdout of command into other
+command | tee file    # write to both stdout and file</code></pre>
+
+        <h3>Text processing tools</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Tool</th>
+                    <th>Purpose</th>
+                    <th>Example</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>grep</code></td><td>Search for patterns</td><td><code>grep root /etc/passwd</code></td></tr>
+                <tr><td><code>sed</code></td><td>Stream editor — substitute text</td><td><code>sed 's/old/new/g' file</code></td></tr>
+                <tr><td><code>awk</code></td><td>Field-based processing</td><td><code>awk '{print $1}' file</code></td></tr>
+                <tr><td><code>cut</code></td><td>Extract columns</td><td><code>cut -d: -f1 /etc/passwd</code></td></tr>
+                <tr><td><code>sort</code></td><td>Sort lines</td><td><code>sort -n file</code></td></tr>
+                <tr><td><code>uniq</code></td><td>Remove adjacent duplicates</td><td><code>uniq -c file</code></td></tr>
+                <tr><td><code>wc</code></td><td>Count lines, words, bytes</td><td><code>wc -l file</code></td></tr>
+                <tr><td><code>head</code> / <code>tail</code></td><td>First or last lines</td><td><code>head -20 file</code></td></tr>
+            </tbody>
+        </table>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg" aria-label="Shell pipeline">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">A Unix pipeline — each process reads from the previous and writes to the next</text>
+
+                <rect x="60" y="80" width="150" height="60" rx="8" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="135" y="105" font-family="Courier New" font-size="12" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">ps aux</text>
+                <text x="135" y="125" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">produces lots of lines</text>
+
+                <rect x="270" y="80" width="140" height="60" rx="8" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="340" y="105" font-family="Courier New" font-size="12" fill="#34d399"
+                    text-anchor="middle" font-weight="700">grep ssh</text>
+                <text x="340" y="125" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">filters lines</text>
+
+                <rect x="470" y="80" width="140" height="60" rx="8" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="540" y="105" font-family="Courier New" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">awk '{print $2}'</text>
+                <text x="540" y="125" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">extracts PID</text>
+
+                <rect x="670" y="80" width="100" height="60" rx="8" fill="rgba(245, 158, 11, 0.18)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="720" y="105" font-family="Courier New" font-size="12" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">xargs kill</text>
+                <text x="720" y="125" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">kills those PIDs</text>
+
+                <line x1="210" y1="110" x2="270" y2="110" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#pipeArrow)" />
+                <line x1="410" y1="110" x2="470" y2="110" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#pipeArrow)" />
+                <line x1="610" y1="110" x2="670" y2="110" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#pipeArrow)" />
+
+                <defs>
+                    <marker id="pipeArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+
+                <text x="410" y="200" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Each command runs as a separate process. The kernel connects stdout of one to stdin of the next.
+                </text>
+            </svg>
+            <div class="svg-caption">The pipeline is the fundamental composition mechanism of Unix. Small tools, connected by pipes, solve complex problems.</div>
+        </div>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Be careful with <code>rm</code> and redirection:</strong> <code>command &gt; file</code> will
+            overwrite <code>file</code> immediately, even if <code>command</code> later fails. If you want to
+            avoid accidental data loss, use <code>set -o noclobber</code> or test commands interactively first.
+        </div>
+
+        <!-- 9.3 -->
+        <h2 id="users"><i class="fas fa-users"></i> 9.3 · Users &amp; Groups</h2>
+
+        <p>
+            Linux is a multi-user system by design. Every process runs as some user. Every file is owned by some
+            user and some group. Understanding users and groups is essential for administration and security.
+        </p>
+
+        <h3>Where user information lives</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>File</th>
+                    <th>Contents</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>/etc/passwd</code></td><td>User accounts: username, UID, GID, home, shell</td></tr>
+                <tr><td><code>/etc/shadow</code></td><td>Encrypted passwords and password aging</td></tr>
+                <tr><td><code>/etc/group</code></td><td>Groups and their members</td></tr>
+            </tbody>
+        </table>
+
+        <h3>Common user-management commands</h3>
+
+        <pre><code>sudo useradd -m -s /bin/bash alice
+sudo passwd alice
+sudo usermod -aG developers alice
+sudo userdel -r alice
+
+sudo groupadd developers
+sudo groupdel developers
+
+id alice
+groups alice
+whoami
+who
+w</code></pre>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>UID 0 is root.</strong> The root user has UID 0 and bypasses most permission checks. System
+            users usually have UIDs below 1000. Regular users start at 1000 on most distributions.
+        </div>
+
+        <!-- 9.4 -->
+        <h2 id="permissions"><i class="fas fa-lock"></i> 9.4 · File Permissions</h2>
+
+        <p>
+            Every file and directory has a set of permission bits — nine bits in total, split into three groups
+            of three: owner, group, and others.
+        </p>
+
+        <pre><code>$ ls -l notes.txt
+-rw-r--r-- 1 alice developers 1024 Nov 12 10:22 notes.txt
+
+ ^^^         owner  group     others
+ |||
+ ||+-- read for owner
+ |+--- write for owner
+ +---- no execute for owner</code></pre>
+
+        <h3>Numeric and symbolic modes</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Value</th>
+                    <th>Permission</th>
+                    <th>Symbol</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>4</td><td>read</td><td><code>r</code></td></tr>
+                <tr><td>2</td><td>write</td><td><code>w</code></td></tr>
+                <tr><td>1</td><td>execute</td><td><code>x</code></td></tr>
+                <tr><td>0</td><td>none</td><td><code>-</code></td></tr>
+            </tbody>
+        </table>
+
+        <pre><code>chmod 755 script.sh      # rwxr-xr-x
+chmod 644 file.txt       # rw-r--r--
+chmod u+x script.sh      # add execute for owner
+chmod g-w file.txt       # remove write for group
+chmod o=r file.txt       # set others to read only
+
+chown alice file.txt
+chown alice:developers file.txt
+chgrp developers file.txt
+
+umask                    # show current umask
+umask 022                # default: new files 644, new dirs 755</code></pre>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 220" xmlns="http://www.w3.org/2000/svg" aria-label="Permission bits">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Permission bits: owner, group, others</text>
+
+                <rect x="120" y="60" width="180" height="50" rx="6" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="210" y="90" font-family="Courier New" font-size="16" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">rwx</text>
+                <text x="210" y="125" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">owner</text>
+
+                <rect x="320" y="60" width="180" height="50" rx="6" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="410" y="90" font-family="Courier New" font-size="16" fill="#34d399"
+                    text-anchor="middle" font-weight="700">r-x</text>
+                <text x="410" y="125" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">group</text>
+
+                <rect x="520" y="60" width="180" height="50" rx="6" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="610" y="90" font-family="Courier New" font-size="16" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">r--</text>
+                <text x="610" y="125" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">others</text>
+
+                <text x="410" y="180" font-family="Inter" font-size="12" fill="#94a3b8" text-anchor="middle">
+                    Numeric: 4 = read, 2 = write, 1 = execute. rwx = 7, r-x = 5, r-- = 4.
+                </text>
+            </svg>
+            <div class="svg-caption">The nine permission bits are always shown in the order owner, group, others.</div>
+        </div>
+
+        <!-- 9.5 -->
+        <h2 id="special-bits"><i class="fas fa-shield-halved"></i> 9.5 · Special Permission Bits</h2>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Bit</th>
+                    <th>Effect on files</th>
+                    <th>Effect on directories</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>setuid</strong></td>
+                    <td>Program runs with owner's UID, not caller's</td>
+                    <td>No effect on Linux</td>
+                </tr>
+                <tr>
+                    <td><strong>setgid</strong></td>
+                    <td>Program runs with owner's GID</td>
+                    <td>New files inherit the directory's group</td>
+                </tr>
+                <tr>
+                    <td><strong>sticky</strong></td>
+                    <td>Historically kept program in swap</td>
+                    <td>Only owner can delete or rename files</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <pre><code>chmod u+s /usr/bin/program       # set setuid bit
+chmod g+s /srv/shared            # set setgid on directory
+chmod +t /tmp                    # set sticky bit
+
+ls -ld /tmp
+# drwxrwxrwt 1 root root ... /tmp
+#          ^ sticky bit shown as t</code></pre>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Security warning:</strong> setuid binaries are powerful and dangerous. A setuid root program
+            can do anything root can do. Never set the setuid bit on a script or a program you did not write and
+            audit yourself.
+        </div>
+
+        <!-- 9.6 -->
+        <h2 id="identity"><i class="fas fa-user-shield"></i> 9.6 · su, sudo &amp; Identity</h2>
+
+        <p>
+            <code>su</code> switches user. <code>sudo</code> runs a single command as another user — by default,
+            root. Modern Linux systems strongly prefer <code>sudo</code> because it is auditable and granular.
+        </p>
+
+        <pre><code>whoami                  # current user
+id                      # UID, GID, groups
+groups                  # groups of current user
+
+su - alice              # switch to alice, load login environment
+sudo command            # run command as root
+sudo -i                 # start an interactive root shell
+sudo -u alice command   # run command as alice
+
+visudo                  # safely edit /etc/sudoers</code></pre>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Never edit <code>/etc/sudoers</code> directly.</strong> A syntax error can lock you out of
+            <code>sudo</code> entirely. Always use <code>visudo</code>, which validates the file before saving.
+        </div>
+
+        <!-- 9.7 -->
+        <h2 id="systemd"><i class="fas fa-gears"></i> 9.7 · systemd Services</h2>
+
+        <p>
+            On modern Linux systems, <strong>systemd</strong> is the init system and service manager. It starts
+            services at boot, manages their lifecycle, collects logs, and handles dependencies.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Command</th>
+                    <th>Purpose</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>systemctl status nginx</code></td><td>Show current status of a service</td></tr>
+                <tr><td><code>sudo systemctl start nginx</code></td><td>Start a service now</td></tr>
+                <tr><td><code>sudo systemctl stop nginx</code></td><td>Stop a service now</td></tr>
+                <tr><td><code>sudo systemctl restart nginx</code></td><td>Restart a service</td></tr>
+                <tr><td><code>sudo systemctl enable nginx</code></td><td>Start service at boot</td></tr>
+                <tr><td><code>sudo systemctl disable nginx</code></td><td>Do not start at boot</td></tr>
+                <tr><td><code>systemctl list-units --type=service</code></td><td>List all services</td></tr>
+                <tr><td><code>systemctl daemon-reload</code></td><td>Reload unit files after editing</td></tr>
+            </tbody>
+        </table>
+
+        <h3>A minimal unit file</h3>
+
+        <pre><code>[Unit]
+Description=My example service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/my-service.sh
+Restart=on-failure
+User=nobody
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+        <p>
+            Unit files live in <code>/etc/systemd/system/</code> for custom services, or
+            <code>/lib/systemd/system/</code> for packages. After creating or editing a unit file, run
+            <code>sudo systemctl daemon-reload</code>.
+        </p>
+
+        <!-- 9.8 -->
+        <h2 id="journalctl"><i class="fas fa-file-lines"></i> 9.8 · journalctl — Reading the Logs</h2>
+
+        <p>
+            systemd collects logs from the kernel, services, and applications into a central journal. The
+            <code>journalctl</code> command lets you query it.
+        </p>
+
+        <pre><code>journalctl                     # all logs
+journalctl -u nginx            # logs for one service
+journalctl -f                  # follow new logs
+journalctl -b                  # logs since last boot
+journalctl --since "1 hour ago"
+journalctl -p err              # only errors and worse
+journalctl -u nginx -n 50      # last 50 lines for nginx
+journalctl --disk-usage        # how much space the journal uses
+sudo journalctl --vacuum-time=7d   # keep only 7 days</code></pre>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Debugging pattern:</strong> when a service fails, run <code>systemctl status service</code>
+            first. It usually shows the last few log lines and the exit code. Then run
+            <code>journalctl -u service -n 100</code> for full context.
+        </div>
+
+        <!-- 9.9 -->
+        <h2 id="lab-users"><i class="fas fa-laptop-code"></i> 9.9 · Deep Lab — Multi-User Environment</h2>
+
+        <p>
+            In this lab, you will build a realistic multi-user environment with groups, users, passwords, and a
+            shared directory with special permissions.
+        </p>
+
+        <h3>Step 1 — Create groups</h3>
+
+        <pre><code>sudo groupadd developers
+sudo groupadd auditors
+getent group developers
+getent group auditors</code></pre>
+
+        <h3>Step 2 — Create users</h3>
+
+        <pre><code>sudo useradd -m -s /bin/bash alice
+sudo useradd -m -s /bin/bash bob
+sudo useradd -m -s /bin/bash carol
+
+sudo passwd alice
+sudo passwd bob
+sudo passwd carol
+
+sudo usermod -aG developers alice
+sudo usermod -aG developers bob
+sudo usermod -aG auditors carol
+
+id alice
+id bob
+id carol</code></pre>
+
+        <h3>Step 3 — Create a shared directory</h3>
+
+        <pre><code>sudo mkdir -p /srv/shared
+sudo chown root:developers /srv/shared
+sudo chmod 2775 /srv/shared
+ls -ld /srv/shared</code></pre>
+
+        <p>
+            The leading <code>2</code> in <code>2775</code> sets the setgid bit. Any file created inside
+            <code>/srv/shared</code> will inherit the <code>developers</code> group, not the creator's primary
+            group.
+        </p>
+
+        <h3>Step 4 — Test with different users</h3>
+
+        <pre><code>su - alice
+touch /srv/shared/alice-file.txt
+ls -l /srv/shared/alice-file.txt
+exit
+
+su - bob
+echo "hello from bob" &gt; /srv/shared/bob-file.txt
+ls -l /srv/shared/bob-file.txt
+exit
+
+su - carol
+touch /srv/shared/carol-file.txt
+# This should fail with permission denied, because carol is not in developers.
+exit</code></pre>
+
+        <h3>Step 5 — Verify sticky bit on /tmp</h3>
+
+        <pre><code>ls -ld /tmp
+# drwxrwxrwt ... /tmp
+# The t at the end means sticky bit is set.</code></pre>
+
+        <!-- 9.10 -->
+        <h2 id="lab-systemd"><i class="fas fa-gears"></i> 9.10 · Deep Lab — Create a systemd Service</h2>
+
+        <p>
+            In this lab, you will create a simple systemd service that runs a script and writes to the journal.
+        </p>
+
+        <h3>Step 1 — Create the script</h3>
+
+        <pre><code>sudo nano /usr/local/bin/hello-service.sh</code></pre>
+
+        <pre><code>#!/bin/bash
+while true; do
+    echo "Hello from my service at $(date)"
+    sleep 10
+done</code></pre>
+
+        <pre><code>sudo chmod +x /usr/local/bin/hello-service.sh</code></pre>
+
+        <h3>Step 2 — Create the unit file</h3>
+
+        <pre><code>sudo nano /etc/systemd/system/hello.service</code></pre>
+
+        <pre><code>[Unit]
+Description=Hello demo service
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hello-service.sh
+Restart=on-failure
+User=nobody
+
+[Install]
+WantedBy=multi-user.target</code></pre>
+
+        <h3>Step 3 — Enable and start</h3>
+
+        <pre><code>sudo systemctl daemon-reload
+sudo systemctl enable hello.service
+sudo systemctl start hello.service
+systemctl status hello.service</code></pre>
+
+        <h3>Step 4 — Read the journal</h3>
+
+        <pre><code>journalctl -u hello.service -f
+# Press Ctrl+C to stop following.
+
+journalctl -u hello.service -n 20
+journalctl -u hello.service --since "5 minutes ago"</code></pre>
+
+        <h3>Step 5 — Clean up</h3>
+
+        <pre><code>sudo systemctl stop hello.service
+sudo systemctl disable hello.service
+sudo rm /etc/systemd/system/hello.service
+sudo rm /usr/local/bin/hello-service.sh
+sudo systemctl daemon-reload</code></pre>
+
+        <!-- HOMEWORK -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 9 — Practical Assignment</h3>
+            <p>
+                Submit a PDF with your answers and terminal outputs. This assignment contributes to your
+                <strong>labs &amp; assignments</strong> grade.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the difference between an absolute path and a relative path. Give two examples of each.</li>
+                <li>Describe stdin, stdout, and stderr. What are their file descriptor numbers, and what is each
+                    used for?</li>
+                <li>Explain the difference between <code>chmod 755</code> and <code>chmod u+rwx,go+rx</code>.
+                    Are they equivalent? Why or why not?</li>
+                <li>What is the purpose of the setgid bit on a directory? Give a realistic use case.</li>
+                <li>Compare <code>su</code> and <code>sudo</code>. Why do modern systems prefer <code>sudo</code>?</li>
+            </ol>
+
+            <h4>Part II — Applied Lab (40 points)</h4>
+            <ol>
+                <li>Create two groups: <code>webteam</code> and <code>dba</code>.</li>
+                <li>Create three users: <code>sara</code>, <code>omar</code>, and <code>lina</code>. Add
+                    <code>sara</code> and <code>omar</code> to <code>webteam</code>, and <code>lina</code> to
+                    <code>dba</code>.</li>
+                <li>Create a shared directory <code>/srv/webteam</code> owned by <code>root:webteam</code> with
+                    permissions <code>2775</code>.</li>
+                <li>As <code>sara</code>, create a file inside <code>/srv/webteam/sara.txt</code>. As
+                    <code>omar</code>, create <code>/srv/webteam/omar.txt</code>. Verify both files are owned by
+                    the <code>webteam</code> group.</li>
+                <li>As <code>lina</code>, try to create <code>/srv/webteam/lina.txt</code>. Paste the error
+                    message. Explain why the operation failed.</li>
+                <li>Run <code>ls -ld /tmp</code> and explain the meaning of the trailing <code>t</code>.</li>
+            </ol>
+
+            <h4>Part III — systemd Lab (30 points)</h4>
+            <ol>
+                <li>Create a script <code>/usr/local/bin/uptime-logger.sh</code> that appends the current uptime to
+                    <code>/var/log/uptime.log</code> every 30 seconds.</li>
+                <li>Create a systemd unit file <code>/etc/systemd/system/uptime-logger.service</code> that runs
+                    this script.</li>
+                <li>Enable and start the service. Paste the output of <code>systemctl status uptime-logger</code>.</li>
+                <li>Use <code>journalctl -u uptime-logger -n 20</code> to show the last 20 log lines. Paste the
+                    output.</li>
+                <li>Stop and disable the service, then remove the unit file and script. Run
+                    <code>systemctl daemon-reload</code>.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF to the course platform.
+            </p>
+        </div>
+
+        <!-- SUMMARY -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 9 Summary</h3>
+            <ul>
+                <li><strong>The shell</strong> interprets your commands. <code>bash</code> is the standard on most
+                    Linux systems.</li>
+                <li><strong>The FHS</strong> organizes everything into one tree under <code>/</code>. Key
+                    directories: <code>/etc</code>, <code>/home</code>, <code>/var</code>, <code>/usr</code>,
+                    <code>/tmp</code>, <code>/proc</code>, <code>/sys</code>.</li>
+                <li><strong>Pipes and redirection</strong> connect commands: <code>|</code>, <code>&gt;</code>,
+                    <code>&gt;&gt;</code>, <code>2&gt;</code>, <code>&amp;&gt;</code>, <code>tee</code>.</li>
+                <li><strong>Text tools</strong> — <code>grep</code>, <code>sed</code>, <code>awk</code>,
+                    <code>cut</code>, <code>sort</code>, <code>uniq</code>, <code>wc</code> — are the workhorses
+                    of Linux administration.</li>
+                <li><strong>Users and groups</strong> are defined in <code>/etc/passwd</code>,
+                    <code>/etc/shadow</code>, and <code>/etc/group</code>. Commands: <code>useradd</code>,
+                    <code>usermod</code>, <code>passwd</code>, <code>groupadd</code>.</li>
+                <li><strong>Permissions</strong> use <code>rwx</code> bits for owner, group, and others.
+                    <code>chmod</code>, <code>chown</code>, <code>chgrp</code>, and <code>umask</code> control
+                    them.</li>
+                <li><strong>Special bits:</strong> setuid, setgid, sticky. Use setgid on shared directories so new
+                    files inherit the group.</li>
+                <li><strong><code>sudo</code></strong> is preferred over <code>su</code>. Edit
+                    <code>/etc/sudoers</code> only with <code>visudo</code>.</li>
+                <li><strong>systemd</strong> manages services with <code>systemctl</code>. Unit files live in
+                    <code>/etc/systemd/system/</code>.</li>
+                <li><strong>journalctl</strong> reads systemd logs. Use <code>-u</code>, <code>-f</code>,
+                    <code>-b</code>, <code>--since</code>, and <code>-p err</code>.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>The Linux Command Line</strong>, <strong>How Linux Works</strong>, and
+                <strong>UNIX/Linux System Administration Handbook</strong> | Instructor:
+                <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

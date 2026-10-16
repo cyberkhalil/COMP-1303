@@ -1,0 +1,1049 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 2 — Processes & Process Management
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  seven short videos.
+• Each video is designed to be between 12 and 20 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.1 — What is a Process?                                      ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "What is a Process?" + course name]
+
+SPEAK:
+"Welcome to Week 2 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week we laid the foundation — we talked about what an operating
+system is, how it separates user mode from kernel mode, and how
+applications ask it for services. Now it's time to meet the star of
+the show: the process.
+
+In this first video, I want to answer a question that sounds almost
+too simple: what exactly is a process? But if you can answer that
+question with real clarity, you're already halfway through the
+mental model of everything else we'll do in this course."
+
+[PAUSE]
+
+[SLIDE 2 — Slide with two contrasting boxes: "Program — a file on
+disk" vs "Process — a running instance"]
+
+SPEAK:
+"Here's a classic distinction from the textbook that I want you to
+memorize. A program is a passive entity. It's a file — a bunch of
+bytes sitting on your disk. Maybe an executable, maybe a script.
+Nothing is happening. It just exists.
+
+A process is an active entity. It's a program that has been loaded
+into memory and given a CPU context by the operating system. It has a
+program counter pointing at the next instruction. It has registers,
+it has a stack, it has a heap. It is running.
+
+Let me give you a very concrete example. If you open your terminal
+and type the command ls, you're running a program called ls. Now, if
+you open two terminals and type ls in both, you have two independent
+processes, even though it's the same program on disk. Each one has its
+own PID, its own memory, its own everything."
+
+[PAUSE]
+
+[SLIDE 3 — Diagram of process address space: Code / Data / Heap /
+Stack]
+
+SPEAK:
+"So what lives inside a process? Every process has its own virtual
+address space, and that space is typically divided into four regions.
+
+At the very bottom — conceptually, the lowest addresses — you have the
+code or text segment. That's the compiled machine instructions of
+your program. It's usually read-only. Multiple instances of the same
+program can actually share the same code pages.
+
+Above the code, you find the data segment. That's where global
+variables and static variables live. It's writable, and it has a fixed
+size once the program is loaded.
+
+Then you have the heap. This is dynamically allocated memory — the
+region that grows when you call malloc in C, or new in a high-level
+language. The heap grows upward, towards higher addresses.
+
+And finally, the stack. That's where function call frames live —
+local variables, parameters, return addresses. In most architectures,
+the stack grows downward, towards lower addresses.
+
+The heap and the stack grow toward each other. If they meet, you've
+run out of address space. That's what happens when you get a stack
+overflow, or when you allocate too much memory without freeing it."
+
+[PAUSE]
+
+[SLIDE 4 — Highlight: "Process = Isolation + Protection"]
+
+SPEAK:
+"Now here's the deeper point I want you to take away from this video.
+
+Processes are not just an abstraction — they are the operating
+system's primary unit of isolation and protection.
+
+Remember what we said in Week 1 about user mode and kernel mode? The
+same philosophy applies here, but at the granularity of individual
+programs. Two different processes cannot accidentally read or write
+each other's memory. The hardware — specifically the memory management
+unit in the CPU — enforces this.
+
+If process A tries to write to an address that belongs to process B,
+the CPU traps, and the kernel kills process A. Immediately. No
+negotiation.
+
+This is why you can have a buggy program crashing in one window while
+another window happily keeps working. Before virtual memory and
+process isolation existed, that was impossible — one bad program
+brought down everything.
+
+So when you think of a process, don't just think of 'a running
+program.' Think of a running program that is also a prison, with walls
+enforced by the hardware itself. That's the mental image that will
+carry you through the rest of this course."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To wrap up this video:
+
+A program is a file on disk. A process is a running instance of that
+file.
+
+Every process has a virtual address space with four regions: code,
+data, heap, and stack.
+
+And crucially, processes provide isolation — the fundamental mechanism
+by which modern operating systems prevent one program from destroying
+another.
+
+In the next video, we'll look at the lifecycle of a process — the
+states it passes through, and the data structure the kernel uses to
+track it. See you there."
+
+[END OF VIDEO 2.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.2 — Process States and the PCB                              ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Process States and the PCB"]
+
+SPEAK:
+"Welcome back. In the previous video we saw what a process is. Now
+let's talk about its lifecycle. A process is not a static thing —
+it goes through a series of well-defined states as the OS manages it.
+And to keep track of all this, the kernel uses a data structure called
+the Process Control Block. That's our topic for this video."
+
+[PAUSE]
+
+[SLIDE 2 — Five-state diagram: New, Ready, Running, Waiting,
+Terminated]
+
+SPEAK:
+"Let me walk you through the five states of the classic process model
+from Silberschatz. This is one of the most important diagrams in
+operating systems — learn it well.
+
+Let's start at the beginning. A new process is created. This usually
+happens when another process calls the fork system call — we'll see
+that next video. At this point, the OS is allocating resources: it
+sets up the address space, creates the PCB, prepares everything. The
+process is in the New state.
+
+Once the process is fully set up and ready to run, but hasn't been
+given the CPU yet, it enters the Ready state. Now it sits in the ready
+queue, waiting for the CPU scheduler to pick it. Notice: the process
+has everything it needs to run. It's just waiting for its turn.
+
+When the scheduler picks it, the process goes into the Running state.
+It executes instructions on the CPU. On a single-core machine, only
+one process can be Running at any given instant.
+
+Now, what happens if the running process needs to wait for something?
+Maybe it issued a read from disk, or it's waiting for user input, or
+it's waiting for a child process. It can't proceed until that event
+happens. So it moves to the Waiting state — also called the Blocked
+state in some textbooks. Notice that a waiting process is not ready to
+run even if the CPU were free. It's blocked by something external.
+
+When the event finally happens — the disk read completes, the user
+presses a key — the process moves back to Ready. It doesn't go
+directly to Running. That's an important detail for the exam.
+
+And finally, when the process finishes execution or is terminated for
+some reason, it enters the Terminated state. At this point the process
+is not running anymore, but it hasn't been fully cleaned up — the
+parent may still want to read its exit status."
+
+[PAUSE]
+
+[SLIDE 3 — The five transitions labeled with their triggers]
+
+SPEAK:
+"Let's look at the transitions between states. There are five in this
+model.
+
+From New to Ready — the process has been admitted to the system.
+Resources are ready; it just needs the CPU.
+
+From Ready to Running — this is called dispatch. The scheduler picks
+this process and gives it the CPU.
+
+From Running to Ready — this happens when the process is preempted.
+Maybe the time slice ended, maybe a higher-priority process became
+ready. The process is still ready to run, just not running at this
+moment.
+
+From Running to Waiting — the process issued a blocking call. It
+cannot continue.
+
+From Waiting to Ready — the event the process was waiting for
+completed.
+
+From Running to Terminated — the process called exit, or the kernel
+terminated it."
+
+[PAUSE]
+
+[SLIDE 4 — The PCB contents]
+
+SPEAK:
+"Now let's talk about the data structure the kernel uses to keep track
+of all of this: the Process Control Block, or PCB. In Linux, this
+structure is called task_struct. Every process has a PCB, and it
+contains everything the kernel needs to know about that process.
+
+First, the process ID — the PID. Every process has a unique integer
+identifier. And the parent PID — the PPID — which points to the
+process that created this one.
+
+Then, the process state. One of the five we just discussed.
+
+The program counter — the address of the next instruction to execute.
+The full set of CPU registers — needed so the process can be resumed
+exactly where it left off.
+
+Memory management information — pointers to the page tables, base
+and limit registers, memory maps.
+
+I/O status — which files are open, which devices are in use, and any
+pending I/O requests.
+
+And finally, accounting information — CPU time consumed so far, the
+priority of this process, and scheduling parameters the kernel uses."
+
+[SLIDE 5 — Highlight: "The PCB is a snapshot of everything needed to
+resume this process"]
+
+SPEAK:
+"Here's the way I want you to think about the PCB. It is a snapshot
+of everything needed to resume the process exactly where it left off.
+If the OS ever needs to pause this process and come back to it later
+— because it needs to run another process, or because it's waiting
+for an I/O event — the PCB has all the information required to
+reconstruct the process's running state.
+
+When the process was suspended, all its CPU registers were saved into
+its PCB. When we resume, we read them back. The program counter tells
+us where to continue. The page tables tell us where its memory lives.
+
+That is the entire magic of multitasking. The system can appear to be
+running fifty programs at once — and it does — but it's really just
+saving and restoring PCBs, thousands of times per second."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"So, three things to remember:
+
+One: a process passes through five states — New, Ready, Running,
+Waiting, Terminated.
+
+Two: transitions between states are triggered by syscalls, I/O
+completion events, and scheduler decisions.
+
+Three: the PCB is the kernel's record of every process. It is the
+single most important data structure for process management.
+
+In the next video, we'll look closely at what happens during a context
+switch — one of the most misunderstood operations in operating
+systems."
+
+[END OF VIDEO 2.2]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.3 — Context Switching                                       ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Context Switching"]
+
+SPEAK:
+"Welcome to the third video of Week 2. So far we've seen what a
+process is, and how the OS tracks it with a PCB. Now let's look at
+one of the most fundamental operations the kernel performs: switching
+from one process to another. This is called context switching, and
+it is happening on your machine right now, hundreds of times per
+second."
+
+[PAUSE]
+
+[SLIDE 2 — Conceptual: "Only one process runs at a time on one CPU
+core"]
+
+SPEAK:
+"First, let's clear up a common misconception. When you look at
+htop or the Windows Task Manager, it looks like a dozen programs are
+running at the same time. But on a single CPU core, only one
+instruction stream is executing at any given nanosecond.
+
+What's actually happening is that the CPU is switching between
+processes so rapidly that the human eye cannot detect the gaps. This
+isn't magic — it's arithmetic. A typical CPU runs at three billion
+cycles per second. A context switch takes a few thousand cycles. So
+the CPU can switch thousands of times per second, and still spend
+ninety-nine percent of its time doing useful work.
+
+As a system gets more loaded, the OS runs the scheduler more often,
+switching between processes more aggressively. This is why a machine
+with a hundred active processes still feels responsive — the OS
+carefully distributes CPU time."
+
+[PAUSE]
+
+[SLIDE 3 — Step-by-step: what happens during a context switch]
+
+SPEAK:
+"Let's walk through the steps of a context switch.
+
+Step one: the kernel saves the CPU registers of the currently running
+process into its PCB. Anything the process was doing — its program
+counter, stack pointer, general registers — all gets written back to
+memory.
+
+Step two: the kernel updates the process state. If we're preempting
+it, we mark it Ready. If it's blocked on I/O, we mark it Waiting.
+
+Step three: the scheduler chooses the next process to run. This
+choice depends on the scheduling algorithm — we'll cover that in Week
+5.
+
+Step four: the kernel loads the saved CPU registers of the next
+process from its PCB.
+
+Step five: the kernel switches the memory map. This is the expensive
+part. It updates the memory management unit so the next process's
+page tables become active."
+
+[PAUSE]
+
+SPEAK:
+"Step six, and the last step: the CPU resumes execution of the new
+process.
+
+That's the whole sequence. It looks simple when written out as six
+steps. In reality, the kernel code that does this is extremely
+careful — every register must be saved and restored in the right
+order, and the memory-map switch must be done atomically. If anything
+goes wrong, you get a crash."
+
+[SLIDE 4 — Why context switches are expensive]
+
+SPEAK:
+"Now, a question you should have in your mind: if context switches are
+so useful, why don't we just switch infinitely often?
+
+The answer is that context switches have real costs. On a modern
+Linux system, a context switch takes on the order of one to ten
+microseconds. That might not sound like much, but consider this:
+if you switch ten thousand times per second, you're spending ten to
+one hundred milliseconds per second just on switching overhead. That's
+up to ten percent of your CPU time spent on bookkeeping instead of
+real work.
+
+Most of the cost comes from the memory-map switch. When the CPU
+changes the active page tables, the TLB — Translation Lookaside
+Buffer — gets invalidated. The TLB is a small cache that makes virtual
+memory translation fast. Once it's flushed, the next several memory
+accesses have to walk the page table from scratch, which is
+dramatically slower. It takes some time for the TLB to warm up again.
+
+This is why modern systems try to avoid unnecessary context
+switches. If a system switches too aggressively, performance
+collapses — a phenomenon sometimes called context-switch thrashing."
+
+[PAUSE]
+
+[SLIDE 5 — Mode switch vs context switch]
+
+SPEAK:
+"Let me clarify one thing that often confuses students. There's a
+difference between a mode switch and a context switch.
+
+A mode switch is what happens when the CPU goes from user mode to
+kernel mode. That happens when your program makes a system call — for
+example, when it reads from a file. But it's the same process. Same
+PID, same address space. No context switch occurred.
+
+A context switch, on the other hand, is a change of which process the
+CPU is running. It happens when the scheduler decides to run a
+different process.
+
+So the two are related but distinct. A system call that blocks — like
+reading from a slow disk — may eventually cause a context switch,
+because while this process is blocked, the kernel wants to run
+something else. But the syscall itself is not a context switch. It's
+a mode switch that may lead to a context switch."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"So, to wrap up.
+
+A context switch saves the state of one process and loads the state
+of another. It's the mechanism that makes multitasking possible.
+
+The switch involves saving registers, updating the PCB, updating the
+memory map, and resuming.
+
+Context switches have real cost — mainly due to TLB invalidation and
+page-table switching.
+
+And finally, don't confuse mode switches with context switches. The
+first one changes privilege level; the second changes which process
+is running.
+
+In the next video, we'll look at the fun part — the actual syscalls
+used to create and manage processes on Unix systems: fork, exec, and
+wait."
+
+[END OF VIDEO 2.3]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.4 — fork(), exec(), and wait()                              ║
+║  Target duration: ~20 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "fork(), exec(), and wait()"]
+
+SPEAK:
+"Welcome to the fourth video of Week 2. So far we've been pretty
+conceptual — states, PCBs, context switches. Now we go hands-on.
+
+In this video, I want to introduce you to the three system calls that
+form the backbone of process management on every Unix-like system:
+fork, exec, and wait. If you understand these three, you understand
+how your shell works, how servers spawn workers, and how programs
+produce parallel work."
+
+[PAUSE]
+
+[SLIDE 2 — Highlight: "In Unix, fork is the ONLY way to create a
+process."]
+
+SPEAK:
+"Here's a fact that surprises many students: on Unix-like systems,
+there is exactly one way to create a new process. It's called fork.
+
+fork is a system call. When a process calls fork, the kernel creates a
+copy of it. The copy is called the child process. The original is
+called the parent.
+
+The child gets a duplicate of the parent's entire address space, its
+open file descriptors, its resources. Almost everything is copied.
+The one thing that isn't copied is the process ID — the child gets a
+new PID. And its parent PID is set to the parent's PID."
+
+[PAUSE]
+
+[SLIDE 3 — "fork returns TWICE"]
+
+SPEAK:
+"Now here's the strange and beautiful part. When you call fork, it
+returns twice. Once in the parent, and once in the child.
+
+In the parent, fork returns the PID of the newly created child. This
+lets the parent know 'hey, I have a new child with this ID.'
+
+In the child, fork returns zero.
+
+So the standard pattern is: call fork, and then check the return
+value. If it's negative, something went wrong — fork failed. If it's
+zero, we're in the child. If it's positive, we're in the parent.
+
+Let me show you a minimal example."
+
+[SLIDE 4 — Show the C code]
+
+SPEAK:
+"Here's a tiny C program that demonstrates fork.
+
+We call fork and store the return value in a variable called pid.
+
+Then we have an if-else chain. If pid is less than zero, we call
+perror and return. If pid equals zero, we print the child message. If
+pid is greater than zero, we print the parent message.
+
+When this program runs, both branches will execute — the parent
+prints its line, and the child prints its line. They run concurrently,
+though the scheduler decides who goes first."
+
+[PAUSE]
+
+[SLIDE 5 — Copy-on-write]
+
+SPEAK:
+"You might be wondering — if fork copies the entire address space,
+that must be really slow for large processes. And you'd be right. If
+the parent has a gigabyte of memory, copying it would take ages.
+
+Linux solves this with a technique called copy-on-write, or COW. The
+child doesn't immediately get its own copy of the parent's memory
+pages. Instead, it shares the same physical pages with the parent, and
+those pages are marked as copy-on-write. When either process tries to
+write to a page, only then does the kernel make a copy.
+
+This means fork is extremely fast, especially in the common pattern
+where the child immediately calls exec to become a new program. In
+that case, the memory is technically shared, and the child almost
+immediately replaces it entirely."
+
+[PAUSE]
+
+[SLIDE 6 — exec]
+
+SPEAK:
+"Now let's talk about exec. exec is a family of functions — execvp,
+execl, execv, and several others — that all eventually call the
+execve system call.
+
+What does exec do? It replaces the calling process's code, data, heap,
+and stack with a brand new program. It doesn't create a new process —
+it becomes a different program, with the same PID.
+
+This is why we say 'there is no return from a successful exec.' If
+you successfully exec a new program, you're no longer running the old
+one. The old code has been replaced entirely."
+
+[PAUSE]
+
+[SLIDE 7 — wait and waitpid]
+
+SPEAK:
+"The third call is wait. When a parent process wants to know when its
+child has finished, it calls wait or waitpid. These block the parent
+until a child terminates, and return the child's PID and exit status.
+
+This is important because of something called a zombie process. When
+a child terminates, the kernel doesn't immediately free all its
+resources. It keeps the exit status around in case the parent wants to
+read it. The child, in this intermediate state, is called a zombie.
+
+Once the parent calls wait, the kernel reaps the zombie — the child's
+PCB is freed, and everything is clean. This is why wait is not
+optional in well-behaved code. If a parent creates many children
+without reaping them, zombies accumulate and eventually exhaust the
+process table."
+
+[SLIDE 8 — The classic shell pattern]
+
+SPEAK:
+"Let me show you how these three calls work together in the most
+common pattern in Unix: what happens when you type a command into
+your shell.
+
+Imagine you type ls into bash.
+
+Step one: bash calls fork. Now there are two processes — bash itself,
+and a copy of bash.
+
+Step two: in the child, the code calls execvp with the argument ls.
+The child stops being a copy of bash and becomes the ls program.
+
+Step three: in the parent, bash calls waitpid, blocking until the
+child finishes.
+
+Step four: ls runs, prints the files, and exits. The kernel marks the
+child as terminated.
+
+Step five: waitpid in the parent returns. Bash prints the next prompt.
+
+This pattern — fork, exec, wait — is used to launch every single
+command you have ever typed into a Unix shell. Every single one. From
+ls to vim to your web browser, they all started this way."
+
+[SLIDE 9 — Summary]
+
+SPEAK:
+"To summarize:
+
+fork creates a new process by copying the current one. It returns
+twice — once in each process.
+
+exec replaces the current program with a new one, keeping the same
+PID.
+
+wait blocks the parent until a child finishes and reaps the child's
+resources.
+
+Together, these three calls are the foundation of Unix process
+management. If you understand them, you understand how a shell works,
+how a server spawns workers, and how programs produce parallelism.
+
+In the next video, we'll take a step back and look at how processes
+communicate with each other — the different IPC mechanisms."
+
+[END OF VIDEO 2.4]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.5 — Inter-Process Communication Basics                      ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Inter-Process Communication (IPC)"]
+
+SPEAK:
+"Welcome back. In the previous video we learned how to create
+processes with fork. But once you have multiple processes running,
+you have a new question: how do they talk to each other?
+
+Remember that processes are isolated by design. That isolation is
+what makes the OS robust — one process cannot corrupt another. But it
+also means that if you want two processes to exchange data, you need
+help from the kernel. That help comes in the form of IPC — Inter-
+Process Communication."
+
+[PAUSE]
+
+[SLIDE 2 — Overview table: Pipes, Shared Memory, Message Queues,
+Sockets, Signals]
+
+SPEAK:
+"Unix and Linux provide several IPC mechanisms. Each one has its own
+trade-offs, and choosing the right one for a task is part of the
+craft of systems programming. Let me introduce the main ones.
+
+Pipes. A pipe is a unidirectional byte stream that connects two
+related processes — usually a parent and a child. It's the simplest
+IPC mechanism on Unix. You've used pipes many times already — every
+time you type something like 'ls | grep foo' in your shell, that
+vertical bar is a pipe connecting the ls process to the grep process.
+
+Named pipes, also called FIFOs, are like pipes but they exist as a
+file in the file system. This means two unrelated processes can use
+them, not just a parent and child.
+
+Shared memory. Two processes map the same physical pages of memory
+into their own address spaces. Any process can write and the other
+sees the change immediately. This is by far the fastest IPC mechanism
+— there's no kernel involvement after setup. The catch is
+synchronization. If both processes write to the same byte at the same
+time, you get chaos. It's the programmer's responsibility to use
+locks or semaphores to coordinate.
+
+Message queues. The kernel manages a queue of messages. Processes put
+messages in and take messages out. Cleaner semantics than pipes,
+slightly slower than shared memory.
+
+Sockets. The most general mechanism. Sockets work for both
+communication on the same machine and communication between two
+different machines over the network. That makes them the foundation
+of virtually every network service you'll ever use.
+
+Signals. Rarer but very important. A signal is a small asynchronous
+notification — for example, SIGINT is the signal that Ctrl+C sends to
+stop a process. Signals carry almost no data, but they're extremely
+lightweight."
+
+[PAUSE]
+
+[SLIDE 3 — Highlight: choosing the right IPC]
+
+SPEAK:
+"So how do you choose? Here's a simple decision guide.
+
+If you have two related processes that just need to pass bytes — use
+pipes. This is the simplest and most common choice.
+
+If you need high throughput and your messages are small and frequent —
+use shared memory with proper synchronization.
+
+If you want structured, discrete messages with kernel-managed
+queuing — use message queues.
+
+If you need to communicate with a process on a different machine —
+sockets. There's no other choice, and sockets are extremely well
+supported.
+
+And for simple event notification — signals."
+
+[SLIDE 4 — Practical example: showing ls | grep]
+
+SPEAK:
+"Let me show you a quick example in the shell. When I run 'ls | grep
+txt', here's what's actually happening underneath the shell.
+
+The shell creates a pipe. Then it forks twice — once for ls, once for
+grep. It connects ls's standard output to the write end of the pipe,
+and grep's standard input to the read end. Then it execs ls in one
+child and grep in the other. Now ls writes its output into the pipe,
+and grep reads it. The two processes run in parallel, communicating
+through the kernel's pipe mechanism.
+
+That single pipe character you type on your keyboard triggers a
+surprisingly elaborate dance underneath. This is systems programming
+at its most elegant."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize:
+
+Processes are isolated by design, so they need explicit IPC mechanisms
+to communicate.
+
+Pipes are the simplest mechanism — unidirectional, for related
+processes.
+
+Shared memory is the fastest, but requires synchronization.
+
+Sockets are the most general, and extend to networking.
+
+Signals are a lightweight notification mechanism.
+
+In the next video, we move to the practical side. You'll actually
+write and run your first systems program — a C program that uses
+fork to create a process tree."
+
+[END OF VIDEO 2.5]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.6 — Touch Lab: fork() and Process Trees                     ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — fork() and Process Trees"]
+
+SPEAK:
+"Welcome to the practical side of Week 2. In this video we'll write,
+compile, and run our first real systems program. The goal is to see
+with our own eyes what the theory has been describing.
+
+Make sure your Ubuntu VM is running, and log in. If you need a
+refresher, the Week 1 lab covers the setup. Let's get started."
+
+[SCREENCAST — terminal prompt]
+
+SPEAK:
+"First, let's create our source file. I'll use nano, but any editor
+works.
+
+Run: nano forktree.c"
+
+[SCREENCAST — nano opens a new file]
+
+SPEAK:
+"Now paste in the following program. Take a moment to read it — I've
+added comments so you can follow along.
+
+We include the necessary headers: stdio.h for printf, unistd.h for
+fork and getpid, sys/types.h for pid_t, and sys/wait.h for wait.
+
+Then in main, we call fork and store the result in pid.
+
+If pid is less than zero, fork failed. We print an error and return.
+
+If pid equals zero, we're in the child. We print our own PID and our
+parent's PID.
+
+If pid is greater than zero, we're in the parent. We print our own
+PID and the child's PID. Then we call wait, which blocks us until the
+child finishes. Once the child finishes, we print a confirmation.
+
+Save the file with Ctrl+O, then Enter, then exit with Ctrl+X."
+
+[SCREENCAST — compile and run]
+
+SPEAK:
+"Now compile. Run:
+
+gcc -Wall -o forktree forktree.c
+
+The -o flag names the output executable. The -Wall enables all warnings,
+which is a good habit.
+
+If there are no errors, you'll see no output at all. Let's verify the
+executable exists:
+
+ls -l forktree
+
+Good. Now run it:
+
+./forktree
+
+You should see something like this — the parent prints and the child
+prints. Notice that the order is not necessarily parent first. The
+scheduler decides. Try running it a few more times and see if you can
+observe a different order."
+
+[PAUSE]
+
+[SCREENCAST — running pstree]
+
+SPEAK:
+"Now let's look at the process tree. To make the timing easier, I'll
+modify the program to sleep for a few seconds so we have time to
+observe it. Let me show you that.
+
+But for now, let's run pstree to see the tree:
+
+pstree -p yourusername
+
+You should see your shell at the top, then forktree as a child of the
+shell, then forktree as a child of that. The two forktree processes
+have distinct PIDs — those are the parent and the child."
+
+[SCREENCAST — cat /proc/<pid>/status]
+
+SPEAK:
+"Let's inspect the child's state via /proc. Find the child PID — the
+one with the higher number, usually — and run:
+
+cat /proc/4712/status
+
+You'll see the process name, state, PID, PPID, user ID, memory usage,
+and much more. The state field will likely show 'S' if the process is
+sleeping or 'R' if it's running.
+
+And finally, look at the file descriptors:
+
+ls -l /proc/4712/fd
+
+You'll see three entries numbered 0, 1, 2. Those are stdin, stdout,
+and stderr — all pointing to your terminal device."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we wrote a C program using fork, ran it, and observed
+the parent and child processes from multiple angles — through the
+program's own output, through pstree, and through the /proc file
+system.
+
+What I want you to take away is that processes are not just abstract
+concepts — they are visible, inspectable objects on a running Linux
+system. You can see them, examine them, and control them, all from
+the command line.
+
+Try modifying the program on your own. What happens if you call fork
+twice in a row? What happens if the child exits immediately without
+doing anything? Experiment — that's how you build intuition.
+
+In the next video, we'll look at the tools that sysadmins use every
+day to monitor and manage processes: ps, top, and friends."
+
+[END OF VIDEO 2.6]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 2.7 — Touch Lab: Monitoring Processes with ps and top         ║
+║  Target duration: ~17 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — ps, top, and Process Control"]
+
+SPEAK:
+"Welcome to the final video of Week 2. In the previous lab, we
+inspected processes from inside our own program. Now let's look at
+them from the outside — using the tools that every Linux admin uses
+daily.
+
+Before we start, remember what we learned: every process has a PCB,
+and much of the PCB's content is exposed to user space through tools
+like ps and through the /proc file system. These tools give us a
+window into what the kernel is doing."
+
+[SCREENCAST — running ps]
+
+SPEAK:
+"Let's start with the simplest command: ps.
+
+Just running ps by itself shows only the processes attached to your
+current terminal. That's usually just your shell. Not very
+interesting.
+
+Now let's try ps aux. This shows every process on the system, in
+BSD-style format. Let me walk through the columns.
+
+USER is the owner of the process. PID is the process ID. %CPU is
+recent CPU usage. %MEM is memory usage as a percentage. STAT is the
+process state — R for running, S for sleeping, D for
+uninterruptible sleep, Z for zombie.
+
+TIME is total CPU time used. And COMMAND is the command line that
+started the process.
+
+Notice how many processes are running. Even on a minimal server,
+there are dozens. Most are kernel threads — you can tell by the
+square brackets around their names."
+
+[SCREENCAST — piping ps]
+
+SPEAK:
+"Because ps produces a lot of output, we often combine it with grep
+or head. For example:
+
+ps aux | grep firefox
+
+This finds all processes related to firefox. Useful when you want to
+find the PID of a specific program.
+
+Or:
+
+ps -eo pid,ppid,stat,cmd --sort=-%cpu | head -10
+
+This shows the top ten processes by CPU usage. The --sort=-%cpu sorts
+descending by CPU. The -e selects all processes. The -o specifies
+which columns to show.
+
+Try this on your own VM. Make sure you understand what each column
+represents."
+
+[SCREENCAST — running top]
+
+SPEAK:
+"Now let's talk about top. Where ps takes a snapshot, top gives us a
+live, refreshing view.
+
+Run top.
+
+The top section shows system-wide metrics: uptime, load average,
+number of tasks, CPU usage breakdown, memory usage, swap usage. Below
+that, a live list of processes sorted by CPU usage by default.
+
+Top updates every few seconds. You can type q to quit, h for help,
+M to sort by memory, P to sort back by CPU, and k to kill a process
+by PID.
+
+Top is an incredibly powerful tool. Learn to read it."
+
+[SCREENCAST — installing and running htop]
+
+SPEAK:
+"If top feels clunky to you — and honestly, it does to me — you should
+install htop. Htop is a friendlier, more colorful version with better
+navigation.
+
+Run: sudo apt install htop
+
+Then just run htop.
+
+You get a much nicer interface. You can scroll with the arrow keys,
+kill processes with F9, sort with F6, and filter with F4. Track this
+down — you'll thank yourself later."
+
+[SCREENCAST — job control demonstration]
+
+SPEAK:
+"Now let's talk about job control. This is about managing multiple
+processes from a single shell session.
+
+Let me start a long-running process in the background:
+
+sleep 300 &
+
+The ampersand at the end tells the shell to run this in the
+background. You get back the job number and the PID.
+
+Now let's see our jobs:
+
+jobs
+
+You see the sleep process as job 1.
+
+Now let's start a foreground process and suspend it with Ctrl+Z:
+
+sleep 500
+
+Then press Ctrl+Z.
+
+You get back your prompt, and job 2 is now stopped. We can resume it
+in the background:
+
+bg %2
+
+Or bring it back to the foreground:
+
+fg %2
+
+And finally, to kill a background process, use kill with its PID:
+
+kill 4810
+
+Or kill it by job number:
+
+kill %1"
+
+[SLIDE — Practice exercise]
+
+SPEAK:
+"Here's a practice exercise I want you to try on your own.
+
+Start three sleep commands in the background. Use jobs to list them.
+Use ps -eo pid,ppid,stat,cmd | grep sleep to identify them from the
+process list. Bring one to the foreground with fg, then kill it with
+Ctrl+C. Then kill the other two with the kill command.
+
+If you can do this without hesitation, you've mastered the basic
+vocabulary of process control. You'll use these commands every single
+day for the rest of this course."
+
+[SLIDE — Week 2 wrap-up]
+
+SPEAK:
+"This wraps up Week 2. We covered a lot of ground. We started with the
+definition of a process, went through process states and the PCB, then
+context switching, then the classic fork/exec/wait trio, then IPC.
+And we ended with hands-on labs where we wrote real systems code and
+mastered the tools used by Linux admins.
+
+Please complete the written homework assignment for this week. It
+mixes conceptual questions with practical exercises on your own VM.
+
+Next week, we'll go deeper into threads — a lighter-weight cousin of
+processes that is essential for modern concurrent software.
+
+See you then."
+
+[END OF VIDEO 2.7 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 2
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~118 minutes of raw footage
+After editing and trimming: ~100–110 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

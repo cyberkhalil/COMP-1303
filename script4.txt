@@ -1,0 +1,1197 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 4 — Synchronization & Concurrency
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  eight short videos.
+• Each video is designed to be between 15 and 20 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.1 — Race Conditions and Critical Sections (Recap)           ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "Synchronization & Concurrency" + course name]
+
+SPEAK:
+"Welcome to Week 4 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week we met the thread. We saw how powerful it is — and how
+dangerous. We saw that two threads incrementing a shared counter
+produce different, wrong answers every time. And we saw why: the
+counter++ instruction is really three instructions, and when two
+threads interleave them, an increment gets lost.
+
+That was a demonstration of the problem. This week, we solve it.
+
+I want to give you the roadmap for the whole week, because we have a
+lot to cover. First, we will redefine the problem formally. Then we
+will build up four mechanisms: locks, semaphores, condition variables,
+and monitors. We will use them to solve the three classic concurrency
+problems. And finally, we will learn how to debug all of this with a
+tool called Helgrind.
+
+By the end of this week, you will be able to write concurrent code
+that is correct by construction — not by luck."
+
+[PAUSE]
+
+[SLIDE 2 — The three properties of a good solution]
+
+SPEAK:
+"Before we look at any mechanism, let me define what any correct
+solution must provide. There are three properties, and a valid
+solution must have all three.
+
+First: mutual exclusion. At most one thread is inside the critical
+section at any given time.
+
+Second: progress. If no thread is currently inside the critical
+section, and some thread wants to enter, one of those threads must be
+allowed in — eventually.
+
+Third: bounded waiting. There is a limit on how many times other
+threads can jump the queue before a waiting thread gets its turn.
+Without this, a thread could be starved indefinitely, even while the
+system is technically making progress.
+
+Whenever you build or evaluate a synchronization mechanism, ask
+yourself: does it provide all three? If any is missing, the solution
+is broken — even if it works in your test cases."
+
+[PAUSE]
+
+[SLIDE 3 — The broken flag-based lock]
+
+SPEAK:
+"Let's see why the naive approach fails. Here is a lock built from a
+simple flag variable. We have a variable called lock, initialized to
+zero. To acquire it, we loop while lock equals one, then set it to one.
+To release, we set it back to zero.
+
+This looks obviously correct. But it is completely broken.
+
+Why? Because the check — while lock equals one — and the
+set — lock equals one — are separate operations. Between them, another
+thread can run. Two threads can both see the lock as zero, both decide
+to take it, and both enter the critical section.
+
+This is exactly the same race condition as counter++. The check and
+the set are not atomic. To build a correct lock, we need hardware
+support — a way to test and set a value in a single, uninterruptible
+step."
+
+[SLIDE 4 — Hardware atomic primitives]
+
+SPEAK:
+"Modern CPUs give us exactly that. The most important atomic
+primitives are:
+
+Test-and-set: atomically reads and sets a value in one step.
+
+Compare-and-swap: atomically sets a value only if the current value
+matches an expected value.
+
+Load-linked and store-conditional: a pair of instructions used on RISC
+architectures with the same effect.
+
+Fetch-and-add: atomically adds a value and returns the old value.
+
+Every lock, every semaphore, every condition variable in every
+operating system on the planet is ultimately built out of these
+primitives. They are the hardware's contribution to correct
+concurrency.
+
+And the good news is: you will almost never write a lock by hand. The
+pthread library and the C standard library give you correct, tested
+implementations. But you must understand what they are built on,
+because the guarantees they provide are the guarantees you rely on."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"So, to wrap up this recap:
+
+A correct synchronization solution must provide mutual exclusion,
+progress, and bounded waiting.
+
+A simple flag variable is not enough — the check and the set must be
+atomic, which requires hardware support.
+
+Modern CPUs provide atomic primitives: test-and-set, compare-and-swap,
+load-linked/store-conditional, and fetch-and-add.
+
+Building on these primitives, we can now design real synchronization
+mechanisms. The first is the lock. Let's look at it in the next video."
+
+[END OF VIDEO 4.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.2 — Locks and Mutexes                                       ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Locks and Mutexes"]
+
+SPEAK:
+"Welcome back. In the previous video we saw the problem in its full
+form. Now let's look at the first and most fundamental mechanism for
+solving it: the lock, also called a mutex — short for mutual
+exclusion.
+
+The interface is beautifully simple. You have a lock variable. You
+call lock — sometimes called acquire — to try to enter the critical
+section. When you're done, you call unlock. And between those two
+calls, nobody else can be inside.
+
+That's the whole mental model. Simple to say, harder to use correctly
+in practice. Let's build up to that."
+
+[PAUSE]
+
+[SLIDE 2 — The interface]
+
+SPEAK:
+"Here is the abstract interface of a lock.
+
+You declare a lock variable. Then you call lock on it to acquire.
+Code below that call runs with the guarantee that no other thread is
+inside the same locked region. Then you call unlock to release.
+
+If a second thread calls lock while the first one holds it, the second
+thread will block — wait — until the first thread calls unlock. Only
+then does the second thread proceed."
+
+[PAUSE]
+
+[SLIDE 3 — Spinlock vs blocking lock]
+
+SPEAK:
+"When a thread has to wait for a lock, there are two fundamentally
+different ways to make it wait.
+
+The first is spinlocking. The waiting thread sits in a tight loop,
+repeatedly checking whether the lock is now free. This wastes CPU
+cycles aggressively — but it also avoids any context-switch overhead.
+If the critical section is only held for a few nanoseconds, spinning
+can actually be faster than blocking.
+
+The second is blocking — sometimes called sleeping. The waiting thread
+asks the kernel to put it to sleep until the lock becomes available.
+The CPU is freed up to run other threads. This is more efficient when
+the critical section is held for a long time.
+
+Linux's pthread mutexes use a hybrid: they spin for a few microseconds
+first, and if the lock is still held, they block. This is because
+short critical sections are common, and sleeping is expensive."
+
+[SLIDE 4 — The pthread_mutex API]
+
+SPEAK:
+"The POSIX pthread API gives us the standard mutex. Let me show you
+the functions.
+
+pthread_mutex_t is the type. You initialize it with
+PTHREAD_MUTEX_INITIALIZER for a static mutex, or with
+pthread_mutex_init for a dynamically allocated one.
+
+pthread_mutex_lock blocks until the mutex is acquired.
+pthread_mutex_trylock returns immediately — either acquiring the lock
+or returning EBUSY.
+pthread_mutex_timedlock gives up after a specified timeout.
+pthread_mutex_unlock releases the lock.
+pthread_mutex_destroy frees the mutex's resources when you're done."
+
+[PAUSE]
+
+[SLIDE 5 — Golden rules]
+
+SPEAK:
+"Before we go further, let me give you the golden rules for using
+mutexes. These are not suggestions — violating any of them is a bug.
+
+Rule one: always call unlock on every path out of the locked region.
+That includes error paths, early returns, and functions that might
+longjmp. A missed unlock leaves the lock held forever — every other
+thread waits forever.
+
+Rule two: never lock the same mutex twice from the same thread. This
+is undefined behavior, and in practice often means the thread
+deadlocks itself.
+
+Rule three: never unlock a mutex you did not lock. The behavior is
+undefined.
+
+Rule four: keep the critical section as short as possible. While you
+hold a lock, every other thread that wants it is blocked. Long
+critical sections destroy scalability."
+
+[PAUSE]
+
+[SLIDE 6 — The corrected counter]
+
+SPEAK:
+"Let's see the corrected counter in action. Same program as Week 3's
+broken version — two threads, each incrementing a shared counter one
+hundred thousand times. But now we wrap the increment between
+pthread_mutex_lock and pthread_mutex_unlock.
+
+Here is the code. Notice the shared mutex is initialized statically
+with PTHREAD_MUTEX_INITIALIZER.
+
+Let me walk through the loop. For each iteration, we lock, increment,
+unlock. Between lock and unlock, no other thread can be executing
+this code. So the read-modify-write sequence is now atomic from the
+perspective of the two threads.
+
+Run this program a hundred times. The output is always exactly two
+hundred thousand. The lost update is gone."
+
+[SLIDE 7 — Performance reality]
+
+SPEAK:
+"One last thing before we move on: mutexes are not free. Let's look at
+the numbers.
+
+An uncontended mutex lock and unlock costs about fifteen to twenty-five
+nanoseconds. That's a few atomic instructions — no kernel involvement.
+
+A contended mutex, where a thread actually has to sleep and be woken
+up, costs one to ten microseconds. That's between one and ten thousand
+nanoseconds. That's a hundred to a thousand times more.
+
+This is why real-world code prefers fine-grained locking — many small
+locks protecting small pieces of data — over one giant global lock.
+It's also why advanced techniques like lock-free data structures
+exist — to avoid locking entirely where the performance matters.
+
+But for correctness, a mutex is the right tool. Optimize later, after
+you've proven your code is correct."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+A lock — or mutex — is the fundamental synchronization primitive.
+Its interface is simple: lock, do work, unlock.
+
+It can be implemented with spinning or blocking; the best
+implementations use a hybrid.
+
+The pthread_mutex API gives us correct, tested lock implementations.
+Use pthread_mutex_lock and pthread_mutex_unlock, always paired.
+
+Follow the golden rules: unlock on every path, never double-lock,
+never unlock a lock you don't own, keep critical sections short.
+
+In the next video, we'll look at a more flexible primitive — the
+semaphore."
+
+[END OF VIDEO 4.2]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.3 — Semaphores                                              ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Semaphores"]
+
+SPEAK:
+"Welcome to the third video of Week 4. In the previous video we saw
+the lock — the simplest synchronization primitive, with a binary
+state: held or free.
+
+Now let's look at a generalization of the lock that opens up entirely
+new possibilities: the semaphore.
+
+A semaphore is like a lock, but instead of two states, it has an
+integer counter. And that counter can be arbitrarily large."
+
+[PAUSE]
+
+[SLIDE 2 — Two operations: wait and post]
+
+SPEAK:
+"A semaphore supports two atomic operations.
+
+Wait — also called P, or down, or acquire. This decrements the
+counter. If the counter would go negative, the calling thread blocks
+until another thread increases it.
+
+Post — also called V, or up, or release. This increments the counter.
+If any thread is blocked waiting on this semaphore, exactly one is
+woken up.
+
+The initial value of the semaphore is set at construction time, and
+it determines what the semaphore means. That's the key insight — the
+same mechanism plays two very different roles depending on how you
+initialize it."
+
+[SLIDE 3 — Semaphore as a lock]
+
+SPEAK:
+"If you initialize a semaphore to one, it behaves exactly like a
+mutex.
+
+Wait decrements it to zero. Now the semaphore is "empty", and any other
+thread that calls wait will block. When the first thread calls post,
+the counter returns to one, and a waiting thread is woken.
+
+This is the classic "binary semaphore". Same semantics as a mutex."
+
+[PAUSE]
+
+[SLIDE 4 — Semaphore as a counter]
+
+SPEAK:
+"But here's where the semaphore gets interesting. If you initialize
+it to N, it becomes a counting semaphore — and it can limit the number
+of threads that access a resource simultaneously.
+
+Imagine a connection pool with a maximum of three connections. You
+initialize the semaphore to three. Before grabbing a connection, each
+thread calls wait. After releasing it, each thread calls post.
+
+Now at most three threads can hold a connection at the same time.
+The fourth thread that tries to wait will block until one of the
+first three calls post.
+
+This pattern is everywhere in real systems — limiting concurrent
+connections, throttling API calls, capping worker threads. A mutex
+cannot do this. A semaphore can."
+
+[PAUSE]
+
+[SLIDE 5 — POSIX semaphore API]
+
+SPEAK:
+"The POSIX semaphore API is straightforward.
+
+sem_t is the type. sem_init initializes it with a value. The second
+argument — zero — means the semaphore is process-private rather than
+shared between processes.
+
+sem_wait is the blocking wait. sem_trywait is the non-blocking
+variant. sem_post is the release. sem_getvalue reads the current
+value — useful for debugging but never for control flow, because the
+value can change between reading it and acting on it."
+
+[SLIDE 6 — Semaphores as signaling]
+
+SPEAK:
+"The most powerful use of semaphores is not locking at all — it's
+signaling.
+
+Let me show you a pattern. Thread A does some heavy initialization
+work. Thread B needs to use the result of that initialization. The
+trick: initialize a semaphore to zero.
+
+Thread B calls sem_wait immediately. Since the value is zero, B
+blocks.
+
+Thread A does its initialization, then calls sem_post. This wakes B.
+Now B proceeds.
+
+This gives us a way to enforce ordering — one thread must complete
+before another begins. A mutex cannot do this. A mutex only provides
+mutual exclusion, not ordering.
+
+Whenever you find yourself thinking "thread X must finish before
+thread Y starts", the answer is usually a semaphore initialized to
+zero."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+A semaphore is an integer counter with two atomic operations: wait
+and post.
+
+Semaphores play two roles depending on their initial value. As a lock
+when initialized to one. As a counting mechanism when initialized to N.
+
+POSIX provides the semaphore API in semaphore.h.
+
+Beyond locking, semaphores provide signaling — the ability to enforce
+ordering between threads. This is a capability that a simple mutex
+does not offer.
+
+In the next video, we'll look at the third primitive: condition
+variables. They're the tool you reach for when you need to wait for
+a condition to become true."
+
+[END OF VIDEO 4.3]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.4 — Condition Variables                                     ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Condition Variables"]
+
+SPEAK:
+"Welcome to the fourth video of Week 4. Locks give us mutual
+exclusion. Semaphores give us counters and signaling.
+
+But there's a pattern neither one handles well: the pattern of waiting
+for a complex condition to become true.
+
+For example, a consumer thread might need to wait until the buffer is
+not empty. A worker might need to wait until a task is available. A
+client might need to wait until its request is complete.
+
+This is where condition variables come in. They are almost always
+used together with a mutex, and the pair is what makes coordinated
+waiting correct."
+
+[PAUSE]
+
+[SLIDE 2 — The API]
+
+SPEAK:
+"The pthread condition variable API has three key functions.
+
+pthread_cond_wait waits on a condition variable. It takes the
+condition variable and a mutex.
+
+pthread_cond_signal wakes up at most one waiting thread.
+
+pthread_cond_broadcast wakes up all waiting threads.
+
+But the magic is entirely in what pthread_cond_wait actually does.
+Let me explain it carefully, because getting this wrong is the most
+common mistake in concurrent programming."
+
+[PAUSE]
+
+[SLIDE 3 — The atomic contract of cond_wait]
+
+SPEAK:
+"pthread_cond_wait is not an ordinary wait. It performs three steps
+atomically:
+
+Step one: it releases the mutex you passed in.
+
+Step two: it blocks the thread until the condition is signaled.
+
+Step three: it re-acquires the mutex before returning.
+
+The critical word is atomically. Steps one and two happen with no
+window in between. That is what makes condition variables correct.
+Without this atomicity, a signal sent between "release the mutex" and
+"start waiting" would be lost, and the waiting thread would sleep
+forever.
+
+This is why you must always call pthread_cond_wait with the mutex
+held. If you don't hold it, the atomic protocol is broken."
+
+[SLIDE 4 — The wait-while pattern]
+
+SPEAK:
+"Now here is the pattern you should use every single time you wait
+on a condition variable.
+
+You lock the mutex.
+
+Then you write a while loop. The loop condition checks whether the
+thing you're waiting for is true. If it's not true, you call
+pthread_cond_wait inside the loop body, passing the mutex.
+
+When you exit the loop, the condition holds, and you still hold the
+lock. Then you do whatever you need to do. Then you unlock.
+
+On the other side, the thread that makes the condition true locks the
+mutex, modifies the shared state, calls pthread_cond_signal or
+broadcast, and unlocks.
+
+Let me emphasize — always a while loop. Never an if statement. Never
+a do-while. Always a while."
+
+[PAUSE]
+
+[SLIDE 5 — Why while and not if]
+
+SPEAK:
+"Why while and not if? Three reasons, and I want you to remember all
+of them.
+
+Reason one: spurious wakeups. POSIX explicitly allows
+pthread_cond_wait to return without any signal at all. The standard
+says it may return spuriously. So you have to re-check the condition
+after waking up, because you might have woken up for no reason.
+
+Reason two: multiple waiters. If three threads are waiting and one
+signal wakes all of them, the resource might only be available once.
+The first one to acquire the mutex consumes it. The other two need
+to go back to sleep. With if, they would proceed and corrupt state.
+
+Reason three: the state can change between signal and re-acquire. Even
+a properly signaled wakeup may find the condition false again, because
+another thread grabbed it first.
+
+All three reasons point to the same conclusion: always re-check the
+condition in a loop."
+
+[SLIDE 6 — signal vs broadcast]
+
+SPEAK:
+"One more design decision: pthread_cond_signal wakes one thread;
+pthread_cond_broadcast wakes all.
+
+Use signal when any waiting thread can make progress. For example,
+in a producer-consumer buffer, one item added means one consumer can
+proceed. Signal is enough.
+
+Use broadcast when state changes affect many threads at once. For
+example, shutting down a server. When the shutdown flag is set, every
+waiting worker needs to wake up and exit. Broadcast is required.
+
+Broadcast is safer — you never accidentally miss a thread that should
+wake up. Signal is more efficient — you avoid waking threads that
+will just go back to sleep. Use signal by default, broadcast when
+you need it."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Condition variables let threads wait for a condition to become true.
+They are used together with a mutex.
+
+pthread_cond_wait atomically releases the mutex, blocks, and
+re-acquires the mutex. This atomicity is essential for correctness.
+
+Always wait inside a while loop, never inside an if. This handles
+spurious wakeups, multiple waiters, and state changes.
+
+Use pthread_cond_signal to wake one thread, pthread_cond_broadcast to
+wake all.
+
+In the next video, we'll put everything together and solve the three
+classic concurrency problems."
+
+[END OF VIDEO 4.4]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.5 — Classic Problems                                        ║
+║  Target duration: ~20 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The Three Classic Problems"]
+
+SPEAK:
+"Welcome to the fifth video of Week 4. We now have all the tools we
+need: mutexes, semaphores, and condition variables. In this video we
+use them to solve the three classic concurrency problems that appear
+in every operating systems textbook, every job interview, and every
+production system.
+
+The three are: producer-consumer, reader-writer, and dining
+philosophers. Each one captures a different essence of concurrency
+design."
+
+[PAUSE]
+
+[SLIDE 2 — Producer-consumer: the setup]
+
+SPEAK:
+"Let's start with Producer-Consumer, also called the bounded buffer
+problem.
+
+We have a shared buffer of fixed size. One or more producer threads
+generate items and put them in the buffer. One or more consumer
+threads take items out.
+
+There are three rules. First, a producer must wait if the buffer is
+full. Second, a consumer must wait if the buffer is empty. Third, no
+producer and no consumer should ever corrupt the buffer state.
+
+This pattern is everywhere in real systems — web servers reading
+network requests, video players decoding frames, databases moving
+data between disk and memory. If you understand producer-consumer,
+you understand the heart of concurrent systems."
+
+[SLIDE 3 — The producer-consumer solution]
+
+SPEAK:
+"Here is the solution using mutexes and condition variables. Let me
+walk through the key parts.
+
+We have a structure holding the buffer: an array of items, a count of
+how many items are currently in it, and two indices — in and out —
+for the next write and read positions.
+
+We have one mutex protecting all that state.
+
+And we have two condition variables. One represents the condition
+"the buffer is not full" — producers wait on this. The other
+represents "the buffer is not empty" — consumers wait on this.
+
+In bb_put — the producer function — we lock the mutex. Then we use a
+while loop. If the count equals buffer size, the buffer is full. We
+wait on not_full. When we exit the loop, there's space. We write the
+value, advance the in index, increment the count. Then we signal
+not_empty to wake a waiting consumer. Then we unlock.
+
+In bb_get — the consumer function — the symmetric logic. Lock. While
+count is zero, wait on not_empty. Read the value, advance out,
+decrement count. Signal not_full. Unlock."
+
+[PAUSE]
+
+[SLIDE 4 — Why two condition variables?]
+
+SPEAK:
+"Why two condition variables, and not one?
+
+Because we have two different things we're waiting for. A producer
+waits for space; a consumer waits for data. If we used only one
+condition variable, we'd have to wake everybody on any change — and
+distinguishing who was supposed to run would require re-checking,
+which is fine but wasteful.
+
+Separating them means each side wakes only the threads that might be
+able to proceed. This is both more efficient and easier to reason
+about."
+
+[SLIDE 5 — Reader-writer]
+
+SPEAK:
+"Now let's look at Reader-Writer.
+
+We have a shared data structure — say, a database or a cache. Readers
+want to read the current value. Writers want to change it.
+
+The rule is: many readers can be active at the same time. Only one
+writer can be active at a time. But we can never have both — a reader
+and a writer cannot run simultaneously.
+
+This pattern is common in caches and databases, where reads vastly
+outnumber writes.
+
+There are two main variants. Reader-priority: readers can always
+enter, and writers wait for readers to leave. This can starve writers
+if readers keep arriving. Writer-priority: once a writer is waiting,
+no new readers are admitted. This can starve readers.
+
+Most operating systems provide pthread_rwlock_t which gives you a
+ready-made reader-writer lock. Use it instead of building your own."
+
+[SLIDE 6 — Dining philosophers]
+
+SPEAK:
+"Finally, the dining philosophers.
+
+Five philosophers sit around a round table. Between each pair of
+neighbors lies a fork — five forks total. Each philosopher needs two
+forks to eat. They alternate between thinking and eating.
+
+The problem: design a protocol so no philosopher starves.
+
+At its heart, this problem captures the pattern of grabbing multiple
+shared resources. The naive solution — every philosopher immediately
+grabs their left fork — leads to deadlock. Every philosopher holds
+one fork, waits forever for the second.
+
+We won't solve it fully today. That's the whole subject of Week 6.
+
+But I want you to remember the key insight: whenever a thread must
+acquire multiple locks, the order of acquisition matters, and getting
+it wrong leads to deadlock. The simplest fix is to enforce a global
+lock ordering — always acquire lock A before lock B, never the other
+way around."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Producer-consumer uses one mutex and two condition variables —
+not_full and not_empty. This is the most important pattern in
+concurrent systems.
+
+Reader-writer allows many readers or one writer. Two variants,
+reader-priority and writer-priority. pthread provides pthread_rwlock_t.
+
+Dining philosophers captures the multi-resource problem. Solutions
+involve lock ordering, or asymmetric behavior for one of the
+participants. Full treatment in Week 6.
+
+In the next video, we'll look at how modern programming languages
+have abstracted all of this into a safer concept — monitors."
+
+[END OF VIDEO 4.5]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.6 — Monitors and Modern Languages                           ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Monitors and Modern Languages"]
+
+SPEAK:
+"Welcome back. So far we've looked at synchronization from the low
+level: mutexes, semaphores, condition variables. All of them require
+the programmer to manually acquire and release locks, and to remember
+the exact right pattern for waiting on conditions.
+
+This is fragile. It's easy to forget an unlock. It's easy to write if
+instead of while. It's easy to acquire locks in the wrong order. Every
+one of these mistakes leads to bugs that are hard to detect, hard to
+reproduce, and catastrophic in production.
+
+That's why computer scientists in the 1970s proposed a higher-level
+abstraction: the monitor. And that's why every modern language
+eventually gets some form of it."
+
+[PAUSE]
+
+[SLIDE 2 — What is a monitor?]
+
+SPEAK:
+"A monitor is a programming-language construct that bundles four
+things together.
+
+First, some shared state — the data being protected.
+
+Second, a set of procedures that operate on that data.
+
+Third, an implicit mutex that the language automatically acquires
+when any procedure is called, and releases when it returns.
+
+Fourth, condition variables associated with the monitor, for waiting
+and signaling.
+
+The crucial part: the programmer never writes lock or unlock. The
+language guarantees that only one thread is inside any procedure of
+the monitor at a time. This eliminates the entire category of "I
+forgot to unlock" bugs — by construction."
+
+[SLIDE 3 — Monitors in various languages]
+
+SPEAK:
+"Let me show you how monitors appear in modern languages.
+
+In Java, synchronized methods are monitors. Every Java object is an
+implicit monitor. You mark a method synchronized, and the language
+ensures no two threads run it at the same time. The wait and notify
+methods on Object are the condition variable operations.
+
+In C-sharp, the lock statement and the Monitor class do the same
+thing.
+
+In Python, threading.Lock and threading.Condition let you build a
+monitor manually, but the global interpreter lock makes true
+parallelism different from other languages.
+
+In Go, channels embody a completely different philosophy — communicate
+by sharing memory, rather than sharing memory by communicating. But
+Go also has sync.Mutex and sync.Cond for traditional locking.
+
+And in Rust, the Mutex type actually owns the data it protects. You
+literally cannot access the data without holding the lock. The type
+system enforces what other languages enforce by convention."
+
+[PAUSE]
+
+[SLIDE 4 — The Rust philosophy]
+
+SPEAK:
+"Let me spend a moment on Rust, because it shows the logical endpoint
+of this design direction.
+
+In Rust, a Mutex is a container type. When you declare a Mutex of an
+integer, the Mutex owns that integer. The integer is not accessible
+from anywhere except through the mutex's lock method.
+
+That means you literally cannot access shared data without holding
+the lock. The compiler will refuse to build your code. There is no
+way to forget to lock, because the code would not compile.
+
+And there's no unlock call. Rust uses a concept called RAII — resource
+acquisition is initialization. When a guard object goes out of scope,
+its destructor automatically releases the lock. So there's no way to
+forget to unlock either.
+
+This is the type system doing what C programmers do manually. And it
+shows where the industry is heading: toward making concurrency bugs
+impossible rather than merely detectable."
+
+[SLIDE 5 — What this means for C programmers]
+
+SPEAK:
+"Now, we're working in C this semester, so let me draw the lesson for
+you.
+
+When you write C with pthreads, you are doing manually what modern
+languages do automatically. Every pthread_mutex_lock must have a
+matching unlock on every code path. Every pthread_cond_wait must sit
+inside a while loop. Every thread you create must be joined or
+detached.
+
+The languages that do these things for you exist for a reason. Humans
+forget. Humans make mistakes. The languages exist to make those
+mistakes impossible.
+
+So: respect the patterns. Follow them religiously. Write your code
+with the discipline you would want if you were building a bridge.
+
+In the next video, we'll actually write and run the producer-consumer
+problem — the same one we described theoretically a moment ago."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+Monitors bundle together data, procedures, an implicit mutex, and
+condition variables. The language enforces mutual exclusion
+automatically.
+
+Modern languages — Java, C-sharp, Go, Rust — implement variations of
+monitors.
+
+Rust goes furthest: it uses the type system to make it impossible to
+access shared data without holding the lock, and impossible to forget
+to unlock.
+
+For C programmers, the lesson is: follow patterns religiously. Your
+compiler cannot save you from forgetting an unlock. Only your
+discipline can."
+
+[END OF VIDEO 4.6]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.7 — Touch Lab: Producer-Consumer in C                       ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Producer-Consumer in C"]
+
+SPEAK:
+"Welcome to the practical side of Week 4. In this video, we are going
+to write, compile, and run a real Producer-Consumer program using
+pthread mutexes and condition variables.
+
+This is the pattern that appears in every concurrent system — web
+servers, video players, databases. Write it once by hand, and you'll
+recognize it everywhere for the rest of your career.
+
+Make sure your Ubuntu VM is running. Let's get started."
+
+[SCREENCAST — terminal prompt]
+
+SPEAK:
+"First, create the source file.
+
+nano prodcons.c"
+
+[SCREENCAST — nano opens the file]
+
+SPEAK:
+"Paste in the program I'm showing you. It's about a hundred lines, so
+let me walk you through it in pieces.
+
+At the top, we have three constants: BUF_SIZE is eight — the size of
+our buffer. N_ITEMS is twenty — how many items the producer will
+generate. And a couple of other definitions.
+
+Then we have a struct called buffer_t. It holds the shared buffer
+array, the count, the in and out indices, and — this is the important
+part — a mutex and two condition variables: not_full and not_empty.
+
+Then we have the functions. bb_init initializes everything. bb_put
+is called by the producer. bb_get is called by the consumer.
+
+Let me look at bb_put in detail. It locks the mutex. Then it enters a
+while loop: while the buffer is full, wait on not_full. When it exits
+the loop, there's space. It writes the item, advances the index,
+increments the count, prints a message, signals not_empty, and
+unlocks.
+
+Notice that the signal comes before the unlock. This is important —
+the signal wakes up a waiting consumer, but the consumer can't
+proceed until we release the mutex. So the consumer will block again
+briefly, then acquire the lock and continue.
+
+The consumer function is the mirror image.
+
+Then we have the producer and consumer thread functions, and finally
+main, which creates and joins them.
+
+Save with Ctrl+O, enter, then Ctrl+X."
+
+[SCREENCAST — compile]
+
+SPEAK:
+"Now compile.
+
+gcc -Wall -pthread -o prodcons prodcons.c
+
+If there are no errors, no output. Good. Let's run it."
+
+[SCREENCAST — run the program]
+
+SPEAK:
+"Run it:
+
+./prodcons
+
+You'll see a sequence of producer puts and consumer gets. The exact
+order of interleaving varies from run to run — that's expected and
+fine. What matters is that every produced item is consumed exactly
+once, and the program always terminates with the "Done" message.
+
+Let's run it a second time.
+
+./prodcons
+
+Same program, slightly different interleaving, same final result.
+This is determinism in outcome with non-determinism in execution.
+Exactly what we want."
+
+[PAUSE]
+
+[SCREENCAST — break it with if]
+
+SPEAK:
+"Now, let's deliberately break it to see what happens.
+
+Open the file again with nano. Change both while loops to if
+statements. Recompile and run.
+
+gcc -Wall -pthread -o prodcons prodcons.c
+./prodcons
+
+You may see problems. The buffer might underflow — the consumer
+reads from a slot that was never written. Or the buffer might
+overflow — the producer overwrites an item before it's consumed. Or
+the program might hang.
+
+This demonstrates why the while loop is not optional. It's not
+defensive coding — it's necessary for correctness.
+
+Revert your change. Change if back to while.
+
+This is exactly the kind of bug that looks harmless in testing and
+causes production outages. It's why we always use while."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we wrote a real Producer-Consumer program using pthread
+mutexes and conditions variables. We saw it work correctly, we saw
+the interleaving vary but the outcome stay deterministic, and we saw
+what happens when the while loop is replaced with if.
+
+What I want you to take away: Producer-Consumer is not a theoretical
+exercise. It's the shape of every real concurrent system. Once you've
+written it once by hand, you recognize it everywhere.
+
+Experiment on your own. Change BUF_SIZE to two and watch the
+producers and consumers fight for turns. Change it to a hundred and
+watch the buffer barely ever fill. Add a second consumer and watch
+the mutual exclusion still work.
+
+In the next video, we'll use a tool called Helgrind to automatically
+check our code for race conditions."
+
+[END OF VIDEO 4.7]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 4.8 — Touch Lab: Debugging with Helgrind                      ║
+║  Target duration: ~16 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Touch Lab — Debugging with Helgrind"]
+
+SPEAK:
+"Welcome to the final video of Week 4. In the previous video we wrote
+correct producer-consumer code. But how do we know it's correct? How
+do we know we didn't miss a race condition? Human eyes are not
+reliable for this — even experts miss concurrency bugs.
+
+The answer is: we use a tool. In this video, we'll use Helgrind, a
+race detector that's part of the Valgrind suite. It's the standard
+tool for finding synchronization bugs in C, and adding it to your
+workflow will save you days of debugging."
+
+[SCREENCAST — install valgrind]
+
+SPEAK:
+"First, install Valgrind if you haven't already.
+
+sudo apt update
+sudo apt install valgrind
+
+Then verify it's there:
+
+valgrind --version
+
+You should see something like "valgrind-3.22.0". Good."
+
+[PAUSE]
+
+[SCREENCAST — run helgrind on correct code]
+
+SPEAK:
+"Now let's run Helgrind on our corrected counter from earlier.
+
+valgrind --tool=helgrind ./counter_mutex
+
+Helgrind will print a lot of output. The important line is at the very
+bottom: "ERROR SUMMARY".
+
+You should see "0 errors from 0 contexts". That means Helgrind
+checked for data races, lock ordering violations, and synchronization
+misuse — and found nothing wrong.
+
+Our code is verified correct by an automated tool. Not just "it works
+on my machine" — actually verified."
+
+[PAUSE]
+
+[SCREENCAST — run helgrind on buggy code]
+
+SPEAK:
+"Now let's run Helgrind on the buggy version — the one without the
+mutex.
+
+valgrind --tool=helgrind ./counter_nomutex
+
+This time the output is very different. Helgrind reports data races.
+Let me read the output with you.
+
+It says "Possible data race during write of size 8" at a specific
+address. Then it shows a stack trace: worker, at line 10 of
+counter_nomutex.c. Then it says "This conflicts with a previous write
+of size 8 by thread number 2" — same location, same line.
+
+What this means: Helgrind observed two threads writing to the same
+address without synchronization. That's a race, by definition.
+
+At the bottom, we see "ERROR SUMMARY: 13762 errors from 2 contexts".
+Over thirteen thousand races in a single run. This isn't theoretical
+— it's the exact mechanism that made the program print the wrong
+answer.
+
+And look at the program's own output — it printed 143982 instead of
+200000. Not only did we detect the race, we see its consequence."
+
+[PAUSE]
+
+[SCREENCAST — helgrind on prodcons]
+
+SPEAK:
+"Let's also run Helgrind on our correct producer-consumer.
+
+valgrind --tool=helgrind ./prodcons
+
+Helgrind will take a bit longer because it slows execution by twenty
+to a hundred times. Be patient.
+
+When it finishes, check the error summary. On a well-written
+producer-consumer, it should be zero. If it's not zero, read the
+errors carefully.
+
+Common issues you might see: a race on the count variable if you
+forgot to protect it; a lock ordering violation if you used multiple
+mutexes; a condition variable misuse if you mixed up signal with
+broadcast in the wrong context.
+
+Every error Helgrind reports is a real bug. Fix them all."
+
+[SLIDE — Tools comparison]
+
+SPEAK:
+"Let me mention two alternatives to Helgrind.
+
+AddressSanitizer and ThreadSanitizer are sanitizers — they are
+compiled into your program rather than run alongside it. You enable
+them at compile time with flags like dash-F-sanitize, equal, thread.
+They are ten to twenty times faster than Helgrind. But they require
+recompilation.
+
+In real-world development, ThreadSanitizer is more common than
+Helgrind because it can be integrated into continuous integration
+pipelines. But Helgrind is useful because it doesn't require
+recompilation — you can run it on any binary.
+
+For this course, use Helgrind. It's the standard for C concurrency
+debugging and it's what your textbook recommends."
+
+[SLIDE — Practice exercise]
+
+SPEAK:
+"Here's a practice exercise for you.
+
+Take your Producer-Consumer program from the previous lab. Run it
+under Helgrind. Confirm zero errors.
+
+Now, deliberately introduce bugs. Remove the mutex from bb_put. Run
+under Helgrind and note what it reports. Replace a while with an if.
+Run under Helgrind and note what it reports — or doesn't report.
+
+This last case is important. Some bugs, like the if-versus-while
+mistake, may not be caught by Helgrind because they don't cause data
+races — they cause logical errors. Helgrind checks for races, not for
+logic. For logic errors, you still need careful reasoning and stress
+testing.
+
+That's the reality of concurrency: no single tool catches everything.
+But with Helgrind plus careful design plus stress testing, you can
+catch the vast majority of bugs before they reach production."
+
+[SLIDE — Week 4 wrap-up]
+
+SPEAK:
+"That wraps up Week 4. We covered a lot of ground. We reviewed race
+conditions formally. We built up four tools: locks, semaphores,
+condition variables, and monitors. We solved three classic problems.
+And we learned to verify our code with Helgrind.
+
+This is arguably the most important week of the theory phase. Any
+serious concurrent system you ever write will use the patterns we
+covered here. Every code review you do will involve examining
+critical sections and lock patterns.
+
+Please complete the written homework assignment for this week. It
+combines conceptual questions with significant hands-on code. The
+Helgrind exercises in particular are not optional — they are how you
+build the reflex of always checking your concurrent code.
+
+Next week, we move to a very different topic: CPU scheduling. How
+does the operating system decide which process or thread to run
+next? How do we balance throughput, fairness, and responsiveness?
+That's Week 5.
+
+See you then."
+
+[END OF VIDEO 4.8 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 4
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~128 minutes of raw footage
+After editing and trimming: ~105–115 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

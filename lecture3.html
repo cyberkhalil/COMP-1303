@@ -1,0 +1,1067 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 3: Threads &amp; Multithreading</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 3</span>
+            <span class="violet"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-clock"></i> Theory + Touch Lab</span>
+        </div>
+
+        <h1>Threads &amp; Multithreading</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> — Chapter 26 (Concurrency: An Introduction),
+            Chapter 27 (Interlude: Thread API) &amp; <em>Operating System Concepts</em> — Silberschatz, Chapter 4.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#process-vs-thread">3.1 · Process vs Thread</a>
+            <a href="#thread-models">3.2 · Thread Models</a>
+            <a href="#benefits-costs">3.3 · Benefits &amp; Overheads</a>
+            <a href="#race-conditions">3.4 · Race Conditions</a>
+            <a href="#pthread-api">3.5 · pthread API</a>
+            <a href="#lab-pthread">3.6 · Lab: First Threads</a>
+            <a href="#lab-ps-elf">3.7 · Lab: ps -eLf</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 3.1 PROCESS VS THREAD                                        -->
+        <!-- ============================================================ -->
+        <h2 id="process-vs-thread"><i class="fas fa-code-branch"></i> 3.1 · Process vs Thread</h2>
+
+        <p>
+            In Week 2 we saw that a process is an isolated execution environment: it has its own virtual address space,
+            its own file descriptors, and the kernel protects it from every other process. That isolation is powerful
+            — but it is also expensive when you actually need two pieces of code to cooperate. Creating a process
+            is relatively slow, sharing data requires IPC, and switching between processes is costly.
+        </p>
+
+        <p>
+            A <strong>thread</strong> solves this. It is often called a <em>lightweight process</em>, and the name is
+            very telling: a thread is a unit of execution that lives <em>inside</em> a process. Multiple threads can
+            exist in the same process, sharing almost everything — except the things that must be private for each
+            one.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>One-line definition:</strong> a thread is the smallest unit of CPU execution that the kernel can
+            schedule, and it always belongs to exactly one process.
+        </div>
+
+        <h3>What threads share, and what they own</h3>
+
+        <p>
+            This is the key mental model. When you create a thread, the kernel does <strong>not</strong> create a new
+            address space, a new file descriptor table, or a new set of signals. It creates a new <em>execution
+            context</em> inside the process that already exists.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 50%;"><i class="fas fa-users"></i> &nbsp;Shared between all threads</th>
+                    <th style="width: 50%;"><i class="fas fa-user"></i> &nbsp;Private to each thread</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Virtual address space — code, data, heap</td>
+                    <td>Program counter (PC)</td>
+                </tr>
+                <tr>
+                    <td>Open file descriptors and sockets</td>
+                    <td>CPU registers (general-purpose, stack pointer, flags)</td>
+                </tr>
+                <tr>
+                    <td>Current working directory</td>
+                    <td>Stack (local variables, return addresses)</td>
+                </tr>
+                <tr>
+                    <td>Global and static variables</td>
+                    <td>Thread ID (TID), and <code>pthread_t</code> handle</td>
+                </tr>
+                <tr>
+                    <td>Signal handlers, signal disposition</td>
+                    <td>Signal mask (which signals are blocked)</td>
+                </tr>
+                <tr>
+                    <td>User and group identity (UID, GID)</td>
+                    <td><code>errno</code> value and scheduling priority/affinity</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The rule of thumb:</strong> if it makes sense for two running functions to share it, it is shared
+            between threads. If it must be preserved separately for each running function, it is private.
+        </div>
+
+        <!-- SVG: Memory layout process vs threads -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg"
+                aria-label="Memory layout single-threaded process vs multithreaded process">
+                <!-- LEFT: single-threaded -->
+                <text x="180" y="30" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Single-threaded process</text>
+
+                <rect x="60" y="50" width="240" height="60" rx="8" fill="rgba(139, 92, 246, 0.15)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="180" y="85" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle">
+                    Stack
+                </text>
+
+                <rect x="60" y="130" width="240" height="60" rx="8" fill="rgba(139, 92, 246, 0.15)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="180" y="165" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle">
+                    Heap
+                </text>
+
+                <rect x="60" y="210" width="240" height="60" rx="8" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="180" y="245" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle">
+                    Data Segment
+                </text>
+
+                <rect x="60" y="290" width="240" height="60" rx="8" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="180" y="325" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle">
+                    Code (Text)
+                </text>
+
+                <!-- RIGHT: multi-threaded -->
+                <text x="630" y="30" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Multi-threaded process (3 threads)</text>
+
+                <!-- 3 stacks side by side -->
+                <rect x="440" y="50" width="80" height="60" rx="6" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="480" y="85" font-family="Inter" font-size="11" fill="#f472b6" text-anchor="middle">
+                    Stack T1
+                </text>
+
+                <rect x="530" y="50" width="80" height="60" rx="6" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="570" y="85" font-family="Inter" font-size="11" fill="#f472b6" text-anchor="middle">
+                    Stack T2
+                </text>
+
+                <rect x="620" y="50" width="80" height="60" rx="6" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="660" y="85" font-family="Inter" font-size="11" fill="#f472b6" text-anchor="middle">
+                    Stack T3
+                </text>
+
+                <rect x="440" y="130" width="260" height="60" rx="8" fill="rgba(139, 92, 246, 0.15)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="570" y="158" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle">
+                    Heap
+                </text>
+                <text x="570" y="176" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    shared
+                </text>
+
+                <rect x="440" y="210" width="260" height="60" rx="8" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="570" y="238" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle">
+                    Data Segment
+                </text>
+                <text x="570" y="256" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    shared globals
+                </text>
+
+                <rect x="440" y="290" width="260" height="60" rx="8" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="570" y="318" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle">
+                    Code (Text)
+                </text>
+                <text x="570" y="336" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    shared code
+                </text>
+            </svg>
+            <div class="svg-caption">A single-threaded process has one stack. A multi-threaded process shares code, data, and heap — but each thread has its own private stack.</div>
+        </div>
+
+        <h3>What this means in practice</h3>
+
+        <p>
+            Because the code, data, and heap are shared, threads can exchange information with a simple variable
+            assignment. That is the whole reason threads exist — they make communication both trivial and fast.
+            But it is also the whole reason threads are dangerous: nothing prevents one thread from corrupting data
+            that another thread is using. We will see exactly how in section 3.4.
+        </p>
+
+        <p>
+            Because each thread has its own stack and registers, the CPU can only run one thread of a given process
+            at any given moment on a single core. To run multiple threads in parallel, you need multiple cores.
+            Modern CPUs with 4, 8, or 16 cores are exactly why threads matter so much today.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 3.2 THREAD MODELS                                            -->
+        <!-- ============================================================ -->
+        <h2 id="thread-models"><i class="fas fa-project-diagram"></i> 3.2 · Thread Models</h2>
+
+        <p>
+            Where do threads live? Are they known to the kernel? Who decides which one runs? These questions lead
+            to three classic <strong>threading models</strong>, each describing how user-level threads map to
+            kernel-level threads.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 18%;">Model</th>
+                    <th style="width: 30%;">Mapping</th>
+                    <th style="width: 27%;">Strengths</th>
+                    <th style="width: 25%;">Weaknesses / Examples</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>1:1</strong></td>
+                    <td>Each user thread is backed by exactly one kernel thread.</td>
+                    <td>True parallelism on multicore, and blocking calls block only one thread.</td>
+                    <td>Kernel resources per thread. <em>Linux NPTL, Windows, macOS.</em></td>
+                </tr>
+                <tr>
+                    <td><strong>N:1</strong></td>
+                    <td>Many user threads are multiplexed on top of a single kernel thread.</td>
+                    <td>Very cheap to create and switch (no kernel involvement).</td>
+                    <td>No parallelism, one blocking call freezes all. <em>Green threads, early Java.</em></td>
+                </tr>
+                <tr>
+                    <td><strong>M:N</strong></td>
+                    <td>Many user threads mapped onto a smaller pool of kernel threads.</td>
+                    <td>Combines cheap user-level threads with multicore scaling.</td>
+                    <td>Complex to implement. <em>Go goroutines, older Solaris, Erlang BEAM.</em></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- SVG: three threading models -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 300" xmlns="http://www.w3.org/2000/svg" aria-label="Threading models diagram">
+                <!-- 1:1 -->
+                <text x="135" y="30" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">1:1 — One kernel thread per user thread</text>
+
+                <circle cx="70" cy="80" r="20" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6" stroke-width="2" />
+                <text x="70" y="85" font-family="Inter" font-size="11" fill="#7dd3fc" text-anchor="middle">U1</text>
+                <circle cx="140" cy="80" r="20" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6" stroke-width="2" />
+                <text x="140" y="85" font-family="Inter" font-size="11" fill="#7dd3fc" text-anchor="middle">U2</text>
+                <circle cx="210" cy="80" r="20" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6" stroke-width="2" />
+                <text x="210" y="85" font-family="Inter" font-size="11" fill="#7dd3fc" text-anchor="middle">U3</text>
+
+                <line x1="70" y1="105" x2="70" y2="155" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+                <line x1="140" y1="105" x2="140" y2="155" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+                <line x1="210" y1="105" x2="210" y2="155" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+
+                <circle cx="70" cy="180" r="20" fill="rgba(16, 185, 129, 0.18)" stroke="#10b981"
+                    stroke-width="2" />
+                <text x="70" y="185" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">K1</text>
+                <circle cx="140" cy="180" r="20" fill="rgba(16, 185, 129, 0.18)" stroke="#10b981"
+                    stroke-width="2" />
+                <text x="140" y="185" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">K2</text>
+                <circle cx="210" cy="180" r="20" fill="rgba(16, 185, 129, 0.18)" stroke="#10b981"
+                    stroke-width="2" />
+                <text x="210" y="185" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">K3</text>
+
+                <text x="140" y="240" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    True parallelism, but 1 kernel thread per user thread.
+                </text>
+
+                <!-- N:1 -->
+                <text x="420" y="30" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">N:1 — Many user threads, one kernel thread</text>
+
+                <circle cx="360" cy="70" r="16" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="410" cy="70" r="16" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="460" cy="70" r="16" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="510" cy="70" r="16" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+
+                <line x1="360" y1="90" x2="435" y2="150" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+                <line x1="410" y1="90" x2="435" y2="150" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+                <line x1="460" y1="90" x2="435" y2="150" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+                <line x1="510" y1="90" x2="435" y2="150" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#arw)" />
+
+                <circle cx="435" cy="175" r="20" fill="rgba(16, 185, 129, 0.18)" stroke="#10b981"
+                    stroke-width="2" />
+                <text x="435" y="180" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">K1</text>
+
+                <text x="435" y="240" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Cheap but no parallel execution — one syscall blocks all.
+                </text>
+
+                <!-- M:N -->
+                <text x="710" y="30" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">M:N — Pool of kernel threads</text>
+
+                <circle cx="650" cy="60" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="690" cy="60" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="730" cy="60" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="770" cy="60" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="650" cy="95" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="690" cy="95" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+                <circle cx="730" cy="95" r="14" fill="rgba(59, 130, 246, 0.18)" stroke="#3b82f6"
+                    stroke-width="2" />
+
+                <line x1="660" y1="115" x2="695" y2="150" stroke="#94a3b8" stroke-width="1.5"
+                    marker-end="url(#arw)" />
+                <line x1="710" y1="115" x2="705" y2="150" stroke="#94a3b8" stroke-width="1.5"
+                    marker-end="url(#arw)" />
+                <line x1="740" y1="115" x2="715" y2="150" stroke="#94a3b8" stroke-width="1.5"
+                    marker-end="url(#arw)" />
+
+                <circle cx="685" cy="175" r="20" fill="rgba(16, 185, 129, 0.18)" stroke="#10b981"
+                    stroke-width="2" />
+                <text x="685" y="180" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">K1</text>
+                <circle cx="730" cy="175" r="20" fill="rgba(16, 185, 129, 0.18)" stroke="#10b981"
+                    stroke-width="2" />
+                <text x="730" y="180" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">K2</text>
+
+                <text x="710" y="240" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Best of both — but very complex to implement.
+                </text>
+
+                <defs>
+                    <marker id="arw" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">The three classic threading models. Linux uses the 1:1 model — every pthread is backed by a real kernel-scheduled task.</div>
+        </div>
+
+        <h3>What Linux actually does</h3>
+
+        <p>
+            Linux uses the <strong>1:1 model</strong>. This surprises many students because Linux threads feel cheap to
+            create. The trick is that the Linux kernel does not distinguish between processes and threads at the
+            lowest level — both are represented by the same data structure, called <code>task_struct</code>. The
+            difference is what the <code>clone()</code> system call shares between the new task and its parent.
+        </p>
+
+        <p>
+            When you call <code>fork()</code>, the kernel clones with <em>no sharing</em>: new address space, new
+            file descriptor table, new everything. When a thread library calls <code>clone()</code> with
+            <code>CLONE_VM</code>, <code>CLONE_FILES</code>, and other flags, the new task shares the address space
+            and file descriptors with its parent. That is what makes it a thread.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-info-circle"></i>
+            <strong>Why this matters:</strong> In Linux, a thread is literally a task that shares resources with
+            another task via <code>clone()</code>. This design is elegant because it uses one uniform abstraction
+            for both processes and threads, and it is why tools like <code>ps -eLf</code> show threads as
+            <em>lightweight processes</em> with their own LWP (Light Weight Process) numbers.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 3.3 BENEFITS AND OVERHEADS                                   -->
+        <!-- ============================================================ -->
+        <h2 id="benefits-costs"><i class="fas fa-scale-balanced"></i> 3.3 · Benefits &amp; Overheads</h2>
+
+        <p>
+            Threads are not a free lunch. They solve certain problems beautifully and create new problems of their
+            own. Understanding both sides is the mark of a serious systems programmer.
+        </p>
+
+        <div class="two-cols">
+            <div class="col green">
+                <h4><i class="fas fa-thumbs-up"></i> Benefits</h4>
+                <ul>
+                    <li><strong>Responsiveness:</strong> a long computation in one thread does not freeze the entire
+                        application — the UI thread keeps updating.</li>
+                    <li><strong>Resource sharing:</strong> threads share memory by default, so no IPC ceremony is
+                        needed to pass data.</li>
+                    <li><strong>Economy:</strong> creating a thread is roughly 10–100× cheaper than creating a
+                        process. Context switching between threads is also cheaper — no address-space change, so the
+                        TLB is not flushed.</li>
+                    <li><strong>Scalability:</strong> on a multi-core CPU, threads run truly in parallel — this is what
+                        makes modern software fast on modern hardware.</li>
+                </ul>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-triangle-exclamation"></i> Overheads &amp; risks</h4>
+                <ul>
+                    <li><strong>Race conditions:</strong> if two threads access shared data without synchronization,
+                        results are unpredictable.</li>
+                    <li><strong>Deadlocks:</strong> two threads, each holding a lock the other wants, will wait
+                        forever.</li>
+                    <li><strong>Debugging complexity:</strong> bugs may appear only on one machine, one core count,
+                        or one timing. Non-deterministic bugs are the worst kind.</li>
+                    <li><strong>Loss of isolation:</strong> one thread calling <code>exit()</code> or crashing with
+                        <code>SIGSEGV</code> kills the entire process — and all its siblings.</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Design principle:</strong> prefer <em>processes</em> for isolation and robustness, and
+            <em>threads</em> for performance and shared-state concurrency. Modern designs often combine both —
+            for instance, Chrome uses one process per tab (isolation), and each process uses multiple threads for
+            rendering and I/O (performance).
+        </div>
+
+        <h3>Cost comparison (rough order of magnitude)</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 40%;">Operation</th>
+                    <th style="width: 30%;">Approximate cost</th>
+                    <th style="width: 30%;">Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Create a process (<code>fork</code>)</td>
+                    <td>~10,000–100,000 ns</td>
+                    <td>Depends heavily on memory size (COW helps a lot)</td>
+                </tr>
+                <tr>
+                    <td>Create a thread (<code>pthread_create</code>)</td>
+                    <td>~1,000–10,000 ns</td>
+                    <td>Kernel allocates stack, task_struct, and TID</td>
+                </tr>
+                <tr>
+                    <td>Context switch between processes</td>
+                    <td>~1,000–10,000 ns</td>
+                    <td>Includes TLB flush and memory-map switch</td>
+                </tr>
+                <tr>
+                    <td>Context switch between threads (same process)</td>
+                    <td>~500–2,000 ns</td>
+                    <td>No TLB flush — same address space</td>
+                </tr>
+                <tr>
+                    <td>Send a message over a pipe</td>
+                    <td>~1,000 ns + data copy</td>
+                    <td>Involves two syscalls (write + read)</td>
+                </tr>
+                <tr>
+                    <td>Write to a shared variable</td>
+                    <td>~1 ns</td>
+                    <td>Direct memory access — no kernel involvement</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            The last three rows are why threads are so attractive: a shared variable write is a thousand times faster
+            than sending a message through a pipe. When you need high-performance communication between concurrent
+            computations, threads are the natural choice — as long as you use them safely.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 3.4 RACE CONDITIONS                                          -->
+        <!-- ============================================================ -->
+        <h2 id="race-conditions"><i class="fas fa-bolt"></i> 3.4 · Race Conditions — A First Look</h2>
+
+        <p>
+            Every benefit of threads comes with a matching risk. The most fundamental of those risks is the
+            <strong>race condition</strong>: a situation where the correctness of a program depends on the
+            <em>timing</em> of thread execution.
+        </p>
+
+        <h3>The classic example: two threads incrementing a counter</h3>
+
+        <p>
+            Imagine two threads each increment a shared counter 100,000 times. In code, that looks like this:
+        </p>
+
+        <pre><code>static volatile int counter = 0;
+
+void *worker(void *arg) {
+    for (int i = 0; i &lt; 100000; i++) {
+        counter++;   /* looks atomic — is it? */
+    }
+    return NULL;
+}</code></pre>
+
+        <p>
+            You would expect the answer to be 200,000. But when you actually run it, you often get something smaller —
+            maybe 187,431, maybe 164,929, maybe a different number every time. The result is
+            <strong>non-deterministic</strong>.
+        </p>
+
+        <h3>Why? The counter++ instruction is not atomic</h3>
+
+        <p>
+            At the assembly level, <code>counter++</code> is three separate machine instructions:
+        </p>
+
+        <ol>
+            <li><strong>Load</strong> the current value of <code>counter</code> from memory into a register.</li>
+            <li><strong>Increment</strong> the value in the register.</li>
+            <li><strong>Store</strong> the register's value back to memory.</li>
+        </ol>
+
+        <p>
+            If two threads interleave these three steps without coordination, data can be lost:
+        </p>
+
+        <!-- SVG: Race condition timeline -->
+        <div class="svg-container">
+            <svg viewBox="0 0 780 320" xmlns="http://www.w3.org/2000/svg" aria-label="Race condition timeline">
+                <text x="390" y="25" font-family="Inter" font-size="13" fill="#f472b6" text-anchor="middle"
+                    font-weight="700">A trace that loses an increment</text>
+
+                <line x1="120" y1="50" x2="120" y2="260" stroke="#3b82f6" stroke-width="2" />
+                <text x="120" y="45" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Thread A</text>
+
+                <line x1="440" y1="50" x2="440" y2="260" stroke="#10b981" stroke-width="2" />
+                <text x="440" y="45" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Thread B</text>
+
+                <line x1="250" y1="50" x2="250" y2="260" stroke="#f59e0b" stroke-width="1.5"
+                    stroke-dasharray="4,3" />
+                <text x="250" y="45" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">counter = 0</text>
+
+                <!-- Thread A steps -->
+                <rect x="60" y="70" width="200" height="30" rx="6" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" />
+                <text x="160" y="90" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">LOAD counter → R_A (0)</text>
+
+                <!-- Thread B steps begin -->
+                <rect x="350" y="115" width="200" height="30" rx="6" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" />
+                <text x="450" y="135" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">LOAD counter → R_B (0)</text>
+
+                <!-- Thread A inc -->
+                <rect x="60" y="160" width="200" height="30" rx="6" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" />
+                <text x="160" y="180" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">INC R_A → 1</text>
+
+                <!-- Thread B inc -->
+                <rect x="350" y="205" width="200" height="30" rx="6" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" />
+                <text x="450" y="225" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">INC R_B → 1</text>
+
+                <!-- Thread A store -->
+                <rect x="60" y="250" width="200" height="30" rx="6" fill="rgba(59, 130, 246, 0.15)"
+                    stroke="#3b82f6" />
+                <text x="160" y="270" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">STORE R_A → counter (1)</text>
+
+                <!-- Thread B store -->
+                <rect x="350" y="250" width="200" height="30" rx="6" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" />
+                <text x="450" y="270" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="middle">STORE R_B → counter (1)</text>
+
+                <!-- ARROW between B's load and A's store -->
+                <path d="M 340 130 Q 300 130 280 100" fill="none" stroke="#f472b6" stroke-width="1.5"
+                    stroke-dasharray="4,3" />
+                <text x="310" y="105" font-family="Inter" font-size="10" fill="#f9a8d4"
+                    text-anchor="end">interleaved here</text>
+            </svg>
+            <div class="svg-caption">Two threads load 0 into their private registers. Each increments its own register to 1. Each stores back 1. The counter was incremented twice but ends up at 1 — one increment was lost.</div>
+        </div>
+
+        <p>
+            This is called the <strong>lost update problem</strong>. It is the simplest possible race condition, and
+            it underlies a huge class of real-world bugs.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-bug"></i>
+            <strong>The lesson:</strong> <code>counter++</code> looks innocent but is not atomic. Many operations
+            that look atomic at the source level — like <code>x = x + 1</code> or <code>if (ptr != NULL) free(ptr);</code>
+            — involve a load, a modify, and a store. Without synchronization, any of them can lose data.
+        </div>
+
+        <h3>Critical sections and mutual exclusion</h3>
+
+        <p>
+            The piece of code that accesses shared data — the <code>counter++</code> above — is called a
+            <strong>critical section</strong>. The rule that only one thread may be inside the critical section at a
+            time is called <strong>mutual exclusion</strong>. The mechanism that enforces it is a
+            <strong>lock</strong> or <strong>mutex</strong>.
+        </p>
+
+        <p>
+            We will study locks, mutexes, semaphores, and condition variables in detail in <strong>Week 4</strong>.
+            For now, I want you to internalize the concept — this will be one of the most important mental models of
+            the entire course.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Preview of Week 4:</strong> the fix for the counter problem is to wrap the increment inside a
+            lock. But if you use the wrong lock, forget to release it, or take two locks in the wrong order, you get
+            either a partial fix or a deadlock. That is the entire subject of next week.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 3.5 PTHREAD API                                              -->
+        <!-- ============================================================ -->
+        <h2 id="pthread-api"><i class="fas fa-book"></i> 3.5 · The POSIX Threads (pthread) API</h2>
+
+        <p>
+            On Linux and other Unix-like systems, threads are exposed through the standard POSIX API —
+            <strong>pthreads</strong>. It is part of the C library and is what nearly all Linux multi-threaded
+            software is built on. Let's look at the core functions you will use.
+        </p>
+
+        <h3>pthread_create — create a new thread</h3>
+
+        <pre><code>#include &lt;pthread.h&gt;
+
+int pthread_create(
+    pthread_t *thread,             /* OUT: handle to the new thread */
+    const pthread_attr_t *attr,    /* attributes — pass NULL for defaults */
+    void *(*start_routine)(void *),/* the function to run in the thread */
+    void *arg                      /* argument passed to start_routine */
+);</code></pre>
+
+        <p>
+            The new thread runs <code>start_routine(arg)</code> in parallel with the calling thread. It returns
+            0 on success, or a non-zero error code on failure (unlike most syscalls, <code>pthread_*</code>
+            functions return the error code directly instead of setting <code>errno</code>).
+        </p>
+
+        <h3>pthread_join — wait for a thread to finish</h3>
+
+        <pre><code>int pthread_join(pthread_t thread, void **retval);</code></pre>
+
+        <p>
+            Blocks the calling thread until the given thread terminates, then reaps its resources — just like
+            <code>wait()</code> does for processes. The exit value of the thread (whatever it returned from
+            <code>start_routine</code>) is stored in <code>*retval</code> if not NULL.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>You must join or detach every thread.</strong> If a thread terminates and is never joined nor
+            detached, its resources are not freed — this is the thread equivalent of a zombie process. You can
+            also call <code>pthread_detach(thread)</code> to specify that the thread's resources should be
+            freed automatically on exit.
+        </div>
+
+        <h3>Other essential functions</h3>
+
+        <pre><code>pthread_t pthread_self(void);
+/* Returns the handle of the calling thread */
+
+int pthread_exit(void *retval);
+/* Terminates the calling thread, not the whole process */
+
+int pthread_detach(pthread_t thread);
+/* Mark a thread as detached — its resources are auto-freed on exit */
+
+pthread_t pthread_equal(pthread_t t1, pthread_t t2);
+/* Compare two thread handles for equality */</code></pre>
+
+        <h3>Compiling with pthreads</h3>
+
+        <p>
+            When you compile a program that uses pthreads, you must tell the linker to include the pthread library:
+        </p>
+
+        <pre><code>$ gcc -Wall -pthread -o myprog myprog.c</code></pre>
+
+        <p>
+            The <code>-pthread</code> flag does two things: it defines <code>_REENTRANT</code> (which makes certain
+            library functions thread-safe) and it links against <code>libpthread</code>. If you forget this flag,
+            your program may compile but fail at runtime with strange errors.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 3.6 LAB: FIRST THREADS                                       -->
+        <!-- ============================================================ -->
+        <h2 id="lab-pthread"><i class="fas fa-code"></i> 3.6 · Touch Lab — Your First pthread Program</h2>
+
+        <p>
+            Let's write, compile, and run a real multi-threaded program. We will create four threads, and each will
+            print its own thread ID and the ID of the process.
+        </p>
+
+        <h3>Step 1 — Create the source file</h3>
+
+        <pre><code>$ nano threads.c</code></pre>
+
+        <p>Paste the following code:</p>
+
+        <pre><code>#include &lt;stdio.h&gt;
+#include &lt;pthread.h&gt;
+#include &lt;unistd.h&gt;
+#include &lt;sys/types.h&gt;
+
+/* Each thread runs this function */
+void *worker(void *arg) {
+    long tid = (long)arg;
+
+    /* getpid() returns the same PID for all threads */
+    /* pthread_self() returns a different value for each */
+    printf("Thread %ld: PID = %d, TID = %lu\n",
+           tid, getpid(), (unsigned long)pthread_self());
+
+    return NULL;
+}
+
+int main(void) {
+    pthread_t threads[4];
+
+    printf("Main thread: PID = %d, TID = %lu\n",
+           getpid(), (unsigned long)pthread_self());
+
+    for (long i = 0; i &lt; 4; i++) {
+        if (pthread_create(&amp;threads[i], NULL, worker, (void *)i) != 0) {
+            perror("pthread_create");
+            return 1;
+        }
+    }
+
+    for (int i = 0; i &lt; 4; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    printf("All threads finished. Main exits.\n");
+    return 0;
+}</code></pre>
+
+        <h3>Step 2 — Compile (note the <code>-pthread</code> flag)</h3>
+
+        <pre><code>$ gcc -Wall -pthread -o threads threads.c</code></pre>
+
+        <h3>Step 3 — Run it</h3>
+
+        <pre><code>$ ./threads
+Main thread: PID = 5120, TID = 140234567890176
+Thread 0: PID = 5120, TID = 140234559497984
+Thread 1: PID = 5120, TID = 140234551105280
+Thread 2: PID = 5120, TID = 140234542712576
+Thread 3: PID = 5120, TID = 140234534319872
+All threads finished. Main exits.</code></pre>
+
+        <p>
+            Look carefully at the output. All five "threads" — main plus the four workers — have the
+            <strong>same PID</strong>. That confirms they all live inside a single process. But every one of them
+            has a <strong>different TID</strong>. That is the fundamental difference between a process and a thread
+            made visible.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-info-circle"></i>
+            <strong>Note on TID size:</strong> on 64-bit Linux, <code>pthread_t</code> is typically an
+            <code>unsigned long</code> — a large number in the range 140,000,000,000,000 and up. This is because
+            glibc often uses the thread's stack address as its handle. Casting to <code>unsigned long</code> and
+            printing with <code>%lu</code> is portable enough for our purposes.
+        </div>
+
+        <h3>Experiment: run it several times</h3>
+
+        <p>
+            Notice that the output order of the four "Thread N:" lines is
+            <strong>not deterministic</strong>. Sometimes thread 2 runs before thread 0. Sometimes they are all
+            printed at the same instant by different cores. On a multi-core machine, real threads really do run
+            simultaneously — and the exact order is up to the scheduler.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check"></i>
+            <strong>Try this:</strong> run <code>./threads | sort</code> five times. The sorted output is stable
+            because the numbers are the same, but the unsorted output varies each run. This is the essence of
+            concurrent execution.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 3.7 LAB: PS -ELF AND /proc/<pid>/task                        -->
+        <!-- ============================================================ -->
+        <h2 id="lab-ps-elf"><i class="fas fa-terminal"></i> 3.7 · Touch Lab — Observing Threads from the Outside</h2>
+
+        <p>
+            In the previous lab, the program told us about its own threads. Now let's observe them from the outside,
+            the way a system administrator would — using <code>ps</code> and the <code>/proc</code> file system.
+        </p>
+
+        <h3>Modify the program to run longer</h3>
+
+        <p>
+            To actually observe the threads while they are running, let's make them sleep for a few seconds. Open
+            <code>threads.c</code> and add a <code>sleep(30)</code> at the end of the <code>worker</code> function:
+        </p>
+
+        <pre><code>void *worker(void *arg) {
+    long tid = (long)arg;
+    printf("Thread %ld: PID = %d, TID = %lu\n",
+           tid, getpid(), (unsigned long)pthread_self());
+    sleep(30);   /* keep the thread alive for observation */
+    return NULL;
+}</code></pre>
+
+        <p>Recompile and run it in the foreground:</p>
+
+        <pre><code>$ gcc -Wall -pthread -o threads threads.c
+$ ./threads &
+[1] 5200</code></pre>
+
+        <h3>Using ps -eLf to see threads as light-weight processes</h3>
+
+        <pre><code>$ ps -eLf | head -1
+UID   PID  PPID   LWP  C NLWP STIME TTY   TIME CMD
+
+$ ps -L -p 5200
+UID   PID  PPID   LWP  C NLWP STIME TTY   TIME CMD
+student 5200  5120  5200  0    5 14:22 pts/0 0:00 ./threads
+student 5200  5120  5201  0    5 14:22 pts/0 0:00 ./threads
+student 5200  5120  5202  0    5 14:22 pts/0 0:00 ./threads
+student 5200  5120  5203  0    5 14:22 pts/0 0:00 ./threads
+student 5200  5120  5204  0    5 14:22 pts/0 0:00 ./threads</code></pre>
+
+        <p>
+            Let me point out the important columns:
+        </p>
+
+        <ul>
+            <li><strong>PID</strong> — the process ID. All five lines share the same PID, confirming they belong to
+                one process.</li>
+            <li><strong>LWP</strong> — Light Weight Process ID. This is essentially the thread ID as seen by the
+                kernel. Notice it is different for each line.</li>
+            <li><strong>NLWP</strong> — Number of Light Weight Processes. This is the thread count — 5 in our case
+                (four workers plus the main thread).</li>
+            <li><strong>CMD</strong> — the command line, the same for all threads of the process.</li>
+        </ul>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Remember:</strong> in Linux, "LWP" and "TID" are essentially the same concept. The kernel calls
+            them tasks; user space calls them threads. Same thing, different vocabulary.
+        </div>
+
+        <h3>Exploring /proc/&lt;pid&gt;/task</h3>
+
+        <p>
+            The kernel exposes every thread of a process as a subdirectory inside
+            <code>/proc/&lt;pid&gt;/task/</code>. Let's look:
+        </p>
+
+        <pre><code>$ ls /proc/5200/task
+5200  5201  5202  5203  5204
+
+$ ls /proc/5200/task/5201
+attr        comm       fd          mem         ns          sched
+auxv        cgroup     fdinfo      mountinfo   numa_maps   schedstat
+...
+stat        status     syscall     wchan</code></pre>
+
+        <p>
+            Each directory is a full window into that thread's state — its own scheduler statistics, its own CPU
+            affinity, its own system call activity. Let's look at the status of one thread:
+        </p>
+
+        <pre><code>$ cat /proc/5200/task/5201/status
+Name:   threads
+State:  S (sleeping)
+Tgid:   5200
+Pid:    5201
+PPid:   5120
+...
+Threads:        5
+</code></pre>
+
+        <p>
+            A few fields deserve attention:
+        </p>
+
+        <ul>
+            <li><strong>Tgid</strong> — Thread Group ID. This is the PID of the process that owns all these threads.
+                Every thread in the same process shares the same <code>Tgid</code>.</li>
+            <li><strong>Pid</strong> — the individual thread's ID (the same number you saw in the LWP column).</li>
+            <li><strong>Threads</strong> — the current number of threads in this process.</li>
+        </ul>
+
+        <h3>Investigate the stacks</h3>
+
+        <p>
+            Each thread has its own stack. You can see this by examining the memory maps of individual threads —
+            they differ only in the stack region:
+        </p>
+
+        <pre><code>$ cat /proc/5200/task/5201/maps | tail -5
+...
+7f8a2c1f2000-7f8a2c1f3000 ---p 00000000 00:00 0
+7f8a2c9f3000-7f8a2d1f2000 rw-p 00000000 00:00 0
+7f8a2d1f2000-7f8a2d1f3000 ---p 00000000 00:00 0
+7f8a2d9f3000-7f8a2e1f2000 rw-p 00000000 00:00 0</code></pre>
+
+        <p>
+            Those large <code>rw-p</code> regions near the high end of the address space are the thread stacks.
+            Each thread gets its own 8 MB stack by default — that is one of the reasons threads are a bit heavier
+            than they look at first glance.
+        </p>
+
+        <h3>Clean up</h3>
+
+        <pre><code>$ kill 5200
+[1]+  Terminated              ./threads</code></pre>
+
+        <p>
+            Notice that killing the process terminates <em>all</em> its threads. There is no way to kill just one
+            thread from the outside — threads have no external identity separate from the process in the shell.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>An important consequence:</strong> killing a process also kills all its threads, cleanly or not.
+            If one thread in a multi-threaded program crashes with SIGSEGV, the entire process dies — and every
+            other thread with it. This is why isolation between threads is so much weaker than isolation between
+            processes.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 3 — Written Assignment</h3>
+            <p>
+                Submit your answers as a PDF. Include all code, commands, outputs, and short explanations. This
+                assignment contributes to your <strong>labs &amp; assignments</strong> grade.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>List <strong>five things</strong> that threads within the same process share, and
+                    <strong>five things</strong> that are private to each thread. Explain briefly why each one falls
+                    into its category.</li>
+                <li>Compare the three classic thread models (1:1, N:1, M:N). For each, describe one realistic
+                    workload where it is the best choice, and one where it is the worst.</li>
+                <li>Explain why creating a thread is generally faster than creating a process. Be specific about what
+                    the kernel does in each case in Linux (hint: <code>clone()</code> flags).</li>
+                <li>What is a <strong>race condition</strong>? Define it precisely, and give a concrete example other
+                    than the counter example used in the lecture.</li>
+                <li>Why is it impossible to write a correct multi-threaded program without any form of synchronization?
+                    Justify your answer.</li>
+            </ol>
+
+            <h4>Part II — Applied Questions (40 points)</h4>
+            <ol>
+                <li>Write a C program using <code>pthread_create</code> that creates <strong>three</strong> threads.
+                    Each thread should:
+                    <ul>
+                        <li>print its own thread ID (via <code>pthread_self()</code>);</li>
+                        <li>print the process ID (via <code>getpid()</code>);</li>
+                        <li>sleep for a random duration between 1 and 3 seconds;</li>
+                        <li>print a short "done" message before exiting.</li>
+                    </ul>
+                    The main thread must <code>pthread_join</code> all three. Include the full code and the output
+                    in your submission.
+                </li>
+                <li>Reproduce the lost-update race condition: write a program with two threads, each incrementing a
+                    shared counter 1,000,000 times. Compile and run it several times. Report the counter value for
+                    each run. What is the maximum and minimum observed value? Why does it never equal exactly
+                    2,000,000 in a normal run?</li>
+                <li>While your threaded program is running, use <code>ps -eLf</code> to capture its output. Paste the
+                    output and identify the following: the PID, the TIDs of each thread, and the NLWP count. Explain
+                    the meaning of each of these three numbers.</li>
+                <li>Inspect <code>/proc/&lt;pid&gt;/task/&lt;tid&gt;/status</code> for one thread and identify the
+                    <code>Tgid</code> and <code>Pid</code> fields. What do they represent, and how do they relate to
+                    each other?</li>
+            </ol>
+
+            <h4>Part III — Reflection (30 points)</h4>
+            <ol>
+                <li>In your own words (4–6 sentences), describe what a thread is — not just the textbook definition,
+                    but what it really means in terms of memory, CPU, and cooperation between concurrent tasks.</li>
+                <li>You are designing a small game server that needs to handle many simultaneous player connections
+                    and update the world state 60 times per second on a multi-core CPU. Would you reach for processes,
+                    threads, or both? Justify your design choice in 4–6 sentences, and mention at least two of the
+                    risks you need to manage.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 3 Summary</h3>
+            <ul>
+                <li><strong>Thread:</strong> a unit of CPU execution inside a process. Shares code, data, heap, file
+                    descriptors. Has its own registers, stack, and TID.</li>
+                <li><strong>Thread models:</strong> 1:1 (Linux, Windows — true parallelism), N:1 (green threads —
+                    cheapest, no parallelism), M:N (Go, Erlang — best of both, complex).</li>
+                <li><strong>Why threads:</strong> responsiveness, resource sharing, cheaper creation and context
+                    switching than processes, and real parallelism on multi-core CPUs.</li>
+                <li><strong>Overheads:</strong> race conditions, deadlocks, loss of isolation, hard-to-debug
+                    non-deterministic behavior.</li>
+                <li><strong>Race condition:</strong> a bug that appears when two threads access shared data without
+                    coordination — the <code>counter++</code> example is its simplest form.</li>
+                <li><strong>pthreads API:</strong> <code>pthread_create</code>, <code>pthread_join</code>,
+                    <code>pthread_exit</code>, compiled with <code>-pthread</code>.</li>
+                <li><strong>Linux view:</strong> threads are LWPs — lightweight processes — visible in
+                    <code>ps -eLf</code> and <code>/proc/&lt;pid&gt;/task/</code>.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

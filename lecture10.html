@@ -1,0 +1,1779 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 10: Packages, Networking Basics &amp; DHCP Fundamentals</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 10</span>
+            <span class="green"><i class="fas fa-terminal"></i> Phase 2 · Linux Practical</span>
+            <span><i class="fas fa-laptop-code"></i> Deep Lab</span>
+        </div>
+
+        <h1>Packages, Networking Basics &amp; DHCP Fundamentals</h1>
+        <p class="lecture-sub">
+            Based on <em>How Linux Works</em> by Brian Ward, the <em>UNIX and Linux System Administration
+            Handbook</em>, the Kea DHCP documentation, and RFC 2131 (DHCP).
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#packages">10.1 · Package Management</a>
+            <a href="#apt-dnf">10.2 · apt &amp; dnf</a>
+            <a href="#ip-basics">10.3 · IP Addressing</a>
+            <a href="#net-commands">10.4 · ip, ss, ping, traceroute</a>
+            <a href="#net-config">10.5 · Network Configuration</a>
+            <a href="#dhcp-intro">10.6 · DHCP — What &amp; Why</a>
+            <a href="#dora">10.7 · The DORA Process</a>
+            <a href="#dhcp-options">10.8 · Leases, Scopes &amp; Reservations</a>
+            <a href="#lab-net">10.9 · Lab: Network Diagnostics</a>
+            <a href="#lab-dhcp">10.10 · Lab: A Lightweight DHCP Server</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 10.1 PACKAGE MANAGEMENT — THE BIG PICTURE                    -->
+        <!-- ============================================================ -->
+        <h2 id="packages"><i class="fas fa-box-open"></i> 10.1 · Package Management — The Big Picture</h2>
+
+        <p>
+            Last week we built a multi-user environment and learned how to run services with systemd. But at some
+            point, every administrator faces the same basic problem: <em>how do I install software on this
+            machine in a way that is safe, repeatable, and upgradeable?</em>
+        </p>
+
+        <p>
+            That is the job of the <strong>package manager</strong>. A package manager is a system tool that
+            installs, updates, configures, and removes software in a consistent way — handling not just the
+            binaries but also the metadata, dependencies, configuration files, and upgrade paths.
+        </p>
+
+        <p>
+            A package manager rests on top of <strong>repositories</strong> — curated collections of packages,
+            hosted by your distribution or by third parties. When you install software through the package
+            manager, you are downloading from a trusted, signed source, and the package manager verifies the
+            signature before installing.
+        </p>
+
+        <h3>Why not just download and compile from source?</h3>
+
+        <p>
+            You can, of course, download a tarball and run <code>./configure &amp;&amp; make &amp;&amp; make
+            install</code>. Many people do this for programs that are not packaged. But it brings a host of
+            problems:
+        </p>
+
+        <div class="two-cols">
+            <div class="col warn">
+                <h4><i class="fas fa-triangle-exclamation"></i> The cost of source builds</h4>
+                <ul>
+                    <li>Dependencies are managed by hand — every library the program needs must be found, built,
+                        and installed manually</li>
+                    <li>No uninstall path — the files scattered across <code>/usr/local</code> stay there forever</li>
+                    <li>No easy upgrades — you must remember to check for new versions and rebuild</li>
+                    <li>No signature verification — you might be building malware</li>
+                    <li>No integration with the OS — services, man pages, and shared libraries do not get
+                        registered properly</li>
+                </ul>
+            </div>
+            <div class="col green">
+                <h4><i class="fas fa-thumbs-up"></i> The package manager's promise</h4>
+                <ul>
+                    <li>One command installs the program <em>and all its dependencies</em></li>
+                    <li>Upgrades are one command — and the package manager sorts out the order</li>
+                    <li>Removal is clean — the package manager knows exactly which files it installed</li>
+                    <li>Everything is cryptographically signed by the distribution</li>
+                    <li>Integration is automatic — systemd units, man pages, and shared libraries all get
+                        registered</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The two-family world:</strong> essentially all Linux distributions fall into one of two
+            package-management families. Debian-based systems (Debian, Ubuntu, Linux Mint, Kali) use
+            <code>.deb</code> packages and the <code>apt</code> / <code>dpkg</code> toolchain. Red Hat-based
+            systems (RHEL, Fedora, CentOS Stream, Rocky, AlmaLinux, Amazon Linux) use <code>.rpm</code>
+            packages and the <code>dnf</code> (or older <code>yum</code>) / <code>rpm</code> toolchain. In this
+            course, we work primarily with Ubuntu and therefore with <code>apt</code>.
+        </div>
+
+        <h3>The two layers of every package manager</h3>
+
+        <p>
+            Every package manager is really two layers stacked on top of each other.
+        </p>
+
+        <p>
+            The <strong>low-level tool</strong> operates on individual package files. On Debian-based systems
+            this is <code>dpkg</code>; on Red Hat systems it is <code>rpm</code>. Both of these work with local
+            files — they can be told to install a specific <code>.deb</code> or <code>.rpm</code> that you have
+            downloaded. They do not do any dependency resolution, and they do not talk to the network. They are
+            the plumbing.
+        </p>
+
+        <p>
+            The <strong>high-level tool</strong> is what you actually use day-to-day. On Debian-based systems it
+            is <code>apt</code>; on Red Hat systems it is <code>dnf</code> (or <code>yum</code> on older
+            systems). These tools talk to remote repositories, download packages, resolve dependencies — pulling
+            in everything a package needs, in the right order — and then hand the actual work off to the
+            low-level tool.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Family</th>
+                    <th style="width: 25%;">Low-level tool</th>
+                    <th style="width: 25%;">High-level tool</th>
+                    <th>Package format</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Debian / Ubuntu</strong></td>
+                    <td><code>dpkg</code></td>
+                    <td><code>apt</code></td>
+                    <td><code>.deb</code></td>
+                </tr>
+                <tr>
+                    <td><strong>Red Hat / Fedora</strong></td>
+                    <td><code>rpm</code></td>
+                    <td><code>dnf</code> / <code>yum</code></td>
+                    <td><code>.rpm</code></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ============================================================ -->
+        <!-- 10.2 APT AND DNF — THE DAY-TO-DAY COMMANDS                    -->
+        <!-- ============================================================ -->
+        <h2 id="apt-dnf"><i class="fas fa-download"></i> 10.2 · apt &amp; dnf — The Day-to-Day Commands</h2>
+
+        <p>
+            Now for the commands you will actually type. If you remember nothing else from this section, remember
+            these — they are the muscle memory of Linux administration.
+        </p>
+
+        <h3>The apt workflow — three commands to memorize</h3>
+
+        <pre><code>sudo apt update           # refresh the local index of available packages
+sudo apt upgrade -y       # install the newest versions of installed packages
+sudo apt install nginx    # install a new package (or upgrade if present)</code></pre>
+
+        <p>
+            That is the loop. The first command does <em>not</em> install anything — it just downloads the
+            latest package index from each configured repository. It is the equivalent of "go find out what
+            versions exist right now." The second command compares installed versions with the new index and
+            upgrades everything that is out of date. The third installs a specific package, pulling in all
+            needed dependencies.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>A rule you should internalize:</strong> on any new system, or any time you are about to
+            install a package, <em>run <code>sudo apt update</code> first</em>. Without it, apt works from a
+            stale index, and it may try to install a version that no longer exists on the server. This is one
+            of the most common beginner mistakes — and the error message ("404 Not Found" when downloading) is
+            rarely enough to explain itself.
+        </div>
+
+        <h3>The other apt commands</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 45%;">Command</th>
+                    <th>What it does</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><code>apt search NAME</code></td><td>Search available packages for a keyword.</td></tr>
+                <tr><td><code>apt show NAME</code></td><td>Show detailed info about a package — version, size, dependencies, description.</td></tr>
+                <tr><td><code>apt list --installed</code></td><td>List all installed packages.</td></tr>
+                <tr><td><code>apt list --upgradeable</code></td><td>List packages that have newer versions available.</td></tr>
+                <tr><td><code>apt remove NAME</code></td><td>Remove a package but leave its configuration files.</td></tr>
+                <tr><td><code>apt purge NAME</code></td><td>Remove a package <em>and</em> its configuration files.</td></tr>
+                <tr><td><code>apt autoremove</code></td><td>Remove packages that are no longer needed as dependencies.</td></tr>
+                <tr><td><code>apt-cache policy NAME</code></td><td>Show which version is installed and which is available.</td></tr>
+            </tbody>
+        </table>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>remove vs purge — a distinction that matters:</strong> <code>apt remove nginx</code> will
+            uninstall the nginx binaries, but it will leave <code>/etc/nginx/</code> intact. If you later
+            reinstall nginx, it will pick up your old configuration. If you want a truly clean slate —
+            for instance, because you are reinstalling to reset your configuration — use
+            <code>apt purge nginx</code>, which deletes configuration files too.
+        </div>
+
+        <h3>dnf — the Red Hat equivalent</h3>
+
+        <pre><code>sudo dnf check-update       # refresh the package index
+sudo dnf upgrade            # upgrade everything
+sudo dnf install nginx      # install
+sudo dnf remove nginx       # remove
+sudo dnf search nginx       # search
+sudo dnf info nginx         # show details
+sudo dnf list installed     # list installed packages</code></pre>
+
+        <p>
+            The commands are nearly identical in spirit — the difference is only in the names. If you know
+            <code>apt</code>, you can be productive on a Red Hat system in about ten minutes of adjustment.
+        </p>
+
+        <h3>Where apt keeps its configuration</h3>
+
+        <p>
+            apt reads from two main places.
+        </p>
+
+        <p>
+            <code>/etc/apt/sources.list</code> is the classic list of repositories. Each line has the format
+            <code>deb URL SUITE COMPONENT</code> — for example,
+            <code>deb http://archive.ubuntu.com/ubuntu noble main restricted</code>. <em>deb</em> means binary
+            packages; <em>deb-src</em> is for source packages.
+        </p>
+
+        <p>
+            <code>/etc/apt/sources.list.d/</code> is a directory that can hold additional source-list files,
+            one per file. Modern distributions use this instead of a single monolithic file, because it lets
+            third-party repositories add and remove themselves cleanly. Each file ends in
+            <code>.list</code> and has the same format as the main file.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Modern Ubuntu (22.04+):</strong> uses a slightly different format, defined in
+            <code>/etc/apt/sources.list.d/ubuntu.sources</code>. The format is more verbose
+            (a stanza-based syntax with <em>URIs</em>, <em>Suites</em>, and <em>Components</em> fields),
+            but conceptually it is the same thing. The old one-line <code>.list</code> format still works
+            and is still seen in third-party repositories.
+        </div>
+
+        <h3>Adding a third-party repository — the modern way</h3>
+
+        <p>
+            Occasionally a package you want is not in the distribution's official repositories. Many projects
+            maintain their own small repositories. The modern, safe way to add one is:
+        </p>
+
+        <pre><code># 1. Download the repository's signing key
+curl -fsSL https://example.com/repo/key.gpg | sudo gpg --dearmor \
+    -o /usr/share/keyrings/example-archive-keyring.gpg
+
+# 2. Add the repository line to a new sources file
+echo "deb [signed-by=/usr/share/keyrings/example-archive-keyring.gpg] \
+    https://example.com/repo stable main" | \
+    sudo tee /etc/apt/sources.list.d/example.list
+
+# 3. Refresh apt
+sudo apt update</code></pre>
+
+        <p>
+            The <code>[signed-by=...]</code> part is crucial. It tells apt exactly which GPG key should
+            authenticate packages from that repository. Without it, apt would reject the repository — or, if
+            you relax security, it would accept unsigned packages, which is dangerous.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Only add reputable repositories.</strong> A malicious repository can hand you a trojaned
+            version of a package that you already trust — replacing your system's <code>sudo</code> with a
+            backdoored version, for example. Every repository you add is a new party you are trusting to
+            sign your software.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 10.3 IP ADDRESSING FUNDAMENTALS                              -->
+        <!-- ============================================================ -->
+        <h2 id="ip-basics"><i class="fas fa-network-wired"></i> 10.3 · IP Addressing Fundamentals</h2>
+
+        <p>
+            We now move from software packages to networking — the next great widening of scope in this course.
+            Up to this point, everything we have done has lived inside a single machine. From now on, we need
+            to reason about machines talking to each other.
+        </p>
+
+        <p>
+            The foundation of that conversation is <strong>IP addressing</strong>. Every device on a modern IP
+            network — every server, laptop, phone, and virtual machine — has an IP address. That address
+            identifies the device on the network, so that packets can be routed to the right place.
+        </p>
+
+        <h3>IPv4 — a 32-bit address</h3>
+
+        <p>
+            IPv4 is the version of IP that almost everything on the internet still runs on. An IPv4 address is
+            32 bits long — four octets. We write it in dotted decimal notation: <code>192.168.1.10</code> is
+            really the 32-bit number <code>11000000 10101000 00000001 00001010</code> = 3,232,235,530.
+        </p>
+
+        <p>
+            32 bits gives us about 4.3 billion possible addresses. That seemed like an inexhaustible supply in
+            1981, when IPv4 was standardized. It was not. IPv4 address exhaustion is why we have NAT, why
+            many modern services are IPv6-only internally, and why the transition to IPv6 has been one of
+            the longest-running sagas in internet engineering.
+        </p>
+
+        <h3>The address has two parts — network and host</h3>
+
+        <p>
+            Every IPv4 address is logically split into two parts. The <strong>network portion</strong>
+            identifies which network the address is on. The <strong>host portion</strong> identifies the
+            specific device within that network.
+        </p>
+
+        <p>
+            The split is determined by the <strong>subnet mask</strong> — a 32-bit value that says which bits
+            belong to the network and which to the host. A bit set to 1 in the mask means "that bit is part
+            of the network ID", and a bit set to 0 means "that bit is part of the host ID".
+        </p>
+
+        <p>
+            Modern networks use <strong>Classless Inter-Domain Routing</strong> — CIDR for short. Instead of
+            talking about class A, B, or C networks, we specify a prefix length in slash notation. So
+            <code>192.168.1.10/24</code> means "the first 24 bits are the network, the last 8 bits are the
+            host."
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg"
+                aria-label="IP address and subnet mask">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">An IPv4 address has two parts: network ID and host ID</text>
+
+                <!-- Address row -->
+                <text x="40" y="80" font-family="Inter" font-size="12" fill="#cbd5e1" font-weight="700">Address</text>
+                <rect x="150" y="60" width="120" height="40" rx="4" fill="rgba(59, 130, 246, 0.22)"
+                    stroke="#3b82f6" stroke-width="1.5" />
+                <text x="210" y="86" font-family="Courier New" font-size="13" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">192</text>
+                <rect x="280" y="60" width="120" height="40" rx="4" fill="rgba(59, 130, 246, 0.22)"
+                    stroke="#3b82f6" stroke-width="1.5" />
+                <text x="340" y="86" font-family="Courier New" font-size="13" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">168</text>
+                <rect x="410" y="60" width="120" height="40" rx="4" fill="rgba(139, 92, 246, 0.22)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="470" y="86" font-family="Courier New" font-size="13" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">1</text>
+                <rect x="540" y="60" width="120" height="40" rx="4" fill="rgba(139, 92, 246, 0.22)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="600" y="86" font-family="Courier New" font-size="13" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">10</text>
+
+                <!-- Mask row -->
+                <text x="40" y="160" font-family="Inter" font-size="12" fill="#cbd5e1" font-weight="700">Mask /24</text>
+                <rect x="150" y="140" width="120" height="40" rx="4" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="210" y="166" font-family="Courier New" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">255</text>
+                <rect x="280" y="140" width="120" height="40" rx="4" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="340" y="166" font-family="Courier New" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">255</text>
+                <rect x="410" y="140" width="120" height="40" rx="4" fill="rgba(16, 185, 129, 0.15)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="470" y="166" font-family="Courier New" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">255</text>
+                <rect x="540" y="140" width="120" height="40" rx="4" fill="rgba(0, 0, 0, 0.25)"
+                    stroke="#475569" stroke-width="1.5" stroke-dasharray="5,3" />
+                <text x="600" y="166" font-family="Courier New" font-size="13" fill="#94a3b8"
+                    text-anchor="middle" font-weight="700">0</text>
+
+                <!-- Classification row -->
+                <text x="40" y="240" font-family="Inter" font-size="12" fill="#cbd5e1" font-weight="700">Meaning</text>
+                <rect x="150" y="220" width="370" height="40" rx="4" fill="rgba(16, 185, 129, 0.12)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="335" y="246" font-family="Inter" font-size="12" fill="#34d399"
+                    text-anchor="middle" font-weight="700">Network portion (24 bits)</text>
+
+                <rect x="540" y="220" width="120" height="40" rx="4" fill="rgba(139, 92, 246, 0.12)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="600" y="246" font-family="Inter" font-size="12" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">Host — 10</text>
+
+                <!-- Special addresses -->
+                <text x="410" y="300" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">
+                    /24 → 256 addresses · Network address 192.168.1.0 · Broadcast 192.168.1.255 · Usable 254
+                </text>
+            </svg>
+            <div class="svg-caption">An IPv4 address with a /24 mask: the first 24 bits identify the network, the last 8 bits identify the host within that network.</div>
+        </div>
+
+        <h3>Common prefix lengths</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 15%;">CIDR</th>
+                    <th style="width: 25%;">Subnet mask</th>
+                    <th style="width: 20%;">Total addresses</th>
+                    <th style="width: 20%;">Usable hosts</th>
+                    <th>Typical use</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>/8</strong></td>
+                    <td>255.0.0.0</td>
+                    <td>16,777,216</td>
+                    <td>16,777,214</td>
+                    <td>Huge — classic Class A block</td>
+                </tr>
+                <tr>
+                    <td><strong>/16</strong></td>
+                    <td>255.255.0.0</td>
+                    <td>65,536</td>
+                    <td>65,534</td>
+                    <td>Large — classic Class B block</td>
+                </tr>
+                <tr>
+                    <td><strong>/24</strong></td>
+                    <td>255.255.255.0</td>
+                    <td>256</td>
+                    <td>254</td>
+                    <td>Small LAN — the most common in home and office</td>
+                </tr>
+                <tr>
+                    <td><strong>/25</strong></td>
+                    <td>255.255.255.128</td>
+                    <td>128</td>
+                    <td>126</td>
+                    <td>Half of a /24</td>
+                </tr>
+                <tr>
+                    <td><strong>/30</strong></td>
+                    <td>255.255.255.252</td>
+                    <td>4</td>
+                    <td>2</td>
+                    <td>Point-to-point links between routers</td>
+                </tr>
+                <tr>
+                    <td><strong>/32</strong></td>
+                    <td>255.255.255.255</td>
+                    <td>1</td>
+                    <td>1</td>
+                    <td>A single host (loopback interfaces, specific routing rules)</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Why two fewer usable hosts?</strong> Every subnet reserves two addresses. The
+            <em>network address</em> — all host bits zero — identifies the network itself. The
+            <em>broadcast address</em> — all host bits one — is used to send a packet to every host on the
+            subnet. So a /24 with 256 total addresses has 254 that can be assigned to actual machines.
+        </div>
+
+        <h3>Private addresses — the address ranges reserved for internal use</h3>
+
+        <p>
+            Because IPv4 addresses are scarce, RFC 1918 reserves three ranges for private use. Packets to
+            these addresses are never routed on the public internet — they are only valid within a private
+            network, and NAT translates them to public addresses when leaving. Every home router, corporate
+            network, and cloud VPC uses one of these ranges.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Range</th>
+                    <th style="width: 40%;">CIDR block</th>
+                    <th>Number of addresses</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>10.0.0.0</strong> – <strong>10.255.255.255</strong></td><td>10.0.0.0/8</td><td>16.7 million</td></tr>
+                <tr><td><strong>172.16.0.0</strong> – <strong>172.31.255.255</strong></td><td>172.16.0.0/12</td><td>1 million</td></tr>
+                <tr><td><strong>192.168.0.0</strong> – <strong>192.168.255.255</strong></td><td>192.168.0.0/16</td><td>65,536</td></tr>
+            </tbody>
+        </table>
+
+        <p>
+            In our course labs we will use <code>192.168.x.0/24</code> ranges — usually
+            <code>192.168.1.0/24</code> for the host-only network and <code>10.0.2.0/24</code> for the NAT
+            network VirtualBox sets up automatically.
+        </p>
+
+        <h3>Other important addresses</h3>
+
+        <ul>
+            <li><strong>127.0.0.1</strong> — the loopback address. Every machine can reach itself at this
+                address. The entire <code>127.0.0.0/8</code> block is reserved for loopback.</li>
+            <li><strong>0.0.0.0</strong> — "any address" or "the system itself", depending on context. As a
+                bind address, it means "listen on every interface".</li>
+            <li><strong>255.255.255.255</strong> — limited broadcast. Never routed; reaches every host on the
+                local network.</li>
+            <li><strong>169.254.0.0/16</strong> — link-local addresses. Assigned automatically when DHCP fails.
+                If you see a 169.254.x.x address on your interface, something is very likely wrong with your
+                DHCP setup.</li>
+        </ul>
+
+        <!-- ============================================================ -->
+        <!-- 10.4 NETWORKING COMMANDS                                     -->
+        <!-- ============================================================ -->
+        <h2 id="net-commands"><i class="fas fa-tools"></i> 10.4 · ip, ss, ping, traceroute</h2>
+
+        <p>
+            Now that we know what an IP address <em>is</em>, we need to be able to see it, change it, and
+            diagnose problems with it. Linux gives us a small set of tools for this, and every Linux
+            administrator uses them daily.
+        </p>
+
+        <h3>The ip command — the modern way</h3>
+
+        <p>
+            For twenty years, the tools of choice were <code>ifconfig</code>, <code>route</code>, and
+            <code>arp</code>. These still exist on many systems, but the modern replacement is a single
+            command named <code>ip</code>, part of the <code>iproute2</code> package. Everything the old
+            tools did, <code>ip</code> does better.
+        </p>
+
+        <pre><code>ip addr           # or: ip a — show all interfaces and their addresses
+ip addr show eth0 # show only eth0
+ip link           # show interface state — up/down, MAC addresses
+ip route          # show the routing table
+ip neigh          # show the ARP/neighbor cache (replaces arp)</code></pre>
+
+        <p>
+            Let's look at typical output from <code>ip addr</code>:
+        </p>
+
+        <pre><code>2: enp0s3: &lt;BROADCAST,MULTICAST,UP,LOWER_UP&gt; mtu 1500 qdisc fq_codel state UP
+    link/ether 08:00:27:1a:2b:3c brd ff:ff:ff:ff:ff:ff
+    inet 10.0.2.15/24 brd 10.0.2.255 scope global dynamic enp0s3
+       valid_lft 86322sec preferred_lft 86322sec
+    inet6 fe80::a00:27ff:fe1a:2b3c/64 scope link
+       valid_lft forever preferred_lft forever</code></pre>
+
+        <p>
+            The line to focus on is the one starting with <code>inet</code>. That is the IPv4 address. In this
+            example it is <code>10.0.2.15</code> with a <code>/24</code> mask. The word <code>dynamic</code>
+            tells us this address was assigned by DHCP — we will return to that at length later in this
+            lecture.
+        </p>
+
+        <h3>The ss command — modern socket statistics</h3>
+
+        <p>
+            <code>ss</code> replaces the classic <code>netstat</code> for inspecting sockets. It is faster,
+            more featureful, and included by default on modern systems.
+        </p>
+
+        <pre><code>ss -tlnp            # TCP listening sockets, with process info
+ss -tunap           # all TCP and UDP sockets, in all states, with processes
+ss -s               # summary of socket statistics</code></pre>
+
+        <p>
+            The flags decode as follows: <code>-t</code> for TCP, <code>-u</code> for UDP, <code>-l</code>
+            for listening sockets only, <code>-n</code> for numeric — do not resolve names, <code>-p</code>
+            for process information, and <code>-a</code> for all sockets.
+        </p>
+
+        <p>
+            Typical output for <code>ss -tlnp</code>:
+        </p>
+
+        <pre><code>State  Recv-Q  Send-Q  Local Address:Port  Peer Address:Port  Process
+LISTEN 0       128     0.0.0.0:22          0.0.0.0:*          users:(("sshd",pid=712,fd=3))
+LISTEN 0       511     0.0.0.0:80          0.0.0.0:*          users:(("nginx",pid=1523,fd=6))
+LISTEN 0       128     127.0.0.1:5432      0.0.0.0:*          users:(("postgres",pid=987,fd=6))</code></pre>
+
+        <p>
+            Notice two things. First, the <code>Local Address</code> field — <code>0.0.0.0:22</code> means
+            sshd is listening on every interface on port 22. Second, <code>127.0.0.1:5432</code> for
+            postgres — it is listening <em>only</em> on the loopback address, meaning it can only be reached
+            from the same machine. This is a common security practice for databases that should not be exposed
+            to the network.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Diagnostic gold:</strong> when you are trying to figure out why a service is not reachable
+            from another machine, <code>ss -tlnp</code> is your first tool. If the service is listening on
+            <code>127.0.0.1</code>, it is only reachable locally. If it is listening on <code>0.0.0.0</code>
+            but still unreachable, the problem is in the firewall, the routing, or the network itself — not
+            in the service.
+        </div>
+
+        <h3>ping — the simplest connectivity test</h3>
+
+        <p>
+            <code>ping</code> sends ICMP Echo Request packets and waits for Echo Replies. It is the simplest
+            possible way to test basic reachability.
+        </p>
+
+        <pre><code>ping 8.8.8.8              # ping a specific IP
+ping google.com           # ping by hostname — also tests DNS
+ping -c 4 8.8.8.8         # send only 4 packets, then stop
+ping -i 0.5 8.8.8.8       # send one packet every 0.5 seconds</code></pre>
+
+        <p>
+            The response tells you several things. If you get replies, then the network path is working, and
+            the round-trip time printed after each packet tells you how fast. If you get "Destination Host
+            Unreachable", the network layer responded but could not reach the target — usually a routing
+            problem. If you get absolutely no response and the command times out, either the target is
+            offline, a firewall is silently dropping the packets, or the network path is broken further
+            upstream.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>ICMP is often blocked.</strong> A common misdiagnosis is "the server is down" when in
+            reality the server is up but a firewall is dropping ICMP. Always cross-check with an attempt to
+            reach the service you actually care about — for example, <code>curl</code> on port 80, or
+            <code>ss</code> from the server itself to confirm it is listening.
+        </div>
+
+        <h3>traceroute — where do the packets go?</h3>
+
+        <p>
+            <code>traceroute</code> (or its modern replacement <code>tracepath</code>) tells you the path
+            packets take from your machine to a destination, by sending packets with increasing TTL values.
+            Each router that receives a packet with TTL 1 decrements it to zero, drops the packet, and sends
+            an ICMP "Time Exceeded" message back — that reveals the router's address.
+        </p>
+
+        <pre><code>traceroute google.com       # classic tool
+tracepath google.com        # modern alternative — no root required
+mtr google.com              # combined ping + traceroute, dynamic</code></pre>
+
+        <p>
+            Typical output:
+        </p>
+
+        <pre><code>traceroute to google.com (142.250.185.78), 30 hops max, 60 byte packets
+ 1  _gateway (10.0.2.2)      0.562 ms  0.512 ms  0.489 ms
+ 2  192.168.1.1 (192.168.1.1)  2.341 ms  2.298 ms  2.187 ms
+ 3  10.10.0.1 (10.10.0.1)     5.113 ms  5.087 ms  4.998 ms
+ 4  * * *
+ 5  142.250.185.78 (142.250.185.78)  14.221 ms  14.187 ms  13.998 ms
+</code></pre>
+
+        <p>
+            Each line is one hop. The <code>* * *</code> means that hop did not respond — some routers
+            deliberately do not send back ICMP Time Exceeded. That is not necessarily a problem; it just
+            means you cannot see that specific hop.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 10.5 NETWORK CONFIGURATION                                   -->
+        <!-- ============================================================ -->
+        <h2 id="net-config"><i class="fas fa-sliders"></i> 10.5 · Network Configuration in Linux</h2>
+
+        <p>
+            Before we get to DHCP, we need to understand how a Linux machine's network settings are actually
+            configured. The days of editing <code>/etc/network/interfaces</code> by hand are mostly behind us
+            — modern Linux systems have two main approaches.
+        </p>
+
+        <h3>Netplan — Ubuntu's declarative network configuration</h3>
+
+        <p>
+            Ubuntu 18.04 and later use <strong>Netplan</strong> as the primary interface for network
+            configuration. Netplan is a YAML-based config system that abstracts the actual network
+            backend — <code>systemd-networkd</code> or <code>NetworkManager</code> — and generates their
+            configuration from a single source of truth.
+        </p>
+
+        <p>
+            The Netplan config files live in <code>/etc/netplan/</code>. Typically there is one file per
+            system, ending in <code>.yaml</code>. Here is a minimal example for a static IP:
+        </p>
+
+        <pre><code>network:
+  version: 2
+  ethernets:
+    enp0s3:
+      dhcp4: false
+      addresses:
+        - 192.168.1.10/24
+      routes:
+        - to: default
+          via: 192.168.1.1
+      nameservers:
+        addresses: [1.1.1.1, 8.8.8.8]</code></pre>
+
+        <p>
+            A DHCP-configured interface is even simpler:
+        </p>
+
+        <pre><code>network:
+  version: 2
+  ethernets:
+    enp0s3:
+      dhcp4: true</code></pre>
+
+        <p>
+            After editing a Netplan file, apply the configuration with:
+        </p>
+
+        <pre><code>sudo netplan apply</code></pre>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>YAML is whitespace-sensitive.</strong> Indentation must use spaces, not tabs. A single
+            misaligned character will cause Netplan to reject the file — and if you are connected over SSH,
+            an incorrect <code>netplan apply</code> can also lock you out. Always verify your config with
+            <code>sudo netplan try</code> first: it applies the config and gives you 120 seconds to confirm
+            that it works, after which it rolls back if you do not confirm.
+        </div>
+
+        <h3>Traditional ifupdown</h3>
+
+        <p>
+            Older Debian and Ubuntu systems used <code>/etc/network/interfaces</code>. This file is still
+            respected by <code>ifup</code> and <code>ifdown</code>, but on modern systems it is usually
+            bypassed in favor of Netplan. If you encounter it, the format looks like:
+        </p>
+
+        <pre><code>auto enp0s3
+iface enp0s3 inet dhcp
+
+# or for a static address:
+# iface enp0s3 inet static
+#     address 192.168.1.10
+#     netmask 255.255.255.0
+#     gateway 192.168.1.1
+#     dns-nameservers 1.1.1.1 8.8.8.8</code></pre>
+
+        <h3>The three things every interface needs</h3>
+
+        <p>
+            Whether you are configuring a DHCP client or a static address, every functional interface needs
+            three things:
+        </p>
+
+        <ol>
+            <li><strong>An IP address and prefix</strong> — where the machine lives on the network.</li>
+            <li><strong>A default gateway</strong> — the router that will forward packets to destinations
+                outside the local network.</li>
+            <li><strong>DNS servers</strong> — the resolvers that turn hostnames into IP addresses. Without
+                DNS, you can only reach other machines by numeric IP.</li>
+        </ol>
+
+        <p>
+            If any of these three is missing or wrong, the machine is broken in a specific, diagnosable way.
+            No IP → cannot talk to anything. No gateway → can talk on the local subnet but not the internet.
+            No DNS → can reach the internet by IP but not by hostname.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>A handy diagnostic order:</strong> when a machine "has no internet", check these in order.
+            <br>1. <code>ip addr</code> — does the interface have an IP?
+            <br>2. <code>ip route</code> — is there a default route?
+            <br>3. <code>cat /etc/resolv.conf</code> — are there nameservers?
+            <br>4. <code>ping 8.8.8.8</code> — can we reach the internet by IP?
+            <br>5. <code>ping google.com</code> — can we resolve names?
+            <br>Each step tells you which layer is failing.
+        </div>
+
+        <h3>Where the kernel stores the routing table</h3>
+
+        <p>
+            The routing table is the kernel's set of rules for where to send each packet. Look at it with:
+        </p>
+
+        <pre><code>ip route</code></pre>
+
+        <p>
+            Typical output:
+        </p>
+
+        <pre><code>default via 10.0.2.2 dev enp0s3 proto dhcp src 10.0.2.15 metric 100
+10.0.2.0/24 dev enp0s3 proto kernel scope link src 10.0.2.15
+</code></pre>
+
+        <p>
+            The first line is the <strong>default route</strong> — the one used for any packet whose
+            destination does not match a more specific route. In this case, packets to the great unknown go
+            to <code>10.0.2.2</code>, which is the VirtualBox NAT gateway. The <code>proto dhcp</code> tells
+            us this route came from DHCP — a useful detail when debugging.
+        </p>
+
+        <p>
+            The second line says: "anything in <code>10.0.2.0/24</code> is directly reachable via
+            <code>enp0s3</code>, no router involved". This is what makes local subnet communication work.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 10.6 DHCP — WHAT AND WHY                                     -->
+        <!-- ============================================================ -->
+        <h2 id="dhcp-intro"><i class="fas fa-wifi"></i> 10.6 · DHCP — What It Is and Why We Need It</h2>
+
+        <p>
+            We now arrive at the heart of this week's material: <strong>DHCP</strong> — the Dynamic Host
+            Configuration Protocol.
+        </p>
+
+        <p>
+            Raise your hand if you have ever assigned an IP address to a device by hand. For a home network
+            with two or three devices, it is manageable. For an office with five hundred laptops, phones,
+            tablets, printers, and IoT devices — devices that get plugged in and unplugged constantly, that
+            move between Wi-Fi networks, that get replaced — hand-assignment is completely impossible.
+        </p>
+
+        <p>
+            DHCP solves this by automating the process. When a device joins a network, it asks the DHCP server
+            for an address. The server picks one from a pool, assigns it for a limited time (a lease), and
+            tells the client everything else it needs — the gateway, the DNS servers, the subnet mask, and lots
+            of other parameters.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>In one sentence:</strong> DHCP is a protocol that lets a device ask "may I have an IP
+            address and all the settings I need to use this network?" — and get an answer automatically. It
+            runs over UDP, using ports 67 (server) and 68 (client).
+        </div>
+
+        <h3>What DHCP actually gives the client</h3>
+
+        <p>
+            Most people think of DHCP as "give me an IP address." But the value of DHCP is that it distributes
+            the <em>entire configuration</em> the client needs to function on the network. A typical DHCP
+            response includes:
+        </p>
+
+        <ul>
+            <li><strong>A usable IP address</strong> on the correct subnet.</li>
+            <li><strong>The subnet mask</strong> — how many bits are network, how many are host.</li>
+            <li><strong>The default gateway</strong> — the router the client should send off-subnet traffic
+                to.</li>
+            <li><strong>One or more DNS servers</strong> — the resolvers that will translate hostnames into
+                IP addresses.</li>
+            <li><strong>A lease duration</strong> — how long the client may keep the address before
+                renewing.</li>
+            <li><strong>Optionally</strong>, dozens of other values: DNS search domains, NTP servers, TFTP
+                boot servers, VoIP settings, and more.</li>
+        </ul>
+
+        <p>
+            All of these are called <strong>DHCP options</strong>, and each has a well-known number. The
+            subnet mask is option 1. The router is option 3. DNS servers are option 6. The list of options
+            runs into the hundreds, though only a few are commonly used.
+        </p>
+
+        <h3>How a DHCP server decides what to assign</h3>
+
+        <p>
+            In practice, a DHCP server has three ways to decide what address to give an incoming client:
+        </p>
+
+        <div class="two-cols">
+            <div class="col">
+                <h4><i class="fas fa-random"></i> Dynamic</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    The server picks any free address from its configured pool and assigns it. This is by far
+                    the most common case — every Wi-Fi network you join is doing this. The client has no say in
+                    which address it gets, and it may get a different address next time it joins.
+                </p>
+            </div>
+            <div class="col green">
+                <h4><i class="fas fa-thumbtack"></i> Automatic</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Similar to dynamic, but the server <em>remembers</em> the address it gave to a particular
+                    client, and gives the same one next time. From the client's perspective it is still
+                    "however long the server says" — but in practice the address is stable.
+                </p>
+            </div>
+            <div class="col violet">
+                <h4><i class="fas fa-key"></i> Manual / reservation</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    The administrator explicitly binds a specific IP address to a specific MAC address. When
+                    that client calls in, it gets the reserved address. Used for servers, printers, and any
+                    device that needs a stable, predictable address.
+                </p>
+            </div>
+        </div>
+
+        <h3>Where DHCP uses broadcast</h3>
+
+        <p>
+            There is a chicken-and-egg problem at the heart of DHCP that is worth pausing on. A fresh client
+            that is just joining the network has no IP address. It does not know the address of the DHCP
+            server. So how does it <em>talk</em> to the server?
+        </p>
+
+        <p>
+            The answer is <strong>broadcasting</strong>. The client sends its DHCP packets to the broadcast
+            address <code>255.255.255.255</code> at the IP layer, and to the MAC broadcast address
+            <code>FF:FF:FF:FF:FF:FF</code> at the Link layer. Every device on the local network receives the
+            packet. Only the DHCP servers respond. This is why DHCP is described as a local network service —
+            a DHCP request does not cross a router by default.
+        </p>
+
+        <p>
+            In larger networks, where the DHCP server is not on the same physical subnet as the clients, a
+            <strong>DHCP relay agent</strong> forwards requests across subnets. We will not cover relay agents
+            in detail this week, but it is worth knowing that "DHCP is broadcast" is only half the story in a
+            real enterprise network.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 10.7 THE DORA PROCESS                                        -->
+        <!-- ============================================================ -->
+        <h2 id="dora"><i class="fas fa-exchange-alt"></i> 10.7 · The DORA Process</h2>
+
+        <p>
+            The actual protocol flow that assigns an IP address to a client is called <strong>DORA</strong>
+            — an acronym for the four messages exchanged: <em>Discover</em>, <em>Offer</em>,
+            <em>Request</em>, <em>Acknowledge</em>.
+        </p>
+
+        <p>
+            DORA is one of the classic handshakes in networking, and it is important enough to memorize in
+            its four-step form.
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 420" xmlns="http://www.w3.org/2000/svg"
+                aria-label="DORA sequence diagram">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The DORA handshake — client and server negotiate an address</text>
+
+                <!-- Client column -->
+                <text x="150" y="70" font-family="Inter" font-size="13" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">Client</text>
+                <line x1="150" y1="85" x2="150" y2="390" stroke="#3b82f6" stroke-width="2" />
+                <text x="150" y="110" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">no IP yet</text>
+
+                <!-- Server column -->
+                <text x="670" y="70" font-family="Inter" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">DHCP Server</text>
+                <line x1="670" y1="85" x2="670" y2="390" stroke="#10b981" stroke-width="2" />
+
+                <!-- D -->
+                <line x1="150" y1="140" x2="660" y2="140" stroke="#7dd3fc" stroke-width="2"
+                    marker-end="url(#dArrow)" />
+                <text x="405" y="132" font-family="Inter" font-size="12" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">1. DISCOVER — broadcast 255.255.255.255</text>
+                <text x="405" y="160" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">"any DHCP server, please talk to me"</text>
+
+                <!-- O -->
+                <line x1="660" y1="210" x2="160" y2="210" stroke="#34d399" stroke-width="2"
+                    marker-end="url(#oArrow)" />
+                <text x="405" y="202" font-family="Inter" font-size="12" fill="#34d399"
+                    text-anchor="middle" font-weight="700">2. OFFER — "I can give you 192.168.1.42"</text>
+                <text x="405" y="230" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">broadcast or unicast, with a proposed address</text>
+
+                <!-- R -->
+                <line x1="150" y1="280" x2="660" y2="280" stroke="#7dd3fc" stroke-width="2"
+                    marker-end="url(#dArrow)" />
+                <text x="405" y="272" font-family="Inter" font-size="12" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">3. REQUEST — broadcast "yes, I'll take it"</text>
+                <text x="405" y="300" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">broadcast, so all servers see which offer was accepted</text>
+
+                <!-- A -->
+                <line x1="660" y1="350" x2="160" y2="350" stroke="#34d399" stroke-width="2"
+                    marker-end="url(#oArrow)" />
+                <text x="405" y="342" font-family="Inter" font-size="12" fill="#34d399"
+                    text-anchor="middle" font-weight="700">4. ACK — "confirmed. Lease valid for 24h."</text>
+                <text x="405" y="370" font-family="Courier New" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">client now uses the address; lease is now active</text>
+
+                <defs>
+                    <marker id="dArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#7dd3fc" />
+                    </marker>
+                    <marker id="oArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#34d399" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">The four DORA messages. The first Discover is a broadcast — the client does not yet have an address — and so is the Request.</div>
+        </div>
+
+        <h3>Step 1 — DHCP Discover</h3>
+
+        <p>
+            The client has no IP address. It does not know any DHCP server's address. It sends a UDP packet
+            from <code>0.0.0.0:68</code> to <code>255.255.255.255:67</code> — the universal UDP broadcast
+            address on the DHCP server port. The packet contains the client's MAC address and any preferences
+            it may have (like a specific hostname).
+        </p>
+
+        <p>
+            Every DHCP server on the local network receives the broadcast. Servers that have an available
+            address proceed to step 2; servers that do not, ignore it silently.
+        </p>
+
+        <h3>Step 2 — DHCP Offer</h3>
+
+        <p>
+            A DHCP server that can serve this request picks an available address from its pool, and responds
+            with a <strong>DHCPOFFER</strong> packet. The offer includes:
+        </p>
+
+        <ul>
+            <li>The proposed IP address.</li>
+            <li>The subnet mask.</li>
+            <li>The lease duration.</li>
+            <li>Identification of the server (the server's own IP address or identifier).</li>
+            <li>Common options such as the default gateway and DNS servers.</li>
+        </ul>
+
+        <p>
+            If multiple DHCP servers are on the network, the client may receive multiple offers — one per
+            server. It will then pick one of them in step 3.
+        </p>
+
+        <h3>Step 3 — DHCP Request</h3>
+
+        <p>
+            The client sends a <strong>DHCPREQUEST</strong> packet that says, in effect: "I accept the offer
+            from <em>this particular server</em>, and I want to use <em>this particular address</em>."
+        </p>
+
+        <p>
+            This packet is also broadcast — for two reasons. First, the client still may not have a confirmed
+            address, so it cannot send unicast. Second, the broadcast reaches every DHCP server that sent an
+            offer, so the ones that were not selected can immediately reclaim their offered addresses for other
+            clients.
+        </p>
+
+        <h3>Step 4 — DHCP Acknowledge</h3>
+
+        <p>
+            The selected server sends a <strong>DHCPACK</strong> packet, confirming the lease. This packet
+            repeats the full configuration — the address, mask, gateway, DNS servers, lease duration, and any
+            other options — so the client has everything it needs to configure its interface.
+        </p>
+
+        <p>
+            Once the client receives the ACK, it assigns the address to its interface and starts using it. The
+            lease timer starts running.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Frequently-asked question:</strong> what if the client's Request reaches a server that did
+            not offer? That server sends a <strong>DHCPNAK</strong> — negative acknowledgment — telling the
+            client to start over. This is why Request is broadcast; not just to inform the non-selected servers
+            that they can release their offers, but also to give any confused server a chance to NAK.
+        </div>
+
+        <h3>Renewals after the initial DORA</h3>
+
+        <p>
+            The DORA handshake only happens the very first time a client joins a network — or when a lease has
+            fully expired and needs to be renegotiated from scratch.
+        </p>
+
+        <p>
+            While a lease is active, the client periodically tries to renew it. This is much simpler than
+            DORA — just two packets instead of four:
+        </p>
+
+        <ul>
+            <li>At <strong>50% of the lease duration</strong>, the client unicasts a DHCPREQUEST directly to
+                the server that gave it the lease. If the server is still reachable and willing, it responds
+                with a DHCPACK, and the lease is renewed with a fresh full duration. The client never goes
+                through Discover / Offer again.</li>
+            <li>If the first renewal fails, the client waits until <strong>87.5% of the lease duration</strong>
+                and tries again — but this time by broadcasting, in case the original server is offline and a
+                different one can help.</li>
+            <li>If that also fails and the lease actually expires, the client must stop using the address and
+                begins a fresh DORA from the very beginning.</li>
+        </ul>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Why 50% and 87.5%?</strong> Those two numbers are the RFC 2131 recommendations. They give
+            the client two chances to renew before the lease expires, without spamming the server during the
+            first half of the lease. This pattern is often called T1 (the 50% marking, "renewal") and T2 (the
+            87.5% marking, "rebinding").
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 10.8 LEASES, SCOPES, AND RESERVATIONS                        -->
+        <!-- ============================================================ -->
+        <h2 id="dhcp-options"><i class="fas fa-file-signature"></i> 10.8 · Leases, Scopes &amp; Reservations</h2>
+
+        <p>
+            We now know the mechanics of DHCP. Let's build up the vocabulary an administrator needs to
+            actually configure a DHCP server — because the terms used in configuration files do not always
+            match the terms used in the RFC.
+        </p>
+
+        <h3>Leases</h3>
+
+        <p>
+            A <strong>lease</strong> is the contract between the client and the server: "You may use this IP
+            address for this duration, starting now." Leases are what make DHCP dynamic. Without leases, the
+            server would have no way to reclaim addresses from devices that have left the network. With
+            leases, an address is automatically returned to the pool if the client stops renewing.
+        </p>
+
+        <p>
+            Lease durations are a design choice, and they matter.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Lease duration</th>
+                    <th>When to use it</th>
+                    <th>Trade-off</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Short</strong> (minutes to hours)</td>
+                    <td>Public Wi-Fi, conference networks, guest networks — in these environments, devices come
+                        and go rapidly.</td>
+                    <td>More renewal traffic; more churn in the DHCP server.</td>
+                </tr>
+                <tr>
+                    <td><strong>Medium</strong> (12–24 hours)</td>
+                    <td>Typical office and home networks. The default for most DHCP servers.</td>
+                    <td>Balanced. Stable addresses for regular users, but addresses are still reclaimed if
+                        devices leave.</td>
+                </tr>
+                <tr>
+                    <td><strong>Long</strong> (days to weeks)</td>
+                    <td>Servers, printers, embedded devices — anything that is expected to be online
+                        continuously.</td>
+                    <td>Address changes are rare, but address pool exhaustion is harder to recover from.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>Scopes — the pool of addresses</h3>
+
+        <p>
+            A <strong>scope</strong> is the range of addresses a DHCP server is allowed to assign, together
+            with the settings that go with them. A scope typically looks like:
+        </p>
+
+        <ul>
+            <li><strong>Range:</strong> for example, <code>192.168.1.100</code> to <code>192.168.1.200</code>.</li>
+            <li><strong>Subnet mask:</strong> for example, <code>255.255.255.0</code>.</li>
+            <li><strong>Router (gateway):</strong> for example, <code>192.168.1.1</code>.</li>
+            <li><strong>DNS servers:</strong> for example, <code>1.1.1.1</code>, <code>8.8.8.8</code>.</li>
+            <li><strong>Lease duration:</strong> for example, 12 hours.</li>
+        </ul>
+
+        <p>
+            The range in the scope is almost never the same as the entire subnet. Why? Because some addresses
+            on the subnet are used by <em>fixed</em> devices — servers, printers, network equipment — that
+            need stable addresses. If the DHCP server were handing out those addresses to random clients,
+            chaos would ensue.
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 260" xmlns="http://www.w3.org/2000/svg"
+                aria-label="DHCP scope inside a subnet">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">A DHCP scope uses a portion of a subnet — the rest is reserved for fixed devices</text>
+
+                <!-- Subnet bar -->
+                <rect x="40" y="70" width="740" height="70" rx="8" fill="rgba(0, 0, 0, 0.22)"
+                    stroke="#475569" stroke-width="1.5" />
+
+                <rect x="40" y="70" width="200" height="70" rx="0" fill="rgba(236, 72, 153, 0.14)"
+                    stroke="#ec4899" stroke-width="1" />
+                <text x="140" y="105" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">Static devices</text>
+                <text x="140" y="123" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">.1 – .99</text>
+
+                <rect x="240" y="70" width="400" height="70" rx="0" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="1" />
+                <text x="440" y="105" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle" font-weight="700">DHCP dynamic pool</text>
+                <text x="440" y="123" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">.100 – .200</text>
+
+                <rect x="640" y="70" width="140" height="70" rx="0" fill="rgba(139, 92, 246, 0.14)"
+                    stroke="#8b5cf6" stroke-width="1" />
+                <text x="710" y="105" font-family="Inter" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">Spare</text>
+                <text x="710" y="123" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">.201 – .254</text>
+
+                <text x="410" y="175" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">
+                    Example: 192.168.1.0/24 · DHCP scope = 192.168.1.100 – 192.168.1.200
+                </text>
+
+                <text x="410" y="215" font-family="Inter" font-size="12" fill="#cbd5e1"
+                    text-anchor="middle">
+                    Gateways, DNS servers, printers, and infrastructure live below the pool — never inside it.
+                </text>
+            </svg>
+            <div class="svg-caption">A DHCP scope sits inside a subnet, but only occupies part of it. The addresses outside the scope are available for static configuration.</div>
+        </div>
+
+        <h3>Reservations — for the devices that must not change</h3>
+
+        <p>
+            Some devices need to have a stable address, but the administrator does not want to configure it
+            statically on the device itself. This is common for printers, network-attached storage, specialized
+            lab equipment, and servers that are technically managed by DHCP.
+        </p>
+
+        <p>
+            For these, we use <strong>reservations</strong>. A reservation binds a specific IP address to a
+            specific MAC address. When the DHCP server receives a request from that MAC address, it always
+            hands out the reserved address — even if the address is technically outside the dynamic pool.
+        </p>
+
+        <pre><code># Example in a dnsmasq config
+dhcp-host=00:11:22:33:44:55,192.168.1.10,printer
+
+# Or in ISC dhcpd (the classic server)
+host printer {
+    hardware ethernet 00:11:22:33:44:55;
+    fixed-address 192.168.1.10;
+}</code></pre>
+
+        <p>
+            Notice that the reserved address is almost always outside the dynamic pool. That way there is no
+            risk of the same address being both dynamically assigned and statically reserved.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Why use reservations instead of static IPs?</strong> Both work. But reservations have one
+            big advantage: if you later change your subnet, or add a new DHCP option, or move to a new DHCP
+            server, you change it in <em>one place</em> — the server — rather than logging into every device.
+            It also centralizes the record of which MAC is on which IP, which is invaluable for auditing.
+        </div>
+
+        <h3>Which DHCP server software should I use?</h3>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Server</th>
+                    <th>Strengths</th>
+                    <th>Typical use</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>ISC dhcpd</strong></td>
+                    <td>The classic, well-tested, feature-complete DHCP server. Being superseded by Kea.</td>
+                    <td>Large enterprise networks, legacy environments.</td>
+                </tr>
+                <tr>
+                    <td><strong>Kea DHCP</strong></td>
+                    <td>ISC's modern replacement. JSON configuration, hooks, REST API, extensible.</td>
+                    <td>New deployments, cloud, programmatic environments.</td>
+                </tr>
+                <tr>
+                    <td><strong>dnsmasq</strong></td>
+                    <td>Combines DHCP, DNS, and TFTP in one tiny daemon. Trivial to configure.</td>
+                    <td>Small networks, routers, labs — including ours.</td>
+                </tr>
+                <tr>
+                    <td><strong>systemd-networkd</strong></td>
+                    <td>Built into systemd. Can act as a DHCP server for simple cases.</td>
+                    <td>Simple server roles, minimal environments.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            For our lab this week, we will use <strong>dnsmasq</strong>. It is small, easy to configure, and
+            handles both DHCP and DNS for our lab network in a single daemon. Real production environments
+            often use Kea or ISC dhcpd, but the config concepts — scopes, options, and reservations — carry
+            over directly.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 10.9 LAB: NETWORK DIAGNOSTICS                                -->
+        <!-- ============================================================ -->
+        <h2 id="lab-net"><i class="fas fa-network-wired"></i> 10.9 · Deep Lab — Network Diagnostics</h2>
+
+        <p>
+            In this lab, we will use the tools from section 10.4 to inspect the network configuration of your
+            Ubuntu VM, verify that DHCP is working, and diagnose two deliberate failures.
+        </p>
+
+        <h3>Step 1 — See your addresses</h3>
+
+        <pre><code>ip addr</code></pre>
+
+        <p>
+            You should see at least one interface with an <code>inet</code> line — an IPv4 address. Look for
+            the word <code>dynamic</code> on that line, which tells us DHCP assigned this address. Note the
+            interface name (usually <code>enp0s3</code> or <code>eth0</code>) and the address itself.
+        </p>
+
+        <h3>Step 2 — See your routes</h3>
+
+        <pre><code>ip route</code></pre>
+
+        <p>
+            Look for a line starting with <code>default</code>. That is your default gateway — the address
+            your machine sends packets to when they are destined for the internet. Note the word
+            <code>proto dhcp</code> on that line; it confirms the route was learned automatically.
+        </p>
+
+        <h3>Step 3 — See your DNS servers</h3>
+
+        <pre><code>cat /etc/resolv.conf
+resolvectl status 2>/dev/null || true</code></pre>
+
+        <p>
+            The <code>resolv.conf</code> file lists the DNS servers your machine will use. There should be at
+            least one entry starting with <code>nameserver</code>. If your interface uses DHCP, the DHCP client
+            wrote this file. The contents tell you which servers the network has told you to use.
+        </p>
+
+        <h3>Step 4 — Confirm the DORA assignment</h3>
+
+        <pre><code>journalctl -u systemd-networkd --since "1 hour ago" | grep -i dhcp | head -20
+# OR, on systems using NetworkManager:
+journalctl -u NetworkManager --since "1 hour ago" | grep -i dhcp | head -20</code></pre>
+
+        <p>
+            You should see log entries related to DHCP. Look for the four messages that correspond to
+            Discover, Offer, Request, and Ack. The exact wording depends on the client, but you should be able
+            to identify the handshake.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>If the log is not shown:</strong> on many Ubuntu Server installs, DHCP client activity is
+            handled by <code>systemd-networkd</code> and its logs are quieter. Try
+            <code>journalctl -b | grep -i dhcp</code> to see everything since boot. You may also see the
+            DHCP lease info in <code>/run/systemd/netif/leases/</code> — one file per interface.
+        </div>
+
+        <h3>Step 5 — Which sockets are listening?</h3>
+
+        <pre><code>sudo ss -tlnp</code></pre>
+
+        <p>
+            Note the services that are listening on your machine. On a fresh Ubuntu Server VM you will
+            typically see <code>sshd</code> on port 22 and possibly <code>systemd-resolved</code> on port 53.
+            For each line, note the <code>Local Address</code>: <code>0.0.0.0</code> means "every interface";
+            <code>127.0.0.1</code> means "only the loopback"; a specific address means "only that interface".
+        </p>
+
+        <h3>Step 6 — Test connectivity, one layer at a time</h3>
+
+        <pre><code>ping -c 3 127.0.0.1        # loopback — always works
+ping -c 3 <your_gateway>   # local subnet — should work
+ping -c 3 1.1.1.1          # public IP, by number
+ping -c 3 google.com       # public, by hostname — tests DNS</code></pre>
+
+        <p>
+            Note which of these succeed. If the first three succeed but the fourth fails, the problem is DNS.
+            If the first two succeed but the last two fail, the problem is gateway or upstream routing.
+            If even loopback fails, something is very seriously wrong — but that almost never happens.
+        </p>
+
+        <h3>Step 7 — Trace a path to the internet</h3>
+
+        <pre><code>tracepath 1.1.1.1</code></pre>
+
+        <p>
+            You should see the path from your VM, through the VirtualBox NAT gateway, and out to the internet.
+            Notice how many hops there are, and whether any of them show a delay. If a hop stalls for a long
+            time and then succeeds, that hop may be under load.
+        </p>
+
+        <h3>Step 8 — See the ARP table</h3>
+
+        <pre><code>ip neigh</code></pre>
+
+        <p>
+            This shows the IP-to-MAC mappings your machine has learned by communicating on the local subnet.
+            You should at minimum see your gateway's entry — you have been talking to it with every ping.
+        </p>
+
+        <h3>Step 9 — Diagnose a deliberate failure</h3>
+
+        <p>
+            Let's deliberately break DNS and see what happens.
+        </p>
+
+        <pre><code>sudo cp /etc/resolv.conf /etc/resolv.conf.backup
+sudo sh -c 'echo "nameserver 192.0.2.1" > /etc/resolv.conf'
+
+ping -c 2 google.com       # should fail — but with what error?
+ping -c 2 1.1.1.1          # still works — we only broke DNS
+
+sudo cp /etc/resolv.conf.backup /etc/resolv.conf
+ping -c 2 google.com       # should be working again</code></pre>
+
+        <p>
+            The address <code>192.0.2.1</code> is part of TEST-NET-1, a documentation range that is guaranteed
+            to be unroutable. So name resolution will time out. But IP-level connectivity is unaffected — a
+            perfect illustration of the layer separation.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What you've learned:</strong> the difference between an address problem, a routing
+            problem, and a DNS problem — and how to tell them apart using <code>ip</code>,
+            <code>ping</code>, and the resolv.conf file. This is the toolbox you will use any time a network
+            "just stops working."
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 10.10 LAB: A LIGHTWEIGHT DHCP SERVER                         -->
+        <!-- ============================================================ -->
+        <h2 id="lab-dhcp"><i class="fas fa-server"></i> 10.10 · Deep Lab — A Lightweight DHCP Server</h2>
+
+        <p>
+            In this lab, we will install and configure <strong>dnsmasq</strong> to act as a DHCP server for a
+            lab subnet. Our Ubuntu VM will serve as the DHCP server, and a second VM (or a second interface
+            on our existing VM) will act as the client.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Do not do this on your NAT network.</strong> The VirtualBox NAT network already has its
+            own DHCP server (managed by VirtualBox itself). If you run your own DHCP server on that network,
+            the two will fight, and you could lose network connectivity to your VM. We will use a separate
+            <em>Host-Only</em> network adapter for this lab.
+        </div>
+
+        <h3>Step 1 — Add a second network interface to the VM</h3>
+
+        <p>
+            Shut down the VM if it is running. In VirtualBox, go to the VM's settings, choose Network, and add
+            a second adapter of type <strong>Host-Only Adapter</strong>. This adapter connects your VM to an
+            isolated virtual network shared with the host machine (but not with the internet).
+        </p>
+
+        <p>
+            Boot the VM. Run <code>ip addr</code>. You should see the second interface — likely
+            <code>enp0s8</code> — with no IPv4 address or with an auto-assigned 169.254.x.x address.
+        </p>
+
+        <h3>Step 2 — Assign a static address to the server interface</h3>
+
+        <p>
+            The DHCP server itself needs a static address. Edit the Netplan file:
+        </p>
+
+        <pre><code>sudo nano /etc/netplan/01-netcfg.yaml</code></pre>
+
+        <p>
+            Add a section for the second interface:
+        </p>
+
+        <pre><code>network:
+  version: 2
+  ethernets:
+    enp0s3:
+      dhcp4: true
+    enp0s8:
+      dhcp4: false
+      addresses:
+        - 192.168.56.1/24</code></pre>
+
+        <pre><code>sudo netplan apply
+ip addr show enp0s8</code></pre>
+
+        <p>
+            You should now see <code>192.168.56.1/24</code> on <code>enp0s8</code>. This will be our DHCP
+            server's address on the isolated network.
+        </p>
+
+        <h3>Step 3 — Install dnsmasq</h3>
+
+        <pre><code>sudo apt update
+sudo apt install dnsmasq</code></pre>
+
+        <p>
+            Dnsmasq ships with a default config that is mostly empty, and a set of conf-dir inclusions.
+            We will add our own config file.
+        </p>
+
+        <h3>Step 4 — Configure our DHCP scope</h3>
+
+        <pre><code>sudo nano /etc/dnsmasq.d/lab-dhcp.conf</code></pre>
+
+        <p>
+            Paste the following:
+        </p>
+
+        <pre><code># Listen only on the host-only interface
+interface=enp0s8
+bind-interfaces
+
+# Disable DNS — we are only doing DHCP in this lab
+port=0
+
+# DHCP range and lease time
+dhcp-range=192.168.56.100,192.168.56.200,255.255.255.0,12h
+
+# Advertise a "router" (here, our own address — for a lab,
+# the VM acts as both DHCP server and gateway)
+dhcp-option=3,192.168.56.1
+
+# Advertise DNS servers — 1.1.1.1 and 8.8.8.8
+dhcp-option=6,1.1.1.1,8.8.8.8
+
+# A static reservation for a specific MAC address
+# Replace with the MAC of your second VM once you know it
+# dhcp-host=08:00:27:aa:bb:cc,192.168.56.10,client-vm
+
+# Log to syslog
+log-dhcp</code></pre>
+
+        <p>
+            A few points about this config.
+        </p>
+
+        <ul>
+            <li><code>port=0</code> disables dnsmasq's built-in DNS server, so we do not have to worry about
+                it interfering with the host's DNS. This is a DHCP-only config.</li>
+            <li>The line <code>dhcp-range</code> sets the dynamic pool — addresses <code>.100</code> through
+                <code>.200</code> on the <code>192.168.56.0/24</code> subnet, with a 12-hour lease.</li>
+            <li><code>dhcp-option=3,...</code> sets the router (gateway) the client should use. In our lab,
+                we point it at the server itself, since it is the only thing we have.</li>
+            <li><code>dhcp-option=6,...</code> sets the DNS servers. We point at public resolvers, since
+                our server is not acting as one.</li>
+        </ul>
+
+        <h3>Step 5 — Restart dnsmasq</h3>
+
+        <pre><code>sudo systemctl restart dnsmasq
+systemctl status dnsmasq</code></pre>
+
+        <p>
+            The service should be running. If not, check the journal:
+        </p>
+
+        <pre><code>journalctl -u dnsmasq -n 50</code></pre>
+
+        <h3>Step 6 — Test with a client</h3>
+
+        <p>
+            If you have a second VM available, attach it to the same host-only network in VirtualBox, boot
+            it, and check whether it gets an address in the range <code>192.168.56.100–200</code>.
+        </p>
+
+        <p>
+            On the client:
+        </p>
+
+        <pre><code>ip addr                  # look for an inet address in the .100–.200 range
+ip route                 # look for a default route via 192.168.56.1
+cat /etc/resolv.conf     # look for nameserver 1.1.1.1 and 8.8.8.8</code></pre>
+
+        <p>
+            All three should be present and correct — that is the full set of DHCP-delivered information.
+        </p>
+
+        <h3>Step 7 — Watch the DORA in the server log</h3>
+
+        <p>
+            Back on the server, follow the log while the client is (re)connecting:
+        </p>
+
+        <pre><code>sudo journalctl -u dnsmasq -f</code></pre>
+
+        <p>
+            On the client, force a renewal:
+        </p>
+
+        <pre><code>sudo netplan apply
+# or, if using NetworkManager:
+sudo systemctl restart NetworkManager</code></pre>
+
+        <p>
+            On the server, you should see four log lines corresponding to the DORA exchange. The exact
+            wording depends on dnsmasq's verbosity, but you will recognize the pattern: the client asking, the
+            server offering, the client requesting, and the server acknowledging.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The moment it clicks:</strong> you have just built the DHCP server that runs the network
+            for a small office, a home Wi-Fi, or a lab. The exact software changes — companies use Kea or ISC
+            dhcpd — but the concepts are identical. Scopes, options, leases, and DORA are the vocabulary of
+            every DHCP server everywhere.
+        </div>
+
+        <h3>Step 8 — Add a static reservation</h3>
+
+        <p>
+            Find the MAC address of your client:
+        </p>
+
+        <pre><code>ip link show enp0s3
+# or
+ip link show enp0s8</code></pre>
+
+        <p>
+            Look for the <code>link/ether</code> field — that is the MAC address. Now edit the
+            <code>dnsmasq</code> config file to add a reservation:
+        </p>
+
+        <pre><code>dhcp-host=&lt;mac-address&gt;,192.168.56.10,client-vm</code></pre>
+
+        <p>
+            Restart dnsmasq and force the client to renew. The client should now get exactly
+            <code>192.168.56.10</code> — the reserved address, not a random one from the pool.
+        </p>
+
+        <h3>Step 9 — Clean up</h3>
+
+        <pre><code>sudo systemctl stop dnsmasq
+sudo systemctl disable dnsmasq
+sudo rm /etc/dnsmasq.d/lab-dhcp.conf
+sudo apt purge dnsmasq -y
+sudo apt autoremove -y</code></pre>
+
+        <p>
+            This restores your VM to its pre-lab state. If you plan to build on this lab in later weeks, you
+            can skip cleanup and simply stop the service for now.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 10 — Practical Assignment</h3>
+            <p>
+                This is a two-part assignment covering package management and DHCP. Submit both the written
+                answers and your terminal outputs as a PDF.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the difference between the low-level package tools (<code>dpkg</code>,
+                    <code>rpm</code>) and the high-level tools (<code>apt</code>, <code>dnf</code>). Why do
+                    we need both layers?</li>
+                <li>What does <code>apt update</code> actually do? Why is it important to run it before
+                    <code>apt install</code>?</li>
+                <li>An IPv4 address is <code>10.20.30.45</code> with a <code>/24</code> mask.
+                    <ul>
+                        <li>What is the network address?</li>
+                        <li>What is the broadcast address?</li>
+                        <li>How many usable host addresses are in this subnet?</li>
+                    </ul>
+                </li>
+                <li>What is the difference between a public and a private IP address? List the three RFC 1918
+                    private ranges.</li>
+                <li>Describe the DORA process in your own words. For each of the four steps, say what is
+                    exchanged, and whether the packet is broadcast or unicast.</li>
+                <li>What is a DHCP reservation? Give two scenarios where you would use one instead of
+                    letting the client get a dynamic address.</li>
+            </ol>
+
+            <h4>Part II — Package Management Lab (35 points)</h4>
+            <ol>
+                <li>Run <code>apt list --installed | wc -l</code> to count installed packages. Paste the
+                    result.</li>
+                <li>Run <code>apt search htop</code> and paste the first five results.</li>
+                <li>Install <code>htop</code> with <code>apt install</code>. Paste the output of the install
+                    command.</li>
+                <li>Run <code>apt show htop</code> and identify: the version, the installed size, and at
+                    least two of its dependencies.</li>
+                <li>Remove <code>htop</code> and then run <code>apt autoremove</code>. Explain what
+                    <code>autoremove</code> did and why.</li>
+                <li>Show the contents of <code>/etc/apt/sources.list.d/</code>. Explain what each file is
+                    for.</li>
+            </ol>
+
+            <h4>Part III — Networking Lab (35 points)</h4>
+            <ol>
+                <li>Run <code>ip addr</code> and identify your main interface: its name, MAC address, IPv4
+                    address, and subnet mask.</li>
+                <li>Run <code>ip route</code> and identify your default gateway. Explain how the kernel
+                    knows to use this particular gateway.</li>
+                <li>Run <code>sudo ss -tlnp</code>. List all listening services and their ports. For each
+                    one, say whether it is listening on all interfaces or only on localhost.</li>
+                <li>Run <code>tracepath 1.1.1.1</code>. How many hops does the path have? Which hop has the
+                    highest latency?</li>
+                <li>Set up dnsmasq as described in section 10.10. Configure a DHCP scope for the range
+                    <code>192.168.56.150</code> to <code>192.168.56.180</code>, with a 6-hour lease, a
+                    gateway of <code>192.168.56.1</code>, and DNS servers <code>1.1.1.1</code> and
+                    <code>9.9.9.9</code>. Add a reservation for your client's MAC address to
+                    <code>192.168.56.155</code>. Paste your dnsmasq config and prove that the client gets the
+                    reserved address.</li>
+                <li>Capture the DORA exchange from the server's journal. Paste the four messages.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF and your dnsmasq config file.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 10 Summary</h3>
+            <ul>
+                <li><strong>Package managers</strong> automate software installation, dependencies, upgrades,
+                    and removal. Debian-based systems use <code>apt</code> / <code>dpkg</code> with
+                    <code>.deb</code> packages; Red Hat-based systems use <code>dnf</code> / <code>rpm</code>
+                    with <code>.rpm</code> packages.</li>
+                <li><strong>The core apt loop:</strong> <code>apt update</code> → <code>apt upgrade</code> →
+                    <code>apt install</code>. Repositories live in <code>/etc/apt/sources.list.d/</code>.</li>
+                <li><strong>IPv4 addressing:</strong> every address splits into a network portion and a host
+                    portion, divided by a subnet mask specified in CIDR notation.</li>
+                <li><strong>Private ranges</strong> from RFC 1918: <code>10.0.0.0/8</code>,
+                    <code>172.16.0.0/12</code>, <code>192.168.0.0/16</code>.</li>
+                <li><strong>The modern networking tools:</strong> <code>ip addr</code>, <code>ip route</code>,
+                    <code>ip neigh</code>, <code>ss</code>, <code>ping</code>, <code>tracepath</code>. They
+                    replace <code>ifconfig</code>, <code>route</code>, <code>arp</code>,
+                    <code>netstat</code>.</li>
+                <li><strong>Netplan</strong> is Ubuntu's declarative network configuration layer. Static and
+                    dynamic (DHCP) interfaces are configured in YAML under <code>/etc/netplan/</code>.</li>
+                <li><strong>DHCP automates address assignment</strong> for network clients. It provides an IP
+                    address, subnet mask, gateway, DNS servers, lease duration, and many other options.</li>
+                <li><strong>The DORA process</strong> — Discover, Offer, Request, Acknowledge — is the
+                    four-step handshake that establishes a lease. Renewals use a two-packet exchange at 50%
+                    and 87.5% of the lease duration.</li>
+                <li><strong>Scopes</strong> define the pool of assignable addresses. <strong>Reservations</strong>
+                    provide fixed addresses for specific MAC addresses.</li>
+                <li><strong>dnsmasq</strong> is a lightweight DHCP/DNS server that is perfect for small
+                    networks and labs, making it an ideal tool for learning DHCP concepts before moving to
+                    enterprise-grade servers like Kea or ISC dhcpd.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>How Linux Works</strong>, the <strong>UNIX/Linux System Administration
+                Handbook</strong>, and <strong>RFC 2131 (DHCP)</strong> | Instructor:
+                <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

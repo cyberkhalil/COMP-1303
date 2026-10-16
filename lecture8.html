@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 8: File Systems, I/O &amp; Midterm</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 8</span>
+            <span class="warn"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-graduation-cap"></i> Midterm Exam Week</span>
+        </div>
+
+        <h1>File Systems, I/O &amp; Midterm Exam</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> — Chapters 37 (Hard Disk Drives),
+            39 (Files and Directories), 40 (File System Implementation) &amp; <em>Operating System Concepts</em> —
+            Silberschatz, Chapters 10–11.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#file-abstraction">8.1 · Files &amp; Directories</a>
+            <a href="#allocation">8.2 · Allocation Methods</a>
+            <a href="#inodes">8.3 · Inodes &amp; FAT</a>
+            <a href="#journaling">8.4 · Journaling &amp; Crash Consistency</a>
+            <a href="#raid">8.5 · RAID Levels</a>
+            <a href="#disk-sched">8.6 · Disk Scheduling</a>
+            <a href="#lab-fs">8.7 · Lab: df, mount, ls -i</a>
+            <a href="#lab-disk">8.8 · Lab: Exploring /proc/partitions</a>
+            <a href="#exam">Midterm Exam Info</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 8.1 FILE ABSTRACTION                                         -->
+        <!-- ============================================================ -->
+        <h2 id="file-abstraction"><i class="fas fa-folder-open"></i> 8.1 · Files &amp; Directories</h2>
+
+        <p>
+            For seven weeks, we have built up the theory of a modern operating system: processes, threads,
+            synchronization, scheduling, deadlocks, and memory. But we have never asked where the data actually
+            lives between runs. When you close your laptop and open it the next morning, your documents are still
+            there — even though RAM is volatile and every process that ran yesterday is long gone.
+        </p>
+
+        <p>
+            The answer is the <strong>file system</strong>. It is the abstraction that lets programs store and
+            retrieve data across power cycles, in a way that survives crashes, and that scales from the tiny
+            embedded ROM of a router to the multi-petabyte distributed file systems of cloud providers.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>One-line definition:</strong> a file system is the part of the OS that provides the abstractions
+            of files and directories, and manages the mapping of those abstractions onto the raw block storage of
+            the hardware.
+        </div>
+
+        <h3>The file abstraction</h3>
+
+        <p>
+            A <strong>file</strong> is the most fundamental persistent abstraction in the OS. It is a named
+            sequence of bytes, stored on a non-volatile medium — usually a disk or SSD — and accessible through
+            system calls rather than through memory addresses.
+        </p>
+
+        <p>
+            Crucially, a file is not just "bytes on disk." It carries with it several important properties:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Attribute</th>
+                    <th>What it means</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Name</strong></td>
+                    <td>A human-readable identifier. The file system maps names to underlying storage locations.</td>
+                </tr>
+                <tr>
+                    <td><strong>Size</strong></td>
+                    <td>How many bytes the file contains. The kernel tracks this, and it changes as the file is
+                        written to.</td>
+                </tr>
+                <tr>
+                    <td><strong>Type</strong></td>
+                    <td>Regular file, directory, symbolic link, device, socket, FIFO. The type determines how the
+                        file's contents are interpreted.</td>
+                </tr>
+                <tr>
+                    <td><strong>Permissions</strong></td>
+                    <td>Who can read, write, or execute it — the <code>rwx</code> bits we will meet in Week 9,
+                        split across owner, group, and others.</td>
+                </tr>
+                <tr>
+                    <td><strong>Owner / group</strong></td>
+                    <td>Which user and group the file belongs to.</td>
+                </tr>
+                <tr>
+                    <td><strong>Timestamps</strong></td>
+                    <td>Creation, last access, last modification. Used by backup tools, build systems, and caches.</td>
+                </tr>
+                <tr>
+                    <td><strong>Inode number</strong></td>
+                    <td>A unique identifier assigned by the file system to the file's metadata record.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <h3>The two ways to name a file</h3>
+
+        <p>
+            On every Unix-like system — including Linux — every file has two names:
+        </p>
+
+        <div class="two-cols">
+            <div class="col">
+                <h4><i class="fas fa-tag"></i> The pathname</h4>
+                <p style="font-size:0.9rem; margin:0;">
+                    A human-readable string, like <code>/home/student/notes.txt</code>, that the file system
+                    resolves step by step as it walks the directory tree. This is what users think of as the
+                    file's name.
+                </p>
+            </div>
+            <div class="col green">
+                <h4><i class="fas fa-hashtag"></i> The inode number</h4>
+                <p style="font-size:0.9rem; margin:0;">
+                    A machine-readable integer, like <code>1234567</code>, that uniquely identifies the file's
+                    metadata record within the file system. This is what the kernel actually uses. Multiple
+                    pathnames can point to the same inode — those are called hard links.
+                </p>
+            </div>
+        </div>
+
+        <h3>Directories</h3>
+
+        <p>
+            A <strong>directory</strong> is a special kind of file whose contents are a mapping from names to
+            inode numbers. That is the whole idea. A directory does not contain the bytes of the files it "points
+            to" — it contains just a table of <em>name → inode</em> entries.
+        </p>
+
+        <p>
+            This design has one beautiful consequence. When you rename a file — <code>mv a.txt b.txt</code> — the
+            file system does not move any data. It just changes one entry in one directory. Renaming a 10 GB
+            file costs the same as renaming a 10-byte file. This is why Unix files are not "in" directories —
+            they are merely referenced by them.
+        </p>
+
+        <!-- SVG: directory tree and inodes -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" aria-label="Directory tree and inodes">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Directories map names to inodes — the file data lives elsewhere</text>
+
+                <!-- Root directory -->
+                <text x="150" y="75" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">/ · directory</text>
+                <rect x="40" y="90" width="220" height="90" rx="6" fill="rgba(59, 130, 246, 0.14)"
+                    stroke="#3b82f6" stroke-width="1.5" />
+                <text x="60" y="115" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">.</text>
+                <text x="200" y="115" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 1</text>
+
+                <text x="60" y="137" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">home</text>
+                <text x="200" y="137" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 2</text>
+
+                <text x="60" y="159" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">etc</text>
+                <text x="200" y="159" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 3</text>
+
+                <!-- /home/student directory -->
+                <text x="420" y="75" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">/home/student · directory</text>
+                <rect x="310" y="90" width="220" height="110" rx="6" fill="rgba(16, 185, 129, 0.14)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="330" y="115" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">.</text>
+                <text x="470" y="115" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 10</text>
+
+                <text x="330" y="137" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">..</text>
+                <text x="470" y="137" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 2</text>
+
+                <text x="330" y="159" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">notes.txt</text>
+                <text x="470" y="159" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 11</text>
+
+                <text x="330" y="181" font-family="Courier New" font-size="11" fill="#e2e8f0"
+                    text-anchor="start">report.pdf</text>
+                <text x="470" y="181" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="end">inode 12</text>
+
+                <!-- Inode table -->
+                <text x="700" y="75" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">Inode table</text>
+                <rect x="580" y="90" width="220" height="200" rx="6" fill="rgba(139, 92, 246, 0.14)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+
+                <text x="595" y="115" font-family="Courier New" font-size="11" fill="#a78bfa"
+                    text-anchor="start">#11: notes.txt</text>
+                <text x="595" y="135" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="start">  size = 20 KB</text>
+                <text x="595" y="152" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="start">  owner = student</text>
+                <text x="595" y="169" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="start">  blocks = [42, 43]</text>
+
+                <text x="595" y="200" font-family="Courier New" font-size="11" fill="#a78bfa"
+                    text-anchor="start">#12: report.pdf</text>
+                <text x="595" y="220" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="start">  size = 3.2 MB</text>
+                <text x="595" y="237" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="start">  owner = student</text>
+                <text x="595" y="254" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="start">  blocks = [120..920]</text>
+
+                <!-- arrows -->
+                <line x1="260" y1="135" x2="310" y2="135" stroke="#94a3b8" stroke-width="1.5"
+                    stroke-dasharray="4,3" marker-end="url(#dirArrow)" />
+                <line x1="530" y1="160" x2="580" y2="130" stroke="#94a3b8" stroke-width="1.5"
+                    stroke-dasharray="4,3" marker-end="url(#dirArrow)" />
+                <line x1="530" y1="180" x2="580" y2="215" stroke="#94a3b8" stroke-width="1.5"
+                    stroke-dasharray="4,3" marker-end="url(#dirArrow)" />
+
+                <defs>
+                    <marker id="dirArrow" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">A directory is a table of name → inode entries. The actual file data is stored in the inode's data blocks, which can live anywhere on disk.</div>
+        </div>
+
+        <h3>The file operations — the system call surface</h3>
+
+        <p>
+            The Unix file API is famously small. A handful of system calls cover everything from opening a text
+            file to writing a database record. Here are the ones you will use every day:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Syscall</th>
+                    <th>What it does</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><code>open(path, flags)</code></td>
+                    <td>Opens a file and returns a file descriptor — a small integer the kernel uses to identify
+                        the open file. Creates the file if the flag <code>O_CREAT</code> is set.</td>
+                </tr>
+                <tr>
+                    <td><code>read(fd, buf, n)</code></td>
+                    <td>Reads up to <code>n</code> bytes from the current file offset into the user buffer.</td>
+                </tr>
+                <tr>
+                    <td><code>write(fd, buf, n)</code></td>
+                    <td>Writes <code>n</code> bytes from the user buffer to the current file offset.</td>
+                </tr>
+                <tr>
+                    <td><code>lseek(fd, offset, whence)</code></td>
+                    <td>Moves the file offset. This is what makes random-access files possible.</td>
+                </tr>
+                <tr>
+                    <td><code>close(fd)</code></td>
+                    <td>Releases the file descriptor. Does not necessarily flush writes — see <code>fsync</code>.</td>
+                </tr>
+                <tr>
+                    <td><code>stat(path, buf)</code></td>
+                    <td>Returns metadata about the file — size, permissions, owner, timestamps, inode number.</td>
+                </tr>
+                <tr>
+                    <td><code>unlink(path)</code></td>
+                    <td>Removes a directory entry, decrementing the file's link count. The file is actually deleted
+                        when the count reaches zero.</td>
+                </tr>
+                <tr>
+                    <td><code>fsync(fd)</code></td>
+                    <td>Forces all buffered writes to be flushed to stable storage. Essential for durable data.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The buffering trap:</strong> when you call <code>write()</code>, the kernel usually just
+            copies the data into the page cache and returns immediately. The data has not yet reached the disk.
+            If the machine loses power a moment later, the data is gone. To force durability, you must call
+            <code>fsync()</code>. Many applications that "lost data after a crash" simply forgot this call.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 8.2 ALLOCATION METHODS                                       -->
+        <!-- ============================================================ -->
+        <h2 id="allocation"><i class="fas fa-sitemap"></i> 8.2 · Allocation Methods</h2>
+
+        <p>
+            The problem with disk storage is that it is fundamentally different from RAM. Disks are organized in
+            <strong>blocks</strong> — typically 512 bytes or 4 KB each — and accessing a random block costs a
+            mechanical seek plus a rotational delay. For a spinning disk, that is on the order of 5 to 10
+            milliseconds. For an SSD, a few tens of microseconds. Either way, it is far slower than RAM access,
+            and the file system's job is to minimize the number of blocks it has to touch.
+        </p>
+
+        <p>
+            Given that constraint, how should the file system decide where to place a file's data blocks on
+            disk? Over the decades, three main strategies have been tried.
+        </p>
+
+        <h3>Method 1 — Contiguous allocation</h3>
+
+        <p>
+            The simplest design. When a file is created, the file system reserves a run of consecutive blocks
+            large enough to hold it. The file's location is described by a starting block plus a length.
+        </p>
+
+        <div class="two-cols">
+            <div class="col green">
+                <h4><i class="fas fa-thumbs-up"></i> Advantages</h4>
+                <ul>
+                    <li>Very fast sequential and random access. The blocks are adjacent, so the disk head barely
+                        needs to move.</li>
+                    <li>Trivial to implement — a file is just a range of blocks.</li>
+                    <li>Minimal storage overhead — only the starting block and length are needed.</li>
+                </ul>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-triangle-exclamation"></i> Disadvantages</h4>
+                <ul>
+                    <li>External fragmentation — same problem we saw with RAM in Week 7.</li>
+                    <li>Hard to grow a file in place. If the space after the file is used, growth requires
+                        relocating the entire file.</li>
+                    <li>Requires the file system to know the maximum size in advance, or to leave slack at the
+                        end.</li>
+                </ul>
+            </div>
+        </div>
+
+        <h3>Method 2 — Linked allocation</h3>
+
+        <p>
+            The other extreme. Each block of a file stores not just file data, but also a pointer to the next
+            block in the chain. A file is described as a linked list of blocks, with the first block's location
+            stored in the inode or directory entry.
+        </p>
+
+        <div class="two-cols">
+            <div class="col green">
+                <h4><i class="fas fa-thumbs-up"></i> Advantages</h4>
+                <ul>
+                    <li>No external fragmentation — any free block will do.</li>
+                    <li>Files can grow easily — just append a new block and update the previous block's pointer.</li>
+                    <li>No need to know the maximum file size in advance.</li>
+                </ul>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-triangle-exclamation"></i> Disadvantages</h4>
+                <ul>
+                    <li>Random access is slow — reaching block N requires reading N-1 previous blocks.</li>
+                    <li>Each block loses space to the pointer — 4 bytes of every 512-byte block, or 8 of every
+                        4 KB block.</li>
+                    <li>A single damaged pointer loses the rest of the file chain.</li>
+                </ul>
+            </div>
+        </div>
+
+        <h3>Method 3 — Indexed allocation (the modern solution)</h3>
+
+        <p>
+            The best of both worlds. The file system keeps an <strong>index block</strong> — a table of pointers
+            to the file's data blocks — and stores that index in the file's inode. The inode knows the data
+            block numbers directly, so random access requires zero chain-following.
+        </p>
+
+        <p>
+            Unix uses indexed allocation. The inode contains a small array of pointers — typically 12 direct
+            pointers, one single-indirect pointer, one double-indirect, and one triple-indirect — that together
+            allow a file to grow to enormous sizes while keeping small files cheap.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Method</th>
+                    <th>Random access</th>
+                    <th>Growth</th>
+                    <th>Fragmentation</th>
+                    <th>Examples</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Contiguous</strong></td>
+                    <td>Excellent — O(1)</td>
+                    <td>Hard — may require relocation</td>
+                    <td>External</td>
+                    <td>Old mainframes, ISO 9660 CD-ROMs</td>
+                </tr>
+                <tr>
+                    <td><strong>Linked</strong></td>
+                    <td>Poor — O(n) to reach block n</td>
+                    <td>Easy — just append</td>
+                    <td>None</td>
+                    <td>FAT on MS-DOS floppies; historically also FAT32</td>
+                </tr>
+                <tr>
+                    <td><strong>Indexed</strong></td>
+                    <td>Excellent — O(1)</td>
+                    <td>Easy — allocate a new index block</td>
+                    <td>None (small internal from index blocks)</td>
+                    <td>Unix ext2/3/4, XFS, ZFS, APFS, NTFS</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- SVG: three allocation methods -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 380" xmlns="http://www.w3.org/2000/svg" aria-label="Three allocation methods">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Contiguous vs linked vs indexed allocation — the same file, three layouts</text>
+
+                <!-- Contiguous -->
+                <text x="115" y="60" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Contiguous</text>
+                <rect x="40" y="75" width="150" height="34" rx="4" fill="rgba(16, 185, 129, 0.22)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="115" y="97" font-family="Courier New" font-size="11" fill="#34d399"
+                    text-anchor="middle">b7 · b8 · b9 · b10</text>
+                <text x="115" y="130" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">inode → [start=7, len=4]</text>
+
+                <!-- Linked -->
+                <text x="410" y="60" font-family="Inter" font-size="12" fill="#fbbf24" text-anchor="middle"
+                    font-weight="700">Linked</text>
+                <rect x="335" y="75" width="150" height="34" rx="4" fill="rgba(245, 158, 11, 0.22)"
+                    stroke="#f59e0b" stroke-width="1.5" />
+                <text x="410" y="97" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">b7 → b42 → b19 → b2</text>
+                <text x="410" y="130" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">inode → b7; each block points to next</text>
+
+                <!-- Indexed -->
+                <text x="690" y="60" font-family="Inter" font-size="12" fill="#a78bfa" text-anchor="middle"
+                    font-weight="700">Indexed</text>
+                <rect x="605" y="75" width="170" height="34" rx="4" fill="rgba(139, 92, 246, 0.22)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="690" y="97" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle">index: [7, 42, 19, 2]</text>
+                <text x="690" y="130" font-family="Inter" font-size="10" fill="#94a3b8"
+                    text-anchor="middle">inode points to index block</text>
+
+                <!-- Memory bar row for each -->
+                <text x="410" y="185" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Blocks on disk — same four data blocks, different arrangements</text>
+
+                <text x="40" y="215" font-family="Inter" font-size="11" fill="#e2e8f0" font-weight="700">Contiguous:</text>
+                <rect x="130" y="200" width="70" height="25" rx="3" fill="rgba(16, 185, 129, 0.3)"
+                    stroke="#10b981" /><text x="165" y="218" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b7</text>
+                <rect x="205" y="200" width="70" height="25" rx="3" fill="rgba(16, 185, 129, 0.3)"
+                    stroke="#10b981" /><text x="240" y="218" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b8</text>
+                <rect x="280" y="200" width="70" height="25" rx="3" fill="rgba(16, 185, 129, 0.3)"
+                    stroke="#10b981" /><text x="315" y="218" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b9</text>
+                <rect x="355" y="200" width="70" height="25" rx="3" fill="rgba(16, 185, 129, 0.3)"
+                    stroke="#10b981" /><text x="390" y="218" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b10</text>
+
+                <text x="40" y="255" font-family="Inter" font-size="11" fill="#e2e8f0" font-weight="700">Linked:</text>
+                <rect x="130" y="240" width="70" height="25" rx="3" fill="rgba(245, 158, 11, 0.3)"
+                    stroke="#f59e0b" /><text x="165" y="258" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b7</text>
+                <text x="205" y="258" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">→</text>
+                <rect x="220" y="240" width="70" height="25" rx="3" fill="rgba(245, 158, 11, 0.3)"
+                    stroke="#f59e0b" /><text x="255" y="258" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b42</text>
+                <text x="295" y="258" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">→</text>
+                <rect x="310" y="240" width="70" height="25" rx="3" fill="rgba(245, 158, 11, 0.3)"
+                    stroke="#f59e0b" /><text x="345" y="258" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b19</text>
+                <text x="385" y="258" font-family="Courier New" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">→</text>
+                <rect x="400" y="240" width="70" height="25" rx="3" fill="rgba(245, 158, 11, 0.3)"
+                    stroke="#f59e0b" /><text x="435" y="258" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b2</text>
+
+                <text x="40" y="295" font-family="Inter" font-size="11" fill="#e2e8f0" font-weight="700">Indexed:</text>
+                <rect x="130" y="280" width="70" height="25" rx="3" fill="rgba(139, 92, 246, 0.28)"
+                    stroke="#8b5cf6" /><text x="165" y="298" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">idx</text>
+                <text x="205" y="298" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle">→</text>
+                <rect x="220" y="280" width="70" height="25" rx="3" fill="rgba(139, 92, 246, 0.3)"
+                    stroke="#8b5cf6" /><text x="255" y="298" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b7</text>
+                <rect x="295" y="280" width="70" height="25" rx="3" fill="rgba(139, 92, 246, 0.3)"
+                    stroke="#8b5cf6" /><text x="330" y="298" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b42</text>
+                <rect x="370" y="280" width="70" height="25" rx="3" fill="rgba(139, 92, 246, 0.3)"
+                    stroke="#8b5cf6" /><text x="405" y="298" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b19</text>
+                <rect x="445" y="280" width="70" height="25" rx="3" fill="rgba(139, 92, 246, 0.3)"
+                    stroke="#8b5cf6" /><text x="480" y="298" font-family="Courier New" font-size="10"
+                    fill="#e2e8f0" text-anchor="middle">b2</text>
+
+                <text x="410" y="345" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    Only indexed allocation gives both O(1) random access and easy growth — which is why modern
+                    file systems use it.
+                </text>
+            </svg>
+            <div class="svg-caption">Contiguous is fast but rigid. Linked is flexible but slow for random access. Indexed combines the best of both — the whole reason Unix, NTFS, and modern file systems use it.</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 8.3 INODES & FAT                                             -->
+        <!-- ============================================================ -->
+        <h2 id="inodes"><i class="fas fa-id-card"></i> 8.3 · Inodes &amp; FAT — Two Design Philosophies</h2>
+
+        <p>
+            There are two broad architectural styles for a file system. Unix uses <strong>inodes</strong>, and
+            MS-DOS/Windows historically used the <strong>File Allocation Table</strong>, or FAT. Understanding
+            both tells you how the two families of file systems think about storage.
+        </p>
+
+        <h3>The Unix inode</h3>
+
+        <p>
+            An <strong>inode</strong> — short for "index node" — is a fixed-size record on disk that stores
+            everything the file system knows about a file except its name and its data. Every file, directory,
+            device, or special node on a Unix-like system has an inode.
+        </p>
+
+        <p>
+            The inode is fixed-size, which is what makes the file system's metadata simple and fast to access.
+            A field layout that is typical of Linux's ext4 file system:
+        </p>
+
+        <pre><code>struct inode {
+    uint16_t  i_mode;        /* file type and permissions */
+    uint16_t  i_uid;         /* owner user ID */
+    uint32_t  i_size;        /* file size in bytes */
+    uint32_t  i_atime;       /* last access time */
+    uint32_t  i_mtime;       /* last modification time */
+    uint32_t  i_ctime;       /* last inode change time */
+    uint16_t  i_links_count; /* number of hard links to this file */
+    uint32_t  i_blocks;      /* number of 512-byte blocks allocated */
+    uint32_t  i_block[15];   /* pointers to data blocks */
+       /* 12 direct + 1 single-indirect + 1 double + 1 triple */
+};</code></pre>
+
+        <p>
+            The <code>i_block[15]</code> array is the heart of the design. The first twelve entries point directly
+            at data blocks. The thirteenth points at a block full of pointers to more data blocks. The fourteenth
+            points at a block full of pointers to blocks full of pointers. The fifteenth goes one level deeper.
+        </p>
+
+        <p>
+            This tiered structure allows one inode to describe a file of almost any size, while keeping small
+            files cheap. If a file fits in twelve blocks, no indirection blocks are ever allocated. Only as the
+            file grows do the indirect blocks come into play.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Level</th>
+                    <th>Points to</th>
+                    <th style="width: 25%;">Maximum blocks reachable</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>Direct (12 entries)</td><td>Data blocks directly</td><td>12</td></tr>
+                <tr><td>Single indirect</td><td>A block of 256 pointers (4 KB / 16-byte entries)</td><td>256</td></tr>
+                <tr><td>Double indirect</td><td>A block pointing to single-indirect blocks</td><td>256 × 256 = 65,536</td></tr>
+                <tr><td>Triple indirect</td><td>A block pointing to double-indirect blocks</td><td>256³ = 16,777,216</td></tr>
+                <tr><td colspan="2"><strong>Total reachable with 4 KB blocks</strong></td><td><strong>~64 GB</strong></td></tr>
+            </tbody>
+        </table>
+
+        <h3>The FAT file system</h3>
+
+        <p>
+            FAT takes the opposite approach — it moves the linkage information out of the blocks and out of the
+            inodes, into one central table at the start of the volume.
+        </p>
+
+        <p>
+            The <strong>File Allocation Table</strong> is exactly that — a table with one entry per block on the
+            disk. Each entry says either "this block is free," "this block is the last in a file," or "the next
+            block of this file is at block N." To locate a file's data, the file system reads the directory entry
+            to find the first block, then follows the table chain.
+        </p>
+
+        <div class="two-cols">
+            <div class="col green">
+                <h4><i class="fas fa-thumbs-up"></i> FAT advantages</h4>
+                <ul>
+                    <li>Simple — one table, easy to understand.</li>
+                    <li>The entire table can be cached in RAM, so chain traversal is fast once it is loaded.</li>
+                    <li>Supported by virtually every OS and removable media device.</li>
+                </ul>
+            </div>
+            <div class="col pink">
+                <h4><i class="fas fa-triangle-exclamation"></i> FAT disadvantages</h4>
+                <ul>
+                    <li>For a large disk, the table itself becomes huge — a 1 TB FAT32 volume has a 64 MB partition
+                        table.</li>
+                    <li>Hard links are not supported — a block belongs to exactly one file.</li>
+                    <li>Fragmentation tends to be worse than in inode-based file systems.</li>
+                    <li>Metadata (permissions, ownership, timestamps) is limited.</li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Which is better?</strong> For a modern general-purpose OS, Unix's inode design wins easily —
+            it is faster, more flexible, supports hard links and permissions, and scales to very large volumes.
+            FAT survives today mostly on USB sticks and camera SD cards, where simplicity and universal
+            compatibility matter more than performance.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 8.4 JOURNALING AND CRASH CONSISTENCY                         -->
+        <!-- ============================================================ -->
+        <h2 id="journaling"><i class="fas fa-book"></i> 8.4 · Journaling &amp; Crash Consistency</h2>
+
+        <p>
+            So far we have been assuming that the disk always does what we ask it to. But there is a nastier
+            problem: what happens when the power goes out in the middle of a write?
+        </p>
+
+        <p>
+            Consider what it takes to create a file. The file system must, at minimum:
+        </p>
+
+        <ol>
+            <li>Allocate an inode and mark it in use.</li>
+            <li>Write metadata about the file to that inode — size zero, current time, permissions.</li>
+            <li>Add a directory entry mapping the new name to that inode number.</li>
+            <li>Update the file system's free-space bitmap.</li>
+            <li>Update the free-inode count in the superblock.</li>
+        </ol>
+
+        <p>
+            These are several separate writes to different parts of the disk. If the machine crashes between
+            write 3 and write 4, what is the state of the file system? The directory now thinks the file exists.
+            The free-space bitmap thinks the inode is up for grabs. If a new file reuses that inode number, you
+            now have two directory entries pointing to the same inode — silent and dangerous corruption.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>The crash-consistency problem:</strong> a single operation on a file system is actually
+            multiple disk writes, and no atomic "do all of them or none" primitive exists at the hardware level.
+            Without a strategy, every crash can leave the file system in a state that was never designed to exist.
+        </div>
+
+        <h3>The classic fix — fsck</h3>
+
+        <p>
+            The historical approach, used by ext2 and other classic Unix file systems, was to accept that crashes
+            leave the disk inconsistent, and to run a checking program — <code>fsck</code> — at boot. The checker
+            would scan the entire file system, looking for anomalies: orphaned inodes, mismatched link counts,
+            directory entries pointing to freed blocks, and so on. It would then repair them as best it could.
+        </p>
+
+        <p>
+            The cost was time. For a large file system, <code>fsck</code> could take minutes or hours. And it
+            could not always distinguish between inconsistent states caused by a crash and legitimate states —
+            so some repairs were guesses.
+        </p>
+
+        <h3>The modern fix — journaling</h3>
+
+        <p>
+            Modern file systems — ext3, ext4, XFS, NTFS, APFS, and many others — use
+            <strong>journaling</strong>. The idea is to never let the disk be inconsistent, by writing each
+            pending change to a special append-only region called the <strong>journal</strong> first, before
+            applying it to the actual file system.
+        </p>
+
+        <p>
+            The sequence for any metadata operation becomes:
+        </p>
+
+        <ol>
+            <li><strong>Write-ahead:</strong> write the intended changes to the journal. This is one contiguous
+                write, fast and easy to complete atomically.</li>
+            <li><strong>Checkpoint:</strong> mark the journal entry as complete by writing a commit record.</li>
+            <li><strong>Apply:</strong> perform the actual change to the real file system metadata.</li>
+            <li><strong>Free:</strong> once the change has been applied, mark the journal entry as
+                completed.</li>
+        </ol>
+
+        <p>
+            If a crash happens at any point, the recovery procedure is simple: scan the journal from the last
+            known-good point. Any entry with a commit record is rolled forward to completion; any entry without
+            a commit record is discarded as if it had never been started.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Why this is so much better:</strong> recovery after a crash takes seconds or less, because
+            the kernel does not have to scan the entire file system — just the journal. And it never leaves the
+            file system in an inconsistent state, because every change either fully commits or is fully
+            discarded.
+        </div>
+
+        <h3>Three modes of journaling</h3>
+
+        <p>
+            Not all journaling is the same. Linux ext3 and ext4 offer three modes, differing in what gets
+            journaled:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Mode</th>
+                    <th>What is journaled</th>
+                    <th>Speed</th>
+                    <th>Safety</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Journal</strong></td>
+                    <td>Both metadata and file data.</td>
+                    <td>Slowest</td>
+                    <td>Strongest — no inconsistency possible.</td>
+                </tr>
+                <tr>
+                    <td><strong>Ordered</strong> (default)</td>
+                    <td>Metadata only, but file data is written first.</td>
+                    <td>Balanced</td>
+                    <td>Good — file data never points at stale blocks.</td>
+                </tr>
+                <tr>
+                    <td><strong>Writeback</strong></td>
+                    <td>Metadata only, file data can be written any time.</td>
+                    <td>Fastest</td>
+                    <td>Weakest — file data may be stale after a crash.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Linux uses <code>ordered</code> by default. It is a middle ground: metadata is journal-ed, and file
+            data is written before the metadata commit, so that a file's directory entry never points at blocks
+            that have not yet been written.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 8.5 RAID                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="raid"><i class="fas fa-hard-drive"></i> 8.5 · RAID — Redundant Array of Independent Disks</h2>
+
+        <p>
+            File systems decide how to organize bytes on <em>one</em> disk. But modern servers do not use one disk
+            — they use many. RAID is the family of techniques for combining multiple physical disks into what
+            looks to the operating system like a single, faster, and/or more reliable logical volume.
+        </p>
+
+        <p>
+            RAID is not one thing — it names a collection of standard configurations, each optimized for a
+            different trade-off between performance, capacity, and reliability.
+        </p>
+
+        <h3>RAID 0 — Striping (no redundancy)</h3>
+
+        <p>
+            Split each file's data across multiple disks in stripes. If you write a 1 MB file across four disks,
+            each disk stores 256 KB. Read and write throughput scale roughly linearly with disk count, because
+            the disks work in parallel.
+        </p>
+
+        <p>
+            The catch: zero redundancy. If any one disk fails, the entire array is gone — every byte of every
+            file is unreadable, because the missing pieces are exactly the pieces on the dead disk.
+        </p>
+
+        <h3>RAID 1 — Mirroring (maximum redundancy, minimum usable capacity)</h3>
+
+        <p>
+            Every write goes to two (or more) disks. The disks are exact copies of each other. If one fails, the
+            system keeps running from the other.
+        </p>
+
+        <p>
+            Reliability is very high, but usable capacity is cut in half. RAID 1 with two 1 TB disks gives you
+            1 TB of usable space, not 2 TB. Read performance is good — both disks can serve reads — but writes
+            must go to all mirrors.
+        </p>
+
+        <h3>RAID 5 — Striping with distributed parity</h3>
+
+        <p>
+            Stripe data across N disks, but reserve space on each disk (effectively) for one parity block per
+            stripe. The parity is computed with XOR: if you know the parity block and N−1 data blocks, you can
+            reconstruct the missing one.
+        </p>
+
+        <p>
+            This means that a RAID 5 array of N disks can survive exactly one disk failure — the missing disk's
+            data can be reconstructed on the fly from the parity. Capacity overhead is only 1/N — with four
+            1 TB disks you get 3 TB of usable space, not 2 TB like RAID 1.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The RAID 5 catch:</strong> if a second disk fails while the array is still rebuilding after
+            the first failure, you lose everything. Modern large disks take hours to rebuild, so RAID 5 is
+            increasingly being replaced by RAID 6 (two parity blocks, tolerates two simultaneous failures) or
+            by RAID 10.
+        </div>
+
+        <h3>RAID 10 — Mirroring + striping (the enterprise favorite)</h3>
+
+        <p>
+            Combine RAID 1 and RAID 0. Data is striped across multiple mirrored pairs. You get the performance
+            benefits of striping and the reliability of mirroring, at the cost of 50% capacity overhead — the
+            same as RAID 1.
+        </p>
+
+        <p>
+            Modern databases and cloud storage frequently use RAID 10, because the rebuild time after a failure
+            is very short: you just copy from the surviving mirror of the failed disk.
+        </p>
+
+        <!-- SVG: RAID levels -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 460" xmlns="http://www.w3.org/2000/svg"
+                aria-label="RAID levels diagram">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">The four RAID levels you need to know</text>
+
+                <!-- RAID 0 -->
+                <text x="90" y="60" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">RAID 0</text>
+                <text x="90" y="78" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    Striping — no parity
+                </text>
+                <rect x="40" y="90" width="100" height="70" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="90" y="115" font-family="Courier New" font-size="10" fill="#34d399"
+                    text-anchor="middle">Disk 1</text>
+                <text x="90" y="135" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">A1 A3 A5</text>
+                <rect x="150" y="90" width="100" height="70" rx="5" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="1.5" />
+                <text x="200" y="115" font-family="Courier New" font-size="10" fill="#34d399"
+                    text-anchor="middle">Disk 2</text>
+                <text x="200" y="135" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">A2 A4 A6</text>
+                <text x="145" y="185" font-family="Inter" font-size="10" fill="#a7f3d0" text-anchor="middle">
+                    Fast · 0% overhead · no fault tolerance
+                </text>
+
+                <!-- RAID 1 -->
+                <text x="410" y="60" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">RAID 1</text>
+                <text x="410" y="78" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    Mirroring
+                </text>
+                <rect x="360" y="90" width="100" height="70" rx="5" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="1.5" />
+                <text x="410" y="115" font-family="Courier New" font-size="10" fill="#7dd3fc"
+                    text-anchor="middle">Disk 1</text>
+                <text x="410" y="135" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">A1 A2 A3 A4</text>
+                <rect x="470" y="90" width="100" height="70" rx="5" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="1.5" />
+                <text x="520" y="115" font-family="Courier New" font-size="10" fill="#7dd3fc"
+                    text-anchor="middle">Disk 2</text>
+                <text x="520" y="135" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">A1 A2 A3 A4</text>
+                <text x="465" y="185" font-family="Inter" font-size="10" fill="#bfdbfe" text-anchor="middle">
+                    Safe · 50% overhead · 2-way mirror
+                </text>
+
+                <!-- RAID 5 -->
+                <text x="90" y="235" font-family="Inter" font-size="12" fill="#a78bfa" text-anchor="middle"
+                    font-weight="700">RAID 5</text>
+                <text x="90" y="253" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    Striping + distributed parity
+                </text>
+                <rect x="30" y="265" width="65" height="60" rx="5" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="62" y="285" font-family="Courier New" font-size="9" fill="#c4b5fd"
+                    text-anchor="middle">Disk 1</text>
+                <text x="62" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">A1 A4 P5</text>
+                <rect x="100" y="265" width="65" height="60" rx="5" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="132" y="285" font-family="Courier New" font-size="9" fill="#c4b5fd"
+                    text-anchor="middle">Disk 2</text>
+                <text x="132" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">A2 P4 A5</text>
+                <rect x="170" y="265" width="65" height="60" rx="5" fill="rgba(139, 92, 246, 0.18)"
+                    stroke="#8b5cf6" stroke-width="1.5" />
+                <text x="202" y="285" font-family="Courier New" font-size="9" fill="#c4b5fd"
+                    text-anchor="middle">Disk 3</text>
+                <text x="202" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">P3 A5 A6</text>
+                <text x="145" y="355" font-family="Inter" font-size="10" fill="#ddd6fe" text-anchor="middle">
+                    1 disk failure tolerated · 1/N overhead
+                </text>
+
+                <!-- RAID 10 -->
+                <text x="565" y="235" font-family="Inter" font-size="12" fill="#f472b6" text-anchor="middle"
+                    font-weight="700">RAID 10</text>
+                <text x="565" y="253" font-family="Inter" font-size="10" fill="#94a3b8" text-anchor="middle">
+                    Mirror + stripe
+                </text>
+                <rect x="470" y="265" width="75" height="60" rx="5" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="507" y="285" font-family="Courier New" font-size="9" fill="#f472b6"
+                    text-anchor="middle">Mirror A1</text>
+                <text x="507" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">A1 A3</text>
+                <rect x="550" y="265" width="75" height="60" rx="5" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="587" y="285" font-family="Courier New" font-size="9" fill="#f472b6"
+                    text-anchor="middle">Mirror A1</text>
+                <text x="587" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">A1 A3</text>
+                <rect x="630" y="265" width="75" height="60" rx="5" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="667" y="285" font-family="Courier New" font-size="9" fill="#f472b6"
+                    text-anchor="middle">Mirror A2</text>
+                <text x="667" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">A2 A4</text>
+                <rect x="710" y="265" width="75" height="60" rx="5" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="1.5" />
+                <text x="747" y="285" font-family="Courier New" font-size="9" fill="#f472b6"
+                    text-anchor="middle">Mirror A2</text>
+                <text x="747" y="305" font-family="Courier New" font-size="9" fill="#cbd5e1"
+                    text-anchor="middle">A2 A4</text>
+                <text x="627" y="355" font-family="Inter" font-size="10" fill="#fbcfe8" text-anchor="middle">
+                    Fast + safe · 50% overhead · fast rebuild
+                </text>
+
+                <text x="410" y="415" font-family="Inter" font-size="11" fill="#94a3b8" text-anchor="middle">
+                    In a modern data center, RAID 10 is the common choice — the extra space is cheap, the extra safety is not.
+                </text>
+            </svg>
+            <div class="svg-caption">Four RAID configurations: RAID 0 strips for speed, RAID 1 mirrors for safety, RAID 5 stripes with distributed parity for a middle ground, and RAID 10 combines both strategies.</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 8.6 DISK SCHEDULING                                          -->
+        <!-- ============================================================ -->
+        <h2 id="disk-sched"><i class="fas fa-compact-disc"></i> 8.6 · Disk Scheduling</h2>
+
+        <p>
+            A spinning disk has one moving part: the read/write head, which must physically travel to the track
+            containing the requested block. This motion is called a <strong>seek</strong>, and it takes on the
+            order of 5 to 10 milliseconds on a modern hard drive. Once the head is on the right track, the disk
+            must rotate to the correct sector — the <strong>rotational latency</strong>, on the order of 2 to 4
+            milliseconds.
+        </p>
+
+        <p>
+            When multiple I/O requests are queued up, the order in which the head services them can make a
+            difference of two or three times in overall throughput. That is what <strong>disk scheduling</strong>
+            algorithms are for.
+        </p>
+
+        <h3>The standard example — a disk with pending requests</h3>
+
+        <p>
+            Throughout this section, we will use the same workload: a disk with 200 cylinders, and these pending
+            requests (in the order they arrived). The head is currently at cylinder 53 and moving toward larger
+            numbers.
+        </p>
+
+        <pre><code>Pending cylinder numbers, in arrival order:
+98, 183, 37, 122, 14, 124, 65, 67
+
+Starting position: cylinder 53, moving right (toward higher numbers)</code></pre>
+
+        <h3>FCFS — First Come, First Served</h3>
+
+        <p>
+            The block requests are serviced in the order they arrived. This is fair — no request starves — but
+            the head sweeps wildly back and forth across the disk, wasting enormous amounts of time on seeks.
+        </p>
+
+        <p>
+            On our example: the head moves 53 → 98 → 183 → 37 → 122 → 14 → 124 → 65 → 67.
+            Total head movement: 45 + 85 + 146 + 85 + 108 + 110 + 59 + 2 = <strong>640 cylinders</strong>.
+        </p>
+
+        <h3>SSTF — Shortest Seek Time First</h3>
+
+        <p>
+            Always serve the closest pending request. This minimizes the total head movement on the current
+            step, but not necessarily overall. It can also starve requests that are far from the current head
+            position, if new nearby requests keep arriving.
+        </p>
+
+        <p>
+            On our example, starting at 53: 53 → 65 → 67 → 37 → 14 → 98 → 122 → 124 → 183.
+            Total head movement: 12 + 2 + 30 + 23 + 84 + 24 + 2 + 59 = <strong>236 cylinders</strong>.
+        </p>
+
+        <p>
+            That is a factor of nearly three better than FCFS. But notice the starvation risk: a request at
+            cylinder 199 will always be deferred if there are requests at 100 or 50 arriving.
+        </p>
+
+        <h3>SCAN — the elevator algorithm</h3>
+
+        <p>
+            The head moves in one direction, serving all requests it encounters along the way. When it reaches
+            the end of the disk, it reverses direction and sweeps back. It is exactly like an elevator: it goes
+            up until there are no more requested floors, then goes down until there are no more.
+        </p>
+
+        <p>
+            On our example, starting at 53 moving right: 53 → 65 → 67 → 98 → 122 → 124 → 183 → 199 (end) →
+            37 → 14.
+            Total head movement: 12 + 2 + 31 + 24 + 2 + 59 + 16 + 162 + 23 = <strong>331 cylinders</strong>.
+        </p>
+
+        <p>
+            SCAN is more predictable than SSTF — the maximum wait time for any request is bounded by the
+            time to complete one full sweep. This makes it a good choice for systems where predictability
+            matters.
+        </p>
+
+        <h3>C-SCAN — circular SCAN</h3>
+
+        <p>
+            A small improvement on SCAN. Instead of reversing direction when the head reaches the end, it
+            quickly returns to the other end of the disk and sweeps again. The return sweep does not service
+            any requests — the head moves straight back, ignoring everything until it starts a new sweep.
+        </p>
+
+        <p>
+            The advantage is that C-SCAN treats all cylinders more fairly — SCAN slightly favors the cylinders
+            near the middle of the disk, because the head decelerates and reverses there. C-SCAN gives more
+            uniform service times.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Algorithm</th>
+                    <th>Behaviour</th>
+                    <th>Head movement (our example)</th>
+                    <th>Key property</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>FCFS</strong></td>
+                    <td>Arrival order.</td>
+                    <td>640</td>
+                    <td>Fair but slow.</td>
+                </tr>
+                <tr>
+                    <td><strong>SSTF</strong></td>
+                    <td>Closest request first.</td>
+                    <td>236</td>
+                    <td>Fast but starves far requests.</td>
+                </tr>
+                <tr>
+                    <td><strong>SCAN</strong></td>
+                    <td>Elevator — sweep, then reverse.</td>
+                    <td>331</td>
+                    <td>Predictable, good throughput.</td>
+                </tr>
+                <tr>
+                    <td><strong>C-SCAN</strong></td>
+                    <td>Sweep one way, jump back, repeat.</td>
+                    <td>~382</td>
+                    <td>Uniform service times.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Do modern systems still use disk scheduling?</strong> For SSDs, no — SSDs have no moving
+            parts, so there is no seek and no rotational latency. Linux's I/O scheduler for SSDs is essentially
+            a queue that does not reorder by position. But for spinning disks, and for the underlying storage
+            that backs many cloud services, SCAN-style algorithms remain important.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 8.7 LAB: DF, MOUNT, LS -I                                    -->
+        <!-- ============================================================ -->
+        <h2 id="lab-fs"><i class="fas fa-terminal"></i> 8.7 · Touch Lab — Exploring the File System</h2>
+
+        <p>
+            Now it is time to see the theory in action. Linux exposes every part of the file system through
+            standard commands — the same ones sysadmins use to diagnose disk problems, detect leaks, and
+            understand how storage is really laid out.
+        </p>
+
+        <h3>Step 1 — What is mounted? df and mount</h3>
+
+        <pre><code>$ df -h
+Filesystem      Size  Used Avail Use% Mounted on
+/dev/sda1        20G  4.2G   15G  23% /
+tmpfs            2.0G     0  2.0G   0% /dev/shm
+/dev/sda15      105M  6.1M   99M   6% /boot/efi
+tmpfs            400M  1.1M  399M   1% /run</code></pre>
+
+        <p>
+            The <code>df</code> command shows every mounted file system — the underlying storage device, its
+            total size, how much is used, and where it is mounted in the directory tree.
+        </p>
+
+        <ul>
+            <li><strong>Filesystem</strong> — the device node, such as <code>/dev/sda1</code>. For virtual file
+                systems (proc, tmpfs, devtmpfs), this may just be an identifier.</li>
+            <li><strong>Size / Used / Avail</strong> — capacity, consumption, remaining free space.</li>
+            <li><strong>Use%</strong> — percent used. Watch out when this approaches 100%; some services
+                misbehave badly on a completely full partition.</li>
+            <li><strong>Mounted on</strong> — where in the directory tree this device appears.</li>
+        </ul>
+
+        <h3>Step 2 — Inodes: ls -i and df -i</h3>
+
+        <pre><code>$ ls -i /etc/hostname
+1310732 /etc/hostname
+
+$ ls -li /etc/ | head -5
+1310725 drwxr-xr-x  3 root root  4096 Nov 12 10:14 acpi
+1310726 drwxr-xr-x  4 root root  4096 Nov 12 10:14 alsa
+1310727 -rw-r--r--  1 root root  3000 Nov 12 10:14 adduser.conf
+1310728 drwxr-xr-x  2 root root  4096 Nov 12 10:14 alternatives
+1310729 drwxr-xr-x  3 root root  4096 Nov 12 10:14 apm</code></pre>
+
+        <p>
+            The first column in the <code>ls -i</code> output is the inode number. Every file and directory on
+            this system has a unique one. The <code>-i</code> flag is what tells <code>ls</code> to show it.
+        </p>
+
+        <p>
+            The other columns of <code>ls -l</code> are worth reading carefully:
+        </p>
+
+        <ul>
+            <li><strong>First character</strong> — file type: <code>d</code> for directory, <code>-</code> for
+                regular file, <code>l</code> for symbolic link, <code>b</code> for block device, <code>c</code>
+                for character device, <code>s</code> for socket, <code>p</code> for FIFO.</li>
+            <li><strong>Next 9 characters</strong> — permissions in three groups: owner, group, others.</li>
+            <li><strong>Link count</strong> — how many names point to this inode.</li>
+            <li><strong>Owner, group</strong> — who the file belongs to.</li>
+            <li><strong>Size</strong> — the file's size in bytes.</li>
+            <li><strong>Modification time</strong> — last time the file was written.</li>
+        </ul>
+
+        <p>
+            Now let's check inode consumption across file systems:
+        </p>
+
+        <pre><code>$ df -i
+Filesystem      Inodes  IUsed   IFree IUse% Mounted on
+/dev/sda1      1310720 134125 1176595   11% /
+tmpfs           262144      1  262143    1% /run
+/dev/sda15           0      0       0     -  /boot/efi</code></pre>
+
+        <p>
+            The <code>df -i</code> command shows inode usage per file system. This catches a classic sysadmin
+            emergency: a file system whose inodes are exhausted but whose disk space is nowhere near full. If
+            you create a million zero-byte files, you can fill up the inode table without using any disk space
+            at all.
+        </p>
+
+        <h3>Step 3 — mount and the file system tree</h3>
+
+        <pre><code>$ mount | head -5
+sysfs on /sys type sysfs (rw,nosuid,nodev,noexec,relatime)
+proc on /proc type proc (rw,nosuid,nodev,noexec,relatime)
+udev on /dev type devtmpfs (rw,nosuid,relatime,size=1984856k,nr_inodes=496214,mode=755)
+devpts on /dev/pts type devpts (rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000)
+tmpfs on /run type tmpfs (rw,nosuid,nodev,noexec,relatime,size=404436k,mode=755)</code></pre>
+
+        <p>
+            The <code>mount</code> command with no arguments lists every active mount. Each line has the form:
+            <em>device type mount_point (options)</em>.
+        </p>
+
+        <p>
+            A few of these are especially interesting:
+        </p>
+
+        <ul>
+            <li><strong>sysfs, proc, devtmpfs</strong> — virtual file systems. They do not exist on disk at all
+                — they are synthesized by the kernel on every read. This is what we saw with <code>/proc</code>
+                back in Week 2.</li>
+            <li><strong>tmpfs</strong> — a RAM-backed file system. Writes go to memory; nothing is persisted
+                across a reboot. Used for <code>/run</code>, <code>/tmp</code>, and occasionally for entire
+                server root file systems.</li>
+            <li><strong>ext4, xfs, btrfs</strong> — real on-disk file systems. These are what you would normally
+                install your data on.</li>
+        </ul>
+
+        <h3>Step 4 — Hard links and symbolic links</h3>
+
+        <pre><code>$ echo "hello" > original.txt
+$ ln original.txt hardlink.txt          # hard link
+$ ln -s original.txt softlink.txt       # symbolic link
+
+$ ls -li original.txt hardlink.txt softlink.txt
+1310752 -rw-r--r-- 2 student student 6 Nov 12 10:22 hardlink.txt
+1310752 -rw-r--r-- 2 student student 6 Nov 12 10:22 original.txt
+1310753 lrwxrwxrwx 1 student student 12 Nov 12 10:22 softlink.txt -> original.txt</code></pre>
+
+        <p>
+            Notice the difference carefully:
+        </p>
+
+        <ul>
+            <li><strong>Hard link</strong> — the inode number is identical (1310752). The link count is 2, because
+                two directory entries point to the same inode. The file data actually exists only once. If you
+                delete one name, the other still works.</li>
+            <li><strong>Symbolic link</strong> — its own inode (1310753), with a different type character
+                <code>l</code>. Its contents are the target path. If you delete the target, the symlink becomes
+                a dangling reference.</li>
+        </ul>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Try this:</strong> delete <code>original.txt</code>. What happens to <code>hardlink.txt</code>
+            and <code>softlink.txt</code>? The hard link still works — its inode still has one reference. The
+            symbolic link is now broken, because the file it points to no longer exists. That is the difference
+            between a hard link and a symbolic link in one experiment.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 8.8 LAB: /proc/partitions & /proc/mounts                     -->
+        <!-- ============================================================ -->
+        <h2 id="lab-disk"><i class="fas fa-microchip"></i> 8.8 · Touch Lab — Reading the Kernel's View of Storage</h2>
+
+        <p>
+            Everything <code>df</code> and <code>mount</code> showed us comes from somewhere. The kernel exposes
+            the raw truth under <code>/proc</code> — and reading those files is the most authoritative way to
+            understand what is really going on.
+        </p>
+
+        <h3>Step 1 — /proc/partitions</h3>
+
+        <pre><code>$ cat /proc/partitions
+major minor  #blocks  name
+
+   8        0   20971520 sda
+   8        1   20480000 sda1
+   8        2          1 sda2
+   8        5    1024000 sda5
+   253       0   20971520 dm-0
+   253       1    1024000 dm-1</code></pre>
+
+        <p>
+            Every block device the kernel knows about appears here. The <strong>major</strong> number identifies
+            the driver — 8 is the SCSI/SATA disk driver, 253 is device-mapper — and the <strong>minor</strong>
+            number identifies the specific device. The <strong>#blocks</strong> column is the size of the
+            partition in 1 KB blocks.
+        </p>
+
+        <p>
+            Notice the difference between <code>sda</code> — the whole disk — and <code>sda1</code>,
+            <code>sda2</code>, <code>sda5</code> — the partitions on it. The numbers after the disk name are the
+            partition indices, with 1–4 reserved for primary partitions and 5 and up for logical partitions in an
+            extended partition scheme.
+        </p>
+
+        <h3>Step 2 — /proc/mounts</h3>
+
+        <pre><code>$ cat /proc/mounts | head -8
+sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0
+proc /proc proc rw,nosuid,nodev,noexec,relatime 0 0
+udev /dev devtmpfs rw,nosuid,relatime,size=1984856k,nr_inodes=496214,mode=755 0 0
+devpts /dev/pts devpts rw,nosuid,noexec,relatime,gid=5,mode=620,ptmxmode=000 0 0
+tmpfs /run tmpfs rw,nosuid,nodev,noexec,relatime,size=404436k,mode=755 0 0
+/dev/sda1 / ext4 rw,relatime,errors=remount-ro 0 0
+securityfs /sys/kernel/security securityfs rw,nosuid,nodev,noexec,relatime 0 0</code></pre>
+
+        <p>
+            <code>/proc/mounts</code> is the kernel's own view of the mount table — the one <code>mount</code>,
+            <code>df</code>, and every other utility ultimately queries. Each line has these fields:
+        </p>
+
+        <ol>
+            <li><strong>Device</strong> — <code>/dev/sda1</code>, or a virtual device name.</li>
+            <li><strong>Mount point</strong> — where it is attached in the tree.</li>
+            <li><strong>File system type</strong> — ext4, xfs, tmpfs, proc, and so on.</li>
+            <li><strong>Mount options</strong> — the flags in effect.</li>
+            <li><strong>Dump</strong> and <strong>pass</strong> — legacy fields, rarely used.</li>
+        </ol>
+
+        <p>
+            Look carefully at the mount options. <code>errors=remount-ro</code> for the root partition means: if
+            the kernel detects file system corruption, remount read-only instead of continuing to write into a
+            damaged structure. <code>relatime</code> tells the kernel to update access timestamps less
+            aggressively, saving disk bandwidth. These small flags have a big impact on system behavior.
+        </p>
+
+        <h3>Step 3 — Inspecting a specific file system</h3>
+
+        <pre><code>$ sudo tune2fs -l /dev/sda1 | head -20
+tune2fs 1.46.5 (30-Dec-2021)
+Filesystem volume name:   <none>
+Last mounted on:          /
+Filesystem UUID:          a1b2c3d4-e5f6-7890-abcd-ef1234567890
+Filesystem magic number:  0xEF53
+Filesystem state:         clean
+Errors behavior:          Continue
+Filesystem OS type:       Linux
+Inode count:              1310720
+Block count:              5242880
+Reserved block count:     262144
+Free blocks:              3823180
+Free inodes:              1176595
+First block:              0
+Block size:               4096
+Fragment size:            4096
+Filesystem created:       Mon Oct 14 09:10:32 2024
+Last mount time:          Tue Nov 12 10:14:00 2024
+Last write time:          Tue Nov 12 10:22:15 2024
+Mount count:              27
+Maximum mount count:      -1
+Last checked:             Mon Oct 14 09:10:32 2024
+Check interval:           0 (<none>)</code></pre>
+
+        <p>
+            <code>tune2fs -l</code> dumps everything the ext family knows about a specific file system. A few of
+            these fields are worth noting:
+        </p>
+
+        <ul>
+            <li><strong>Filesystem state</strong> — <code>clean</code> means it was unmounted properly; anything
+                else means it may need a check.</li>
+            <li><strong>Filesystem UUID</strong> — a unique identifier assigned at creation time. This is what
+                <code>/etc/fstab</code> typically uses to identify file systems, because it is more stable than
+                device names.</li>
+            <li><strong>Inode count</strong> vs <strong>Free inodes</strong> — the total and remaining inode
+                slots. Just like disk space, inodes can run out.</li>
+            <li><strong>Block size</strong> — the file system's fundamental allocation unit, typically 4 KB.</li>
+            <li><strong>Mount count</strong> — how many times it has been mounted since the last check. Some
+                systems automatically run <code>fsck</code> after a certain number of mounts.</li>
+        </ul>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Modern practice:</strong> while ext4 is still by far the most common Linux file system,
+            alternatives exist — XFS for large files and high parallelism, Btrfs and ZFS for snapshotting and
+            checksumming, bcachefs as a modern competitor. Each has strengths, and the choice depends on the
+            workload. For this course, though, ext4 is the reference implementation and what you will actually
+            work with most often.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- MIDTERM EXAM                                                 -->
+        <!-- ============================================================ -->
+        <h2 id="exam"><i class="fas fa-graduation-cap"></i> Midterm Exam — Weeks 1–7</h2>
+
+        <div class="exam-note">
+            <i class="fas fa-file-pen"></i>
+            <strong>Midterm Exam — 20% of your final grade</strong>
+
+            <h3>Format</h3>
+            <ul style="margin-top: 0.5rem;">
+                <li><strong>Duration:</strong> 90 minutes</li>
+                <li><strong>Content:</strong> Weeks 1 through 7 — the entire theory phase so far</li>
+                <li><strong>Structure:</strong> Mixed — multiple choice, short answer, and problem solving</li>
+                <li><strong>Allowed materials:</strong> One A4 sheet, handwritten, both sides</li>
+                <li><strong>No calculators</strong> — all problems are designed to be solved with paper and pen</li>
+            </ul>
+
+            <h3>Covered Topics</h3>
+            <ol style="margin-top: 0.5rem;">
+                <li><strong>Week 1 — Introduction:</strong> OS roles, user vs kernel mode, syscalls,
+                    interrupts, kernel architectures</li>
+                <li><strong>Week 2 — Processes:</strong> program vs process, PCB, process states, context
+                    switching, fork/exec/wait, IPC mechanisms</li>
+                <li><strong>Week 3 — Threads:</strong> process vs thread, thread models, race conditions,
+                    pthread API</li>
+                <li><strong>Week 4 — Synchronization:</strong> critical sections, mutexes, semaphores,
+                    condition variables, classic problems, monitor concept, Helgrind</li>
+                <li><strong>Week 5 — Scheduling:</strong> FCFS, SJF, SRTF, Round Robin, Priority, MLFQ,
+                    Linux CFS, nice values</li>
+                <li><strong>Week 6 — Deadlocks:</strong> Coffman's four conditions, RAG, prevention,
+                    Banker's Algorithm, detection, dining philosophers</li>
+                <li><strong>Week 7 — Memory:</strong> virtual memory, paging, TLB, multi-level page tables,
+                    demand paging, FIFO/LRU/Optimal/Clock replacement, thrashing</li>
+            </ol>
+
+            <h3>Preparation Tips</h3>
+            <ul style="margin-top: 0.5rem;">
+                <li>Re-do the numerical problems from the homework assignments — those are the exact kind of
+                    questions on the exam.</li>
+                <li>Practice drawing the diagrams from memory: process states, thread models, RAG, page tables,
+                    MLFQ structure, scheduling Gantt charts.</li>
+                <li>For each lecture, be able to answer: "What is the core problem? What is the solution?
+                    What is the trade-off?"</li>
+                <li>Know the numbers: how a page fault compares to a memory access, how a thread compares to a
+                    process, how mutex costs compare.</li>
+                <li>Bring your one-page card with the formulas you find hardest to remember.</li>
+            </ul>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 8 — Written Assignment</h3>
+            <p>
+                This is the last written assignment before the midterm. It covers the material in this lecture
+                and reinforces the cumulative review. Submit as a PDF.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Explain the difference between a directory and an inode. What exactly does a directory
+                    contain, and why does it make renaming a file an O(1) operation?</li>
+                <li>Compare contiguous, linked, and indexed allocation. For each, describe one workload where it
+                    is the best choice and one where it is the worst.</li>
+                <li>What problem does journaling solve that <code>fsck</code> cannot? Explain the
+                    write-ahead logging protocol in three steps.</li>
+                <li>Explain the difference between RAID 1, RAID 5, and RAID 10. In each case, describe how many
+                    simultaneous disk failures can be tolerated, and what fraction of the raw capacity is usable.</li>
+                <li>Why do disk scheduling algorithms matter for spinning disks but not for SSDs? Explain the
+                    physical difference.</li>
+            </ol>
+
+            <h4>Part II — Numerical Problems (40 points)</h4>
+            <ol>
+                <li>A file system uses inodes with 12 direct pointers, 1 single indirect, 1 double indirect, and
+                    1 triple indirect. The block size is 4 KB, and each block pointer is 4 bytes.
+                    <ul>
+                        <li>How many blocks can a file address using only direct pointers?</li>
+                        <li>How many with the single-indirect pointer?</li>
+                        <li>What is the total maximum file size in bytes?</li>
+                    </ul>
+                </li>
+                <li>A disk has 200 cylinders and currently the head is at cylinder 80, moving toward higher
+                    numbers. Pending requests are:
+                    <code>120, 105, 8, 55, 180, 20, 165, 178</code>
+                    <ul>
+                        <li>Compute the total head movement for FCFS.</li>
+                        <li>Compute it for SSTF.</li>
+                        <li>Compute it for SCAN (starting direction: up).</li>
+                        <li>Compute it for C-SCAN.</li>
+                        <li>Which algorithm minimizes total movement? Which minimizes maximum latency for any
+                            single request? Justify both answers.</li>
+                    </ul>
+                </li>
+                <li>Given a file system with these characteristics:
+                    <ul>
+                        <li>Block size: 4 KB</li>
+                        <li>Inodes per block: 32</li>
+                        <li>A directory with 10,000 files, each with a name of average length 40 characters</li>
+                    </ul>
+                    Estimate the size of the directory file itself, and explain why large directories are slow to
+                    scan on traditional file systems.
+                </li>
+            </ol>
+
+            <h4>Part III — Practical Lab (30 points)</h4>
+            <ol>
+                <li>On your Ubuntu VM, run <code>df -h</code>, <code>df -i</code>, and <code>mount</code>. Paste
+                    the outputs and identify which file systems are on-disk and which are virtual.</li>
+                <li>Create a file, then create a hard link and a soft link to it. Run <code>ls -li</code> and
+                    paste the output. Delete the original file. Explain what happened to each link.</li>
+                <li>Run <code>cat /proc/partitions</code> and <code>cat /proc/mounts | head -10</code>. For each
+                    entry, identify the major/minor numbers, the file system type, and any interesting mount
+                    options.</li>
+                <li>Use <code>tune2fs -l /dev/sda1</code> (or whatever your root device is) to inspect your
+                    root file system. Paste the output and explain five of the fields you see.</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date — that is, the day before the
+                midterm.<br>
+                <strong>Submission:</strong> Upload your PDF to the course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 8 Summary</h3>
+            <ul>
+                <li><strong>Files and directories:</strong> a file is a named sequence of bytes carrying
+                    metadata; a directory is a table mapping names to inode numbers.</li>
+                <li><strong>Inodes vs FAT:</strong> Unix keeps per-file metadata in inodes; MS-DOS keeps the
+                    linkage in a central table. Inodes scale better and support hard links; FAT is simpler and
+                    more universally supported.</li>
+                <li><strong>Allocation methods:</strong> contiguous (fast but rigid), linked (flexible but slow),
+                    indexed (modern — used by ext, XFS, NTFS).</li>
+                <li><strong>Journaling:</strong> write-ahead logging on a dedicated region keeps the file system
+                    consistent across crashes. Recovery is fast — scan the journal, roll forward commits, discard
+                    incomplete entries.</li>
+                <li><strong>RAID:</strong> RAID 0 (striping, no safety), RAID 1 (mirroring), RAID 5
+                    (distributed parity), RAID 10 (mirror + stripe). The correct choice depends on the balance of
+                    safety, speed, and capacity you need.</li>
+                <li><strong>Disk scheduling:</strong> FCFS, SSTF, SCAN, and C-SCAN. All are optimizations for
+                    moving heads. SSDs do not need them.</li>
+                <li><strong>Tools:</strong> <code>df -h</code>, <code>df -i</code>, <code>mount</code>,
+                    <code>ls -li</code>, <code>ln</code>, <code>/proc/partitions</code>,
+                    <code>/proc/mounts</code>, <code>tune2fs -l</code>.</li>
+                <li><strong>Midterm:</strong> covers weeks 1–7, 90 minutes, mixed format. Review diagrams and
+                    numerical problems carefully.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

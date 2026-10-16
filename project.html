@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 14 — Integrated Services Lab (Project)</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span class="violet"><i class="fas fa-diagram-project"></i> Week 14 · Project Lab</span>
+            <span class="green"><i class="fas fa-flask"></i> Integrated Services</span>
+            <span class="warn"><i class="fas fa-trophy"></i> Feeds into Week 15 Final Project</span>
+        </div>
+
+        <h1>Integrated Services Lab — Deliverable Specification</h1>
+        <p class="lecture-sub">
+            The capstone project brief for Phase 2 · This is the formal deliverable you produce
+            over Week 14 and present in Week 15. Read it carefully before you begin.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#overview">Project Overview</a>
+            <a href="#architecture">Architecture</a>
+            <a href="#checklist">Pre-Flight Checklist</a>
+            <a href="#part1">Part I · Working Stack</a>
+            <a href="#part2">Part II · Documentation</a>
+            <a href="#part3">Part III · Evidence &amp; Failure Analysis</a>
+            <a href="#rubric">Grading Rubric</a>
+            <a href="#submission">Submission</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- PROJECT OVERVIEW                                              -->
+        <!-- ============================================================ -->
+        <h2 id="overview"><i class="fas fa-flag"></i> Project Overview</h2>
+
+        <p>
+            Over the last four weeks of Phase 2, you have built four separate Linux services in
+            isolation: DHCP (Week 10), DNS (Week 11), HTTP with Nginx (Week 12), and MariaDB (Week 13).
+            Each one runs, each one works, and each one was tested on its own.
+        </p>
+
+        <p>
+            This week, you consolidate them into <strong>one integrated three-tier web application</strong>
+            that runs end-to-end on your VM. This is not a new lab — it is the assembly of everything
+            you have built, plus the discipline of testing, documenting, and validating a real system
+            the way a professional engineer would deliver it.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The core idea:</strong> in Phase 2 you learned how each service works.
+            In this project, you learn how services <em>work together</em>. That is the difference
+            between "I can install a service" and "I can run a service" — and it is what the
+            industry hires for.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- ARCHITECTURE                                                  -->
+        <!-- ============================================================ -->
+        <h2 id="architecture"><i class="fas fa-sitemap"></i> Target Architecture</h2>
+
+        <p>
+            Your final stack must have the following five components, all running on the
+            <strong>server VM</strong>, with a <strong>client VM</strong> able to interact with it over
+            the host-only network (192.168.56.0/24).
+        </p>
+
+        <div class="svg-container">
+            <svg viewBox="0 0 820 420" xmlns="http://www.w3.org/2000/svg" aria-label="Integrated stack">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#a78bfa"
+                    text-anchor="middle" font-weight="700">The integrated three-tier application you will deliver</text>
+
+                <!-- Client -->
+                <rect x="300" y="50" width="220" height="55" rx="8" fill="rgba(59, 130, 246, 0.16)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="410" y="73" font-family="Inter" font-size="13" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">Client VM</text>
+                <text x="410" y="92" font-family="Inter" font-size="11" fill="#94a3b8"
+                    text-anchor="middle">192.168.56.101 · DNS → 192.168.56.1</text>
+
+                <!-- Arrow 1 -->
+                <line x1="410" y1="108" x2="410" y2="145" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#pArr)" />
+                <text x="445" y="130" font-family="Inter" font-size="10" fill="#a7f3d0">1 · DNS query</text>
+
+                <!-- DNS -->
+                <rect x="240" y="145" width="340" height="60" rx="8" fill="rgba(16, 185, 129, 0.16)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="410" y="170" font-family="Inter" font-size="13" fill="#34d399"
+                    text-anchor="middle" font-weight="700">BIND9 · 192.168.56.1:53</text>
+                <text x="410" y="190" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">authoritative for lab.local</text>
+
+                <!-- Arrow 2 -->
+                <line x1="410" y1="205" x2="410" y2="245" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#pArr)" />
+                <text x="445" y="228" font-family="Inter" font-size="10" fill="#a7f3d0">2 · HTTP request</text>
+
+                <!-- Nginx -->
+                <rect x="240" y="245" width="340" height="60" rx="8" fill="rgba(245, 158, 11, 0.16)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="410" y="270" font-family="Inter" font-size="13" fill="#fbbf24"
+                    text-anchor="middle" font-weight="700">Nginx · port 80</text>
+                <text x="410" y="290" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">server_name app.lab.local · reverse proxy</text>
+
+                <!-- Backend side note -->
+                <rect x="620" y="245" width="180" height="60" rx="6" fill="rgba(236, 72, 153, 0.14)"
+                    stroke="#ec4899" stroke-width="1.5" stroke-dasharray="5,3" />
+                <text x="710" y="268" font-family="Inter" font-size="11" fill="#f472b6"
+                    text-anchor="middle" font-weight="700">Flask backend</text>
+                <text x="710" y="287" font-family="Courier New" font-size="10" fill="#cbd5e1"
+                    text-anchor="middle">127.0.0.1:5000 (loopback)</text>
+
+                <line x1="580" y1="275" x2="620" y2="275" stroke="#94a3b8" stroke-width="1.5"
+                    stroke-dasharray="4,3" />
+
+                <!-- Arrow 3 -->
+                <line x1="410" y1="305" x2="410" y2="345" stroke="#94a3b8" stroke-width="2"
+                    marker-end="url(#pArr)" />
+                <text x="445" y="328" font-family="Inter" font-size="10" fill="#a7f3d0">3 · SQL query</text>
+
+                <!-- MariaDB -->
+                <rect x="240" y="345" width="340" height="60" rx="8" fill="rgba(139, 92, 246, 0.16)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="410" y="370" font-family="Inter" font-size="13" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">MariaDB · Unix socket only</text>
+                <text x="410" y="390" font-family="Courier New" font-size="11" fill="#cbd5e1"
+                    text-anchor="middle">app_db · customers + orders</text>
+
+                <defs>
+                    <marker id="pArr" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                        <path d="M0,0 L0,6 L8,3 z" fill="#94a3b8" />
+                    </marker>
+                </defs>
+            </svg>
+            <div class="svg-caption">The five components of your stack. The client only knows about steps 1 and 2 — the proxy, the backend, and the database are internal.</div>
+        </div>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Component</th>
+                    <th style="width: 22%;">Address / Port</th>
+                    <th>Configuration File</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td><strong>DNS (BIND9)</strong></td><td>192.168.56.1 · UDP/TCP 53</td><td><code>/etc/bind/named.conf.options</code>, <code>named.conf.local</code>, <code>db.lab.local</code></td></tr>
+                <tr><td><strong>HTTP (Nginx)</strong></td><td>192.168.56.1 · TCP 80</td><td><code>/etc/nginx/sites-available/app.lab.local</code></td></tr>
+                <tr><td><strong>Backend (Flask)</strong></td><td>127.0.0.1 · TCP 5000</td><td><code>/opt/myapp/app.py</code></td></tr>
+                <tr><td><strong>Database (MariaDB)</strong></td><td>Unix socket only</td><td>SQL schema in <code>app_db</code></td></tr>
+                <tr><td><strong>Client</strong></td><td>192.168.56.101 (DHCP)</td><td><code>/etc/netplan/*.yaml</code> — DNS → 192.168.56.1</td></tr>
+            </tbody>
+        </table>
+
+        <!-- ============================================================ -->
+        <!-- PRE-FLIGHT CHECKLIST                                          -->
+        <!-- ============================================================ -->
+        <h2 id="checklist"><i class="fas fa-clipboard-check"></i> Pre-Flight Checklist</h2>
+
+        <p>Before you attempt any integration, verify each service works in isolation.</p>
+
+        <pre><code># DNS — should return 192.168.56.1 with an "aa" flag
+dig @127.0.0.1 app.lab.local A
+
+# Nginx — should respond to the virtual host
+curl -I -H "Host: app.lab.local" http://localhost/
+
+# Backend — should return OK (verifies DB connectivity)
+curl http://127.0.0.1:5000/health
+
+# Database — should return a count without error
+mysql -u app -p app_db -e "SELECT COUNT(*) FROM customers;"
+
+# Client — should resolve our internal name through our own BIND9
+dig app.lab.local A</code></pre>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>Do not proceed if any of these fail in isolation.</strong> Integration of broken
+            pieces only multiplies confusion. Fix the broken layer first, then integrate.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- PART 1 — WORKING STACK                                        -->
+        <!-- ============================================================ -->
+        <h2 id="part1"><i class="fas fa-cubes"></i> Part I — The Working Stack (50 points)</h2>
+
+        <div class="deliverable-box">
+            <h3><i class="fas fa-layer-group"></i> Component Checklist</h3>
+
+            <ol>
+                <li><strong>DNS layer.</strong> BIND9 running and authoritative for <code>lab.local</code>. The zone file must resolve:
+                    <ul>
+                        <li><code>ns1.lab.local</code> → 192.168.56.1</li>
+                        <li><code>app.lab.local</code> → 192.168.56.1</li>
+                        <li><code>db.lab.local</code> → 192.168.56.1</li>
+                    </ul>
+                    Recursion must be restricted to <code>127.0.0.1/32</code> and <code>192.168.56.0/24</code> only.
+                </li>
+
+                <li><strong>HTTP layer.</strong> Nginx running with a virtual host for
+                    <code>app.lab.local</code>. The virtual host must:
+                    <ul>
+                        <li>Accept HTTP on port 80</li>
+                        <li>Reverse-proxy all requests to <code>127.0.0.1:5000</code></li>
+                        <li>Set <code>Host</code>, <code>X-Real-IP</code>, <code>X-Forwarded-For</code>, and <code>X-Forwarded-Proto</code> headers</li>
+                    </ul>
+                </li>
+
+                <li><strong>Backend layer.</strong> Flask application running on <code>127.0.0.1:5000</code>, listening on loopback only (not <code>0.0.0.0</code>). It must expose:
+                    <ul>
+                        <li><code>GET /</code> — a friendly HTML page</li>
+                        <li><code>GET /health</code> — returns OK and proves DB connectivity</li>
+                        <li><code>GET /api/customers</code> — JSON array of all customers</li>
+                        <li><code>GET /api/customers/&lt;id&gt;</code> — one customer, or 404</li>
+                        <li><code>POST /api/customers</code> — creates a customer (201 or 409)</li>
+                    </ul>
+                </li>
+
+                <li><strong>Database layer.</strong> MariaDB with:
+                    <ul>
+                        <li>Database <code>app_db</code> using <code>utf8mb4</code> collation</li>
+                        <li>Tables <code>customers</code> and <code>orders</code> with a foreign key and <code>ON DELETE CASCADE</code></li>
+                        <li>Application user <code>app@localhost</code> with only <code>SELECT, INSERT, UPDATE, DELETE</code> on <code>app_db</code></li>
+                        <li>MariaDB bound to the Unix socket — not listening on the network</li>
+                    </ul>
+                </li>
+
+                <li><strong>Client validation.</strong> From the client VM, the following commands must all succeed:
+                </li>
+            </ol>
+
+            <pre style="margin-left:1rem;"><code>dig app.lab.local A
+
+curl http://app.lab.local/api/customers
+
+curl -X POST http://app.lab.local/api/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Your Name","email":"you@lab.local"}'
+
+curl http://app.lab.local/api/customers</code></pre>
+
+            <p style="margin-top: 1rem; color: #c4b5fd;">
+                <strong>The money test:</strong> after the POST from the client succeeds, the new row
+                must be present in MariaDB when you query it directly with <code>mysql</code> from the
+                server. That proves end-to-end persistence.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- PART 2 — DOCUMENTATION                                        -->
+        <!-- ============================================================ -->
+        <h2 id="part2"><i class="fas fa-book"></i> Part II — Documentation (30 points)</h2>
+
+        <div class="deliverable-box">
+            <h3><i class="fas fa-file-lines"></i> Required Documents</h3>
+
+            <h4 style="color: #c4b5fd; margin-top: 1rem;">1. Service Inventory</h4>
+            <p>A single table listing every service in the stack. Must include:</p>
+            <ul>
+                <li>Host or bind address</li>
+                <li>Role (DNS / HTTP / backend / database)</li>
+                <li>Port or socket</li>
+                <li>Systemd unit name or process ID</li>
+                <li>Log file location</li>
+                <li>Configuration file path(s)</li>
+            </ul>
+
+            <h4 style="color: #c4b5fd;">2. Technical Report (2–4 pages)</h4>
+            <p>Four sections, in this order:</p>
+            <ol>
+                <li><strong>What was built.</strong> One paragraph of architecture plus the stack diagram.</li>
+                <li><strong>How it works.</strong> Walk through one concrete request end-to-end. Specific commands, specific files, specific log lines.</li>
+                <li><strong>How you prove it works.</strong> The evidence, with each item captioned.</li>
+                <li><strong>How you would debug it.</strong> The bottom-up walk, and the symptom-to-layer cheat sheet.</li>
+            </ol>
+
+            <h4 style="color: #c4b5fd;">3. Diagrams</h4>
+            <p>Include the stack diagram. You may redraw the SVG from this page, or produce an
+            equivalent diagram of your own.</p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- PART 3 — EVIDENCE & FAILURE ANALYSIS                         -->
+        <!-- ============================================================ -->
+        <h2 id="part3"><i class="fas fa-bug"></i> Part III — Evidence &amp; Failure Analysis (20 points)</h2>
+
+        <div class="deliverable-box">
+            <h3><i class="fas fa-flask-vial"></i> Layer Evidence (10 pts)</h3>
+            <p>For each of the four layers, capture the specific piece of evidence below. Paste the
+            exact command and its output.</p>
+
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th style="width: 22%;">Layer</th>
+                        <th>Required Evidence</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>DNS</strong></td><td><code>dig app.lab.local</code> from the client, showing the A record and the <code>aa</code> flag</td></tr>
+                    <tr><td><strong>HTTP</strong></td><td><code>curl -v http://app.lab.local/</code> from the client, showing request headers and the HTTP/1.1 200 OK response</td></tr>
+                    <tr><td><strong>Nginx log</strong></td><td>The matching entry in <code>/var/log/nginx/access.log</code> — status code and time must match the client request</td></tr>
+                    <tr><td><strong>Database</strong></td><td><code>mysql -u app -p app_db -e "SELECT * FROM customers;"</code> showing the row created from the client</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="deliverable-box">
+            <h3><i class="fas fa-triangle-exclamation"></i> Failure Injection (10 pts)</h3>
+            <p>Perform <strong>three</strong> of the following failure experiments. For each, capture
+            the client error and the server-side log entry that identified the failing layer.</p>
+
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th style="width: 30%;">Experiment</th>
+                        <th style="width: 30%;">Command</th>
+                        <th>Expected Client Symptom</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Stop MariaDB</td>
+                        <td><code>systemctl stop mariadb</code></td>
+                        <td>500-level error; server log shows DB connection failure</td>
+                    </tr>
+                    <tr>
+                        <td>Kill Flask backend</td>
+                        <td><code>pkill -f app.py</code></td>
+                        <td>502 Bad Gateway; Nginx error log shows "connection refused"</td>
+                    </tr>
+                    <tr>
+                        <td>Break DNS on client</td>
+                        <td><code>echo "nameserver 192.0.2.1" | sudo tee /etc/resolv.conf</code></td>
+                        <td>"Could not resolve host" from client; server side is unaffected</td>
+                    </tr>
+                    <tr>
+                        <td>Break Nginx server_name</td>
+                        <td>Edit <code>server_name</code> to wrong value, reload</td>
+                        <td>Client sees default Nginx page; DNS + backend still work</td>
+                    </tr>
+                </tbody>
+            </table>
+
+            <p style="margin-top: 1rem;">
+                For each experiment, undo the change, verify the stack works again, and document the
+                cycle: <em>break → observe → diagnose → fix → verify</em>.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- RUBRIC                                                       -->
+        <!-- ============================================================ -->
+        <h2 id="rubric"><i class="fas fa-scale-balanced"></i> Grading Rubric</h2>
+
+        <div class="rubric-box">
+            <h4><i class="fas fa-list-ol"></i> Score Breakdown (Total: 100 points)</h4>
+
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th style="width: 55%;">Deliverable</th>
+                        <th style="width: 15%;">Points</th>
+                        <th>Weight</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td><strong>Part I</strong> — Working integrated stack</td><td>50</td><td>50%</td></tr>
+                    <tr><td><em>of which:</em> DNS zone correct and authoritative</td><td>10</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> Nginx reverse proxy + headers</td><td>10</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> Flask backend, loopback-only binding</td><td>10</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> MariaDB schema + least-privilege user</td><td>10</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> End-to-end round-trip from client works</td><td>10</td><td>—</td></tr>
+                    <tr><td><strong>Part II</strong> — Documentation</td><td>30</td><td>30%</td></tr>
+                    <tr><td><em>of which:</em> Service inventory</td><td>10</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> Technical report (2–4 pages, 4 sections)</td><td>15</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> Stack diagram</td><td>5</td><td>—</td></tr>
+                    <tr><td><strong>Part III</strong> — Evidence &amp; Failure Analysis</td><td>20</td><td>20%</td></tr>
+                    <tr><td><em>of which:</em> Four-layer evidence captures</td><td>10</td><td>—</td></tr>
+                    <tr><td><em>of which:</em> Three failure-injection experiments</td><td>10</td><td>—</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-award"></i>
+            <strong>Excellence beyond the minimum.</strong> Extra credit (up to +10 points) may be
+            awarded for any of the following:
+            <ul style="margin-top: 0.6rem;">
+                <li>Working HTTPS with a self-signed certificate for <code>app.lab.local</code></li>
+                <li>An additional backend endpoint (e.g., <code>GET /api/customers/&lt;id&gt;/orders</code>) with a working SQL JOIN</li>
+                <li>A systemd unit that starts the Flask backend on boot with <code>After=mariadb.service</code></li>
+                <li>An automated backup script for <code>app_db</code> using <code>mysqldump</code> + gzip + rotation</li>
+            </ul>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUBMISSION                                                    -->
+        <!-- ============================================================ -->
+        <h2 id="submission"><i class="fas fa-upload"></i> Submission Requirements</h2>
+
+        <div class="deliverable-box">
+            <h3><i class="fas fa-box-archive"></i> What to Submit</h3>
+
+            <p>Upload a single PDF to the course platform. The PDF must contain, in order:</p>
+
+            <ol>
+                <li><strong>Cover page</strong> with your name, student ID, VM hostnames, and submission date.</li>
+                <li><strong>Technical report</strong> (2–4 pages) with the four required sections.</li>
+                <li><strong>Service inventory table.</strong></li>
+                <li><strong>Evidence captures</strong>, one per layer, each with a caption.</li>
+                <li><strong>Failure analysis</strong> for the three chosen experiments.</li>
+                <li><strong>Appendix</strong> — full text of your Nginx config, Flask source, and the
+                    MariaDB schema (as a SQL dump or paste).</li>
+            </ol>
+
+            <p style="margin-top: 1rem;">
+                <strong>Deadline:</strong> one week after the Week 14 lecture.<br>
+                <strong>Format:</strong> PDF only. No Word documents, no screenshots-only submissions.<br>
+                <strong>Length:</strong> 6–10 pages including appendix.
+            </p>
+        </div>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Late submission policy.</strong> One day late: −10%. Two days late: −25%.
+            More than three days late: not accepted. The same policy applies to all Phase 2
+            project deliverables. This is a pre-professional course; treat deadlines accordingly.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Project Summary</h3>
+            <ul>
+                <li>You are assembling <strong>four previously-built services</strong> into one working three-tier system.</li>
+                <li>The stack runs entirely on <strong>one server VM</strong> at 192.168.56.1, with a <strong>client VM</strong> talking to it over the host-only network.</li>
+                <li>The client must be able to <strong>resolve a name via your DNS</strong>, make an HTTP request, have it <strong>reverse-proxied</strong> to the Flask backend, and see data <strong>persisted in MariaDB</strong> — with all of it visible in the corresponding logs.</li>
+                <li>You must produce a <strong>service inventory</strong>, a <strong>technical report</strong>, <strong>evidence captures</strong> for each layer, and a <strong>failure analysis</strong> of three deliberately-broken layers.</li>
+                <li>The project is graded 50 / 30 / 20 across the working stack, documentation, and evidence/failure analysis. Extra credit is available for HTTPS, JOIN endpoints, systemd-wrapped backends, or automated backups.</li>
+                <li><strong>This project feeds directly into your Week 15 final project.</strong> The demo you prepare here is the demo you present at the end of the course.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical · Week 14 Project</p>
+            <p>Based on the <strong>UNIX and Linux System Administration Handbook</strong>, the
+                <strong>BIND 9</strong>, <strong>Nginx</strong>, and <strong>MariaDB</strong> official
+                documentation | Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

@@ -1,0 +1,2117 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 12 — HTTP – Web Service with Nginx
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  ten short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the fourth week of Phase 2. Students are expected to have
+  completed Week 9 (users, permissions, systemd), Week 10 (packages,
+  networking basics, DHCP), and Week 11 (DNS). Their VMs should have a
+  working BIND9 server for the lab.local zone, and a working host-only
+  interface at 192.168.56.1 configured back in Week 10.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.1 — What is HTTP?                                          ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "HTTP – Web Service with Nginx" + course name]
+
+SPEAK:
+"Welcome to Week 12 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week we built a DNS server. We taught it to translate names into
+IP addresses, and we gave it authoritative control over our own
+internal lab.local domain. That was the first piece of internet
+infrastructure we built from scratch.
+
+But DNS only tells you where a server lives. It does not tell you how
+to talk to it. And for the web — which is where almost all of our
+day-to-day interaction with the internet happens — the protocol that
+answers that question is HTTP, the HyperText Transfer Protocol.
+
+This week, we are going to learn HTTP from the ground up, and then we
+are going to deploy one of the most widely used web servers in the
+world: Nginx. By the end of the week, you will have served multiple
+websites on one server, and reverse-proxied requests to a backend
+application — which is exactly the architecture of every serious
+modern web service.
+
+Let's start with the protocol."
+
+[PAUSE]
+
+[SLIDE 2 — Simple client/server diagram]
+
+SPEAK:
+"HTTP is built on one idea: a client sends a request, and a server
+sends back a response.
+
+The client — usually a web browser, but also curl, or a mobile app,
+or a script — opens a TCP connection to the server. It sends a
+request as plain text. The server reads the request, does whatever
+work is needed, and sends back a response, also as plain text.
+
+That is the whole exchange. No binary protocol. No negotiation. No
+complex handshake at the application level. You can literally watch
+an HTTP conversation with telnet, if you want to. The text is right
+there.
+
+This simplicity is why HTTP has scaled to the entire web. Because it
+is just text over a stream, it works with any transport that
+preserves ordering, and it works with any language, any framework,
+and any platform. Everyone can implement it, and they do."
+
+[PAUSE]
+
+[SLIDE 3 — What runs underneath]
+
+SPEAK:
+"HTTP runs on top of TCP. That matters for two reasons.
+
+First: TCP is reliable. Every byte gets delivered, in order, or the
+connection breaks and the error is reported. HTTP does not have to
+deal with lost packets, out-of-order delivery, or retries. All of
+that is TCP's problem.
+
+Second: TCP requires a connection setup. The famous three-way
+handshake — SYN, SYN-ACK, ACK — costs one network round trip. On a
+local network, that is under a millisecond. On the other side of the
+planet, it is 100 milliseconds or more.
+
+The original HTTP/1.0 opened a new TCP connection for every single
+request. That meant paying the handshake cost every time. For a page
+with 20 images, that was 20 handshakes.
+
+HTTP/1.1 — which is what we will use in practice — keeps the TCP
+connection open across multiple requests. That drops the cost
+dramatically. We will talk more about this in a few minutes.
+
+For now, remember: HTTP itself is a text protocol. TCP is the
+transport underneath it. And HTTPS is just HTTP wrapped in TLS
+encryption — same protocol, encrypted tunnel."
+
+[SLIDE 4 — Default ports]
+
+SPEAK:
+"HTTP conventionally runs on TCP port 80. HTTPS conventionally runs
+on TCP port 443.
+
+Those are defaults, not requirements. You can run a web server on any
+port you want. 8080, 3000, 8000, 9999 — developers routinely use
+these for local development.
+
+But when a client asks for http://example.com without specifying a
+port, it will connect to port 80. When it asks for
+https://example.com, it will connect to 443. The defaults are part
+of the user experience of the web.
+
+In our labs, we will always use port 80, because that is what makes
+our servers behave like real public websites."
+
+[PAUSE]
+
+[SLIDE 5 — The shape of an HTTP request and response]
+
+SPEAK:
+"Let me show you the actual shape of the messages. I promise this is
+going to be simpler than you expect.
+
+Here is a request. It has three parts.
+
+First: the request line. A method — GET, POST, PUT, DELETE — then
+the path to the resource, then the protocol version. In this case:
+GET /index.html HTTP/1.1.
+
+Second: headers. One per line, in key colon value format. Host tells
+the server which site we want. User-Agent identifies the browser.
+Accept says what content types the client can handle.
+
+Third: a blank line. That is the boundary between headers and body.
+If there is a body — like the JSON in a POST — it comes after this
+blank line.
+
+That is a request. It is text.
+
+Now the response. Same structure.
+
+First: the status line. Protocol version, status code, reason phrase.
+HTTP/1.1 200 OK.
+
+Second: response headers. Content-Type tells the browser what kind
+of file this is. Content-Length tells it how big the file is. Server
+identifies the server software.
+
+Third: a blank line.
+
+Fourth: the body — the actual HTML, image, or JSON.
+
+That is the entire shape of every HTTP exchange you have ever had
+with any server. Two requests, two responses, in this exact format."
+
+[SLIDE 6 — Statelessness]
+
+SPEAK:
+"One more foundational concept before we move on. HTTP is stateless.
+
+Each request is independent of every other request. The server does
+not remember who you are between requests.
+
+You might be thinking: but how does a website remember that I logged
+in? How does my shopping cart survive multiple page loads?
+
+The answer is that state is built on top of HTTP. Cookies are set by
+a response header, sent back by the client on subsequent requests.
+Session IDs are another approach — the server stores state and gives
+the client a random identifier. Tokens like JWT are a third
+approach — the client carries the state, signed by the server.
+
+But none of that is part of HTTP. It is all convention built on top
+of the stateless protocol.
+
+Why is this a feature, not a bug? Because statelessness makes
+caching possible. It makes load balancing easy — any server can
+respond to any request. It makes horizontal scaling straightforward.
+If you need to add capacity, you just add more servers, and they
+all work the same.
+
+So: HTTP is stateless. Any state you need, you build on top of it."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+HTTP is a request-response protocol. Clients send requests; servers
+send responses.
+
+It runs on TCP. Port 80 by convention for plain HTTP, port 443 for
+HTTPS.
+
+Every message has the same structure: a start line, headers, a blank
+line, and an optional body. All of it is text.
+
+HTTP is stateless. Cookies, sessions, and tokens are layers built on
+top of HTTP, not part of it.
+
+In the next video, we look at HTTP methods — the verbs of the
+protocol."
+
+[END OF VIDEO 12.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.2 — HTTP Methods                                           ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "HTTP Methods"]
+
+SPEAK:
+"Welcome back. In the previous video, we learned the shape of HTTP
+messages. Now let's look at the methods — the verbs that tell the
+server what kind of action the client wants.
+
+Methods are the first word of every HTTP request. They define the
+semantics of the exchange. And each method has a specific meaning
+that both clients and servers rely on."
+
+[PAUSE]
+
+[SLIDE 2 — The methods table]
+
+SPEAK:
+"There are nine standard methods, but you will use five of them
+regularly. Let me walk through the important ones.
+
+GET is the most common. It retrieves a resource. It is what your
+browser uses when you type a URL and press Enter. It is safe — it
+has no side effects. And it is idempotent — calling it twice has the
+same effect as calling it once.
+
+HEAD is like GET, but the server sends back only the headers and
+not the body. Useful for checking whether a file exists, or how big
+it is, without downloading it.
+
+POST is for submitting data. It is used to create resources, to
+submit forms, to trigger actions. Unlike GET, it is not idempotent.
+If you send the same POST twice, you might create two resources.
+
+PUT creates or replaces a resource at a specific URL. If you PUT the
+same thing twice, the result is the same — it is idempotent.
+
+DELETE removes a resource. Also idempotent. If the resource is
+already gone, no error.
+
+PATCH partially updates a resource — used more rarely, but standard
+in REST APIs.
+
+OPTIONS returns what methods are allowed for a resource. Used in
+CORS pre-flight requests by browsers.
+
+TRACE and CONNECT are rarely used in application development. TRACE
+echoes the request back for diagnostics. CONNECT establishes a
+tunnel, used mostly by proxies."
+
+[SLIDE 3 — Safe and idempotent]
+
+SPEAK:
+"Let me focus on the two properties that matter for correctness.
+
+A method is 'safe' if calling it does not change the state of the
+server. GET, HEAD, and OPTIONS are safe. That is why your browser
+can prefetch a page, or a search engine crawler can index your site,
+without worrying about side effects.
+
+A method is 'idempotent' if calling it twice has the same effect as
+calling it once. GET, PUT, and DELETE are idempotent. POST is not.
+
+This distinction matters for reliability. If a PUT request is lost
+due to a network error, the client can retry. Retrying does not
+break anything. If a POST is lost, retrying might create a duplicate
+— maybe two charges on a credit card, or two items in a shopping
+cart.
+
+That is why well-designed APIs use PUT for idempotent operations and
+POST only for operations that do create new resources. And that is
+why your browser shows a warning when you refresh a page that
+resulted from a POST — it does not want you to accidentally submit
+the form twice."
+
+[PAUSE]
+
+[SLIDE 4 — GET in detail]
+
+SPEAK:
+"Let me look at GET more carefully.
+
+A GET request can include a query string — parameters appended to
+the path after a question mark. For example: search dot example dot
+com slash search question mark q equals operating plus systems.
+
+The query string is part of the URL. It is visible in your browser's
+address bar. It appears in the server's access logs. It is sent as
+part of the Referer header when the user clicks a link to another
+site.
+
+So never, ever put sensitive information in a query string.
+Passwords should not be in URLs. Session tokens should not be in
+URLs. Anything private belongs in a request body or, better, in a
+header.
+
+The rule of thumb: query strings are for identifying resources.
+They are not for authentication, they are not for secrets, and they
+are not for large amounts of data."
+
+[PAUSE]
+
+[SLIDE 5 — POST in detail]
+
+SPEAK:
+"POST is the alternative. It carries data in the body of the
+request, not in the URL. The body can be any format — JSON is
+common, as is form-encoded data, or multipart for file uploads.
+
+Here is a POST request to create a user. The method is POST. The
+path is /api/users. The Content-Type header says the body is JSON.
+The Content-Length header says the body is 57 bytes. And the body
+itself is a JSON object with a name and an email.
+
+POST is used for creating resources, submitting forms, and any
+operation that is not idempotent. It is not cached by default, and
+browsers mark it as such."
+
+[SLIDE 6 — The REST style]
+
+SPEAK:
+"Before we finish this video, let me mention the REST convention.
+REST stands for Representational State Transfer, and it is the
+dominant style for HTTP-based APIs today.
+
+The idea is: use the HTTP methods directly to express operations,
+and use URLs to identify resources.
+
+To list all users: GET slash users.
+To read one user: GET slash users slash 42.
+To create a user: POST slash users.
+To update a user: PUT slash users slash 42.
+To delete a user: DELETE slash users slash 42.
+
+The URL is the noun — the resource. The method is the verb — the
+action. And the HTTP status code tells the client what happened.
+
+This is not the only way to design an API. But it is by far the
+most common, and it maps cleanly onto how HTTP was designed. Once
+you see the pattern, you see it everywhere."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+HTTP methods are the verbs of the protocol. The important ones are
+GET, POST, PUT, PATCH, DELETE, HEAD, and OPTIONS.
+
+Two properties matter: a method is 'safe' if it has no side effects,
+and 'idempotent' if calling it twice is the same as calling it once.
+
+GET requests carry parameters in the query string — which is not
+private. POST requests carry data in the body.
+
+REST is the convention of using methods together with resource
+URLs. It is the dominant style for APIs.
+
+In the next video, we look at status codes — the server's way of
+telling the client whether the request succeeded."
+
+[END OF VIDEO 12.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.3 — Status Codes                                           ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "HTTP Status Codes"]
+
+SPEAK:
+"Welcome to the third video of Week 12. Every HTTP response starts
+with a status code — a three-digit number that tells the client
+whether the request succeeded, and if not, what went wrong.
+
+Status codes are organized into five classes. The first digit is
+the class, and it is the most important part of the number. Let me
+walk you through each class, and then we will look at the specific
+codes you will encounter every day."
+
+[PAUSE]
+
+[SLIDE 2 — The five classes]
+
+SPEAK:
+"There are five classes.
+
+1xx is informational. The server is telling the client something,
+but the exchange continues. Rare in application code — you might
+see 100 Continue in some upload scenarios, but usually it happens
+automatically under the hood.
+
+2xx means success. The request was received, understood, and
+processed. 200 OK is the most common — the response contains the
+requested resource. 201 Created is used after a POST that creates a
+resource. 204 No Content means the request succeeded but there is
+no body.
+
+3xx is redirection. The resource is not at this URL — look
+somewhere else. 301 Moved Permanently is used when a URL has
+changed forever. 302 Found is a temporary redirect. 304 Not
+Modified is special — it tells the client that its cached copy is
+still fresh, and no body is being sent.
+
+4xx is client error. The request is wrong. 404 Not Found is the
+classic. 400 Bad Request means the request is malformed. 403
+Forbidden means the server understood but refuses. 401 Unauthorized
+means the request needs authentication — although the name is
+misleading, it should really be called 401 Unauthenticated.
+
+5xx is server error. 500 Internal Server Error is a catch-all — a
+bug in the application. 502 Bad Gateway is very common with reverse
+proxies — the backend is down. 503 Service Unavailable means the
+server is overloaded or in maintenance. 504 Gateway Timeout means
+the backend did not respond in time.
+
+The class is the important part. 2xx means success. 3xx means look
+elsewhere. 4xx means your fault. 5xx means the server's fault."
+
+[PAUSE]
+
+[SLIDE 3 — A reference table]
+
+SPEAK:
+"Let me point out the specific codes you will see most often.
+
+200 OK — success. The body contains the resource.
+
+201 Created — a POST succeeded and created something new. The
+Location header usually points to the new resource.
+
+204 No Content — success with no body. Common for DELETE, or for
+AJAX updates that do not need a response.
+
+301 Moved Permanently — the resource has moved for good. Browsers
+update their bookmarks. Search engines update their index.
+
+302 Found — a temporary redirect. The client should use the new URL
+for now, but keep using the old one in the future.
+
+304 Not Modified — the client's cache is still valid. No body is
+sent. This is used by the browser's caching mechanism to save
+bandwidth.
+
+400 Bad Request — malformed request. Missing field, bad syntax.
+
+401 Unauthorized — actually means unauthenticated. The request needs
+credentials.
+
+403 Forbidden — you are authenticated but you are not allowed.
+
+404 Not Found — the URL does not exist.
+
+405 Method Not Allowed — the method is not supported for this
+resource.
+
+429 Too Many Requests — rate limited.
+
+500 Internal Server Error — a bug in the application.
+
+502 Bad Gateway — the reverse proxy could not get a response from
+the backend.
+
+503 Service Unavailable — the server is temporarily unable to serve
+requests. Retry later.
+
+504 Gateway Timeout — the reverse proxy waited too long for the
+backend."
+
+[SLIDE 4 — Reading a status line]
+
+SPEAK:
+"Let's look at the status line format.
+
+It is three parts: the protocol version, the status code, and a
+reason phrase. HTTP slash 1.1 space 200 space OK.
+
+The reason phrase is just a human-readable description. Clients
+should rely on the code, not the phrase. Some servers send non-
+standard reason phrases, and that is fine — the code is what
+matters."
+
+[PAUSE]
+
+[SLIDE 5 — The 502/503/504 trio]
+
+SPEAK:
+"I want to spend a moment on the trio 502, 503, and 504, because
+you will encounter them often when working with Nginx as a reverse
+proxy, and they are easy to confuse.
+
+502 Bad Gateway means Nginx could not get a valid response from the
+backend. The most common cause is that the backend is not running,
+or it is listening on a different port than Nginx expects. If you
+see 502, the first thing to check is: is the backend actually up?
+Are you proxying to the correct port?
+
+503 Service Unavailable means Nginx itself refused to serve the
+request. This usually happens because of a rate limit, or because
+the upstream pool is exhausted, or because Nginx is in maintenance
+mode. The backend might be fine — Nginx is just not sending the
+request.
+
+504 Gateway Timeout means Nginx did get a connection to the backend,
+but the backend did not respond within the configured timeout. The
+backend is running, but it is too slow. This is often caused by a
+long-running database query or a deadlock in the application.
+
+So: 502 means the backend is unreachable, 503 means Nginx refused
+the request, 504 means the backend was too slow. Three different
+failures, each with a different fix."
+
+[SLIDE 6 — Reading status codes in practice]
+
+SPEAK:
+"Here is the practical advice. When you debug a web request, the
+status code is the fastest way to know what is going on.
+
+If you see 2xx, the request succeeded.
+
+If you see 3xx, the resource moved. Follow the Location header.
+
+If you see 4xx, the problem is on the client side. Either the URL is
+wrong, or the request is malformed, or the client is not authorized.
+
+If you see 5xx, the problem is on the server side. No amount of
+client-side debugging will fix that. You need to look at the server
+logs — usually with curl dash I to fetch just the headers, or with
+the Nginx access log to see what actually happened.
+
+This is the fastest way to triage a problem. Even before you look at
+the actual response, the code tells you which side to investigate."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+HTTP status codes are three digits. The first digit is the class.
+
+2xx is success. 3xx is redirection. 4xx is client error. 5xx is
+server error.
+
+The specific codes you need to know: 200, 201, 204, 301, 302, 304,
+400, 401, 403, 404, 405, 429, 500, 502, 503, 504.
+
+The trio 502, 503, 504 is the one to remember when debugging a
+reverse proxy. 502 means the backend is unreachable. 503 means Nginx
+refused. 504 means the backend was too slow.
+
+In the next video, we look at headers — the metadata that travels
+with every request and response."
+
+[END OF VIDEO 12.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.4 — Headers                                                ║
+║  Target duration: ~16 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "HTTP Headers"]
+
+SPEAK:
+"Welcome back. In the previous two videos, we looked at methods and
+status codes. Now let's look at headers — the metadata that carries
+information about the request, the response, the client, the server,
+and everything in between.
+
+Headers are simple key-value pairs, sent one per line, in plain
+text. They are the richest part of HTTP, because they are where all
+the interesting information lives."
+
+[PAUSE]
+
+[SLIDE 2 — Request headers]
+
+SPEAK:
+"Let me start with the request headers — the ones the client sends
+to the server.
+
+Host is the most important. It tells the server which domain the
+client is requesting. This is what makes virtual hosting possible,
+which we will see in the Nginx section later this week. Host is
+required in HTTP slash 1.1.
+
+User-Agent identifies the client software. Browser name, version,
+operating system, sometimes even a device model. Used for analytics
+and sometimes for serving different content.
+
+Accept says what content types the client can handle. Text slash
+html, application slash json, image slash png, and so on. Servers
+should respect this when they have a choice.
+
+Accept-Language says what natural languages the client prefers. Used
+for internationalization.
+
+Accept-Encoding says what compression algorithms the client can
+handle. gzip, brotli, deflate. Servers use this to compress
+responses and save bandwidth.
+
+Cookie sends cookies back to the server. Cookies were set
+previously by a Set-Cookie header in a response.
+
+Authorization carries credentials. Usually a bearer token, or basic
+auth, or an API key.
+
+Referer — with the misspelling — tells the server which page the
+client came from. Often used for analytics.
+
+If-Modified-Since is a cache validation header. If the resource has
+not changed since the given timestamp, the server sends 304 Not
+Modified and no body.
+
+Connection controls the TCP connection. keep-alive or close."
+
+[PAUSE]
+
+[SLIDE 3 — Response headers]
+
+SPEAK:
+"Now the response headers — the ones the server sends back.
+
+Content-Type tells the client what kind of file this is. Text slash
+html with a charset. Or application slash json. Or image slash png.
+This is what tells the browser how to render.
+
+Content-Length tells the client how big the body is. The client uses
+this to know when the response is complete.
+
+Content-Encoding tells the client what compression was applied —
+usually gzip or brotli. The client decompresses before rendering.
+
+Cache-Control tells the client and any proxies how long the response
+can be cached, and for what purposes.
+
+Set-Cookie sets a cookie on the client. Can include flags like
+HttpOnly -- which prevents JavaScript access -- Secure -- which
+requires HTTPS -- and SameSite, which controls cross-site sending.
+
+Location is used in redirects. It tells the client where to look for
+the resource.
+
+Server identifies the server software. Nginx slash 1.24.0, or
+Apache slash 2.4.52. Some administrators remove this header for
+security reasons -- it leaks information about what software you
+are running.
+
+ETag is a fingerprint of the resource used for caching.
+
+Last-Modified is the timestamp when the resource was last modified.
+
+And there are various security headers like Strict-Transport-
+Security, X-Frame-Options, and Content-Security-Policy that we do
+not have room to cover in detail, but which are important in
+production."
+
+[SLIDE 4 — A worked example with curl]
+
+SPEAK:
+"Let me show you a real request and response, using curl.
+
+curl dash I http slash slash example dot com
+
+The dash I flag tells curl to send a HEAD request, so we see the
+headers but not the body. This is the fastest way to inspect the
+headers of any URL.
+
+The output looks like this. First line is the status line. Then
+several headers. Let me point out the interesting ones.
+
+Content-Type says this is an HTML document, in UTF-8. So the browser
+will render it as a web page.
+
+Content-Length says 1256 bytes. The browser knows exactly how much
+to download.
+
+Server says nginx slash 1.24.0. So we know the server software.
+
+ETag and Last-Modified give the client information it can use for
+caching on the next request.
+
+Cache-Control says the response may be cached for up to 3600 seconds.
+
+And Connection keep-alive means the TCP connection will be reused."
+
+[PAUSE]
+
+[SLIDE 5 — Custom headers and X-Forwarded-For]
+
+SPEAK:
+"HTTP allows custom headers, as long as they follow the same format.
+The convention is to prefix them with X dash, though this is not
+required.
+
+The most important custom header in practice is X-Forwarded-For.
+When a request passes through a proxy or reverse proxy, that proxy
+adds this header with the original client IP. This is how the
+backend application can see who is really making the request,
+even though the connection comes from the proxy.
+
+There is also X-Real-IP, which is a simpler variant that just sets
+the immediate client IP.
+
+And X-Forwarded-Proto, which records whether the original request
+came in over HTTP or HTTPS. This matters when the backend needs to
+generate absolute URLs.
+
+We will set these headers in the reverse proxy lab later this
+week."
+
+[SLIDE 6 — Warning about trust]
+
+SPEAK:
+"One important warning. Custom headers are not for security.
+
+Any client can send any header. X-Forwarded-For could be spoofed.
+Authorization could be a fake token. User-Agent could claim to be
+anything.
+
+So never trust client-provided headers for authentication or
+authorization. If your application checks the User-Agent header to
+decide whether to grant access, an attacker can just change it.
+
+Use proper signed tokens. Use server-side session state. Use TLS
+client certificates. But do not trust headers.
+
+The headers are metadata, not security."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+Headers are key-value pairs in the request and response. They carry
+metadata about everything — the client, the server, the content,
+caching, cookies, security.
+
+Request headers include Host, User-Agent, Accept, Cookie, and
+Authorization.
+
+Response headers include Content-Type, Content-Length, Set-Cookie,
+Cache-Control, and Location.
+
+Custom headers use the X- prefix. The most important is
+X-Forwarded-For, which carries the original client IP through a
+proxy.
+
+Never trust client-provided headers. They are metadata, not
+security.
+
+In the next video, we look at connections and HTTP versions —
+persistent connections, HTTP/2, and HTTP/3."
+
+[END OF VIDEO 12.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.5 — Connections & HTTP Versions                            ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Connections & HTTP Versions"]
+
+SPEAK:
+"Welcome to the fifth video of Week 12. We have looked at the
+structure of HTTP messages. Now let's zoom out and look at how
+those messages travel over the network.
+
+The version of HTTP you use affects how connections are managed,
+how requests are multiplexed, and ultimately how fast your website
+feels to the user."
+
+[PAUSE]
+
+[SLIDE 2 — HTTP/1.0 — non-persistent]
+
+SPEAK:
+"In the original HTTP slash 1.0, each request used a fresh TCP
+connection. The client would:
+
+Open a TCP connection with a three-way handshake.
+Send one request.
+Receive one response.
+Close the connection.
+
+If a page had twenty images, the browser would open twenty TCP
+connections. Each one paid the handshake cost.
+
+On a local network, that cost is small. On a transatlantic link, it
+is 100 milliseconds per connection. Twenty connections equals two
+seconds of pure latency -- before any data is even transferred.
+
+That is unacceptable for a responsive web experience."
+
+[PAUSE]
+
+[SLIDE 3 — HTTP/1.1 — persistent]
+
+SPEAK:
+"HTTP slash 1.1 fixed this. It introduced persistent connections --
+TCP connections kept alive across multiple requests by default.
+
+The client opens one TCP connection. It sends multiple requests over
+time on that same connection. Each response comes back in order.
+When the client is done, or after an inactivity timeout, the
+connection closes.
+
+The handshake cost is paid once, not once per request. Loading a
+page with twenty assets now takes one handshake instead of twenty.
+
+This one change reduced latency dramatically. It is one of the main
+reasons HTTP slash 1.1 became the standard for nearly two decades."
+
+[SLIDE 4 — Head-of-line blocking]
+
+SPEAK:
+"But HTTP slash 1.1 has a problem. Requests on a single connection
+are handled in order. If you send request A, then request B, the
+server will respond to A first, then B. If A takes a long time --
+maybe it is a slow database query -- B is blocked behind it. This
+is called head-of-line blocking.
+
+Browsers worked around this for years by opening six to eight
+parallel connections to each origin. That parallelizes requests, but
+it is a hack. It uses more server resources, and it is still limited
+by the number of connections.
+
+The protocol itself did not solve the problem."
+
+[PAUSE]
+
+[SLIDE 5 — HTTP/2]
+
+SPEAK:
+"HTTP slash 2 solves head-of-line blocking at the protocol level. It
+was standardized in 2015.
+
+The key change is multiplexing. Multiple requests and responses can
+be in flight simultaneously over a single TCP connection. Each
+request is broken into frames, and frames from different requests
+are interleaved. A slow response does not block the others.
+
+HTTP slash 2 also adds header compression with an algorithm called
+HPACK. This reduces the overhead of sending the same headers over
+and over.
+
+And it introduces server push -- the ability for the server to send
+resources the client has not asked for yet. For example, if the
+client requests index dot html, the server can preemptively push
+the CSS file that it knows is needed.
+
+HTTP slash 2 is binary rather than text. This makes it slightly
+harder to debug by hand -- no more telnet into the server to see
+the raw protocol. But it is much more efficient on the wire.
+
+Nginx supports HTTP slash 2 with a single directive: adding http2 to
+the listen line."
+
+[SLIDE 6 — HTTP/3]
+
+SPEAK:
+"HTTP slash 3, standardized in 2022, goes one step further.
+
+It changes the transport. HTTP slash 2 still runs over TCP, so it
+still has TCP-level head-of-line blocking -- if a TCP packet is
+lost, all streams wait for it to be retransmitted.
+
+HTTP slash 3 runs over a protocol called QUIC, which is built on
+UDP. QUIC handles reliability and ordering at the stream level, so a
+lost packet in one stream does not block another. This eliminates
+the last remaining source of head-of-line blocking.
+
+QUIC also reduces connection setup. Where TCP plus TLS takes two or
+three round trips, QUIC can complete in zero or one round trip in
+the best case.
+
+Nginx supports HTTP slash 3 in recent versions, but it is still
+considered experimental. For our labs, we will focus on HTTP slash 1.1,
+which is what the configuration we will write actually serves."
+
+[PAUSE]
+
+[SLIDE 7 — What matters for this week]
+
+SPEAK:
+"Let me be clear about what you need to know for this week.
+
+First, HTTP slash 1.1 is the version you will configure explicitly in
+Nginx. The connection semantics -- persistent connection by default
+-- matter for tuning.
+
+Second, when you write Nginx configurations, you can enable HTTP
+slash 2 by adding the http2 directive to the listen line. This is
+common in production.
+
+Third, the higher versions give performance improvements, but they
+do not change the semantics. Methods, status codes, headers, virtual
+hosts -- everything we have studied -- is the same across all
+versions.
+
+So: know the versions exist. Know roughly what they add. Do not
+worry about the details for now."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+HTTP slash 1.0 opens a new TCP connection for each request. It is
+inefficient over high-latency networks.
+
+HTTP slash 1.1 uses persistent connections by default. The handshake
+cost is paid once per connection, not once per request.
+
+HTTP slash 1.1 still has head-of-line blocking within a connection.
+
+HTTP slash 2 adds multiplexing -- multiple requests in flight on one
+connection. It also adds header compression and server push.
+Binary protocol.
+
+HTTP slash 3 uses QUIC over UDP. It eliminates the remaining head-
+of-line blocking and reduces connection setup time.
+
+For our labs, HTTP slash 1.1 is the version we will configure. HTTP
+slash 2 can be enabled with a single Nginx directive.
+
+In the next video, we start deploying. We will install Nginx and
+look at how to configure a basic web server."
+
+[END OF VIDEO 12.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.6 — Introducing Nginx                                      ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Introducing Nginx"]
+
+SPEAK:
+"Welcome to the sixth video of Week 12. So far, we have been talking
+about HTTP as a protocol. Now it is time to actually serve it.
+
+We need a web server -- a program that listens on port 80, accepts
+incoming HTTP connections, and sends back responses. There are many
+web servers. Apache is the historical leader. LightHTTPD and Caddy
+are simpler alternatives. But the most widely deployed web server
+on the modern internet is Nginx."
+
+[PAUSE]
+
+[SLIDE 2 — Why Nginx?]
+
+SPEAK:
+"Nginx was created in 2004 by Igor Sysoev. He had a specific problem
+in mind: how to serve ten thousand concurrent connections on a
+single commodity server.
+
+Traditional web servers used a thread-per-connection model. Each
+incoming connection got its own thread. Threads are expensive --
+each one requires a stack, kernel resources, and context switches
+when the scheduler runs them. Ten thousand connections meant ten
+thousand threads, which overwhelmed even large servers.
+
+Nginx uses an event-driven, asynchronous architecture. A single
+worker process can handle thousands of connections simultaneously,
+without allocating a thread per connection. This is why Nginx is
+so efficient -- and why it is used by a large fraction of the top
+websites in the world.
+
+Let me give you the key features.
+
+High concurrency with low memory. Excellent at serving static
+files. Built-in reverse proxy support. SSL termination. Load
+balancing. Configurable rate limiting.
+
+And -- this is important for this course -- a very readable
+configuration language. Nginx config is simple enough that you can
+learn it in a week. Compare that to Apache's verbose XML-style
+configuration files."
+
+[PAUSE]
+
+[SLIDE 3 — Installing Nginx]
+
+SPEAK:
+"On Ubuntu, installation is a single command.
+
+sudo apt update
+sudo apt install nginx
+
+The package installs Nginx, sets up a systemd service, and starts
+it automatically. Let me show you the basic commands.
+
+To check the status: sudo systemctl status nginx.
+
+To start, stop, or restart: sudo systemctl start nginx, or stop,
+or restart.
+
+To reload the configuration without dropping connections:
+sudo systemctl reload nginx.
+
+To enable it at boot: sudo systemctl enable nginx.
+
+Since Nginx is a systemd service, these are just the standard
+systemctl commands. Nothing special."
+
+[SLIDE 4 — Verifying the install]
+
+SPEAK:
+"After installation, verify it works.
+
+curl dash I http colon slash slash localhost
+
+The output should be a 200 OK with a Server header showing the
+Nginx version. The default Nginx welcome page is served from
+slash var slash www slash html.
+
+If you get a connection refused error, the service is not running.
+Check systemctl status nginx. If it shows failed, check the journal
+with journalctl dash u nginx dash n 50. The most common issue on a
+fresh install is a port conflict -- something else is already using
+port 80."
+
+[PAUSE]
+
+[SLIDE 5 — The configuration layout]
+
+SPEAK:
+"Nginx configuration lives in slash etc slash nginx. Let me show
+you the layout.
+
+nginx dot conf is the main configuration file.
+
+conf dot d slash is a directory for additional configuration files
+that get included.
+
+sites dash available is where individual site configurations live
+-- one file per site.
+
+sites dash enabled contains symlinks to the active sites. This is
+the standard Ubuntu pattern: keep the site files in sites dash
+available, and activate them by symlinking them into sites dash
+enabled.
+
+And snippets is a directory for reusable config fragments.
+
+The main file includes from conf dot d and from sites dash enabled,
+so any file you put in those directories is picked up automatically."
+
+[SLIDE 6 — The shape of an nginx.conf]
+
+SPEAK:
+"Nginx configuration is a tree of directives. Some are simple --
+one line, one value. Others are blocks -- they have braces and
+contain other directives.
+
+The top level has directives that apply globally. Then an events
+block that configures the connection layer. Then an http block that
+configures HTTP.
+
+Inside the http block, you have one server block per website. Each
+server block has a listen directive, a server name, and one or more
+location blocks. Inside each location block, you have directives
+that define how to handle requests for that prefix.
+
+Here is the minimal shape. There is a user directive at the top,
+telling Nginx which user to run as -- usually www dash data. There
+is worker underscore processes auto, telling Nginx to spawn one
+worker per CPU core. Then the events block with a connection limit.
+Then the http block, which includes the MIME types file and then
+one or more server blocks.
+
+Inside a server block, you define listen -- usually port 80. Server
+name -- the domain name this server responds to. Root -- the
+directory to serve files from. And location blocks for different
+URL prefixes.
+
+That is the whole structure. It is a simple, hierarchical tree, and
+once you see it, everything else in Nginx makes sense."
+
+[SLIDE 7 — Testing the configuration]
+
+SPEAK:
+"Before reloading Nginx after a configuration change, always test
+the configuration.
+
+sudo nginx dash t
+
+This validates the syntax. If there is an error, it tells you
+exactly which file and which line. If it is all good, it says
+something like 'the configuration file syntax is ok' and
+'configuration file test is successful.'
+
+Then reload Nginx with sudo systemctl reload nginx. This applies
+the new configuration without dropping existing connections. The
+old worker processes finish their current requests and exit. New
+requests go to new workers with the new configuration.
+
+Let me emphasize this. Always run nginx dash t before reload. On a
+production server, a typo in the configuration file combined with a
+reload can take the site down. The test command is cheap and catches
+ninety-nine percent of configuration errors."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+Nginx is an event-driven web server with a master process and one
+worker per CPU core. It handles thousands of connections per worker.
+
+Install it with apt. Run it as a systemd service.
+
+Configuration lives in slash etc slash nginx. The layout is nginx
+dot conf as the main file, plus sites dash available and sites dash
+enabled for individual sites.
+
+The configuration is a tree of directives. The important blocks are
+http, server, and location.
+
+Always run sudo nginx dash t before reloading. The test command is
+free. A broken config in production is not.
+
+In the next video, we look at virtual hosts -- the mechanism that
+lets one server host multiple websites."
+
+[END OF VIDEO 12.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.7 — Virtual Hosts and Document Roots                       ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Virtual Hosts & Document Roots"]
+
+SPEAK:
+"Welcome to the seventh video of Week 12. We now know how to install
+and configure Nginx. Let's look at virtual hosting -- the mechanism
+that lets one server host many websites.
+
+This is one of the most useful features of any web server, and it
+is the foundation of every web hosting business in the world."
+
+[PAUSE]
+
+[SLIDE 2 — The problem: one IP, many sites]
+
+SPEAK:
+"Here is the problem we are solving. A server has one IP address.
+One network card. Port 80 is just a number, and it belongs to the
+whole machine.
+
+How can we host two websites on the same machine? When a request
+arrives at port 80, how does the server know whether the client
+wants the first website or the second one?
+
+The answer is the Host header. We saw it back in video 12.4. Every
+HTTP slash 1.1 request includes a Host header that says which
+domain name the client is requesting. The server reads this header
+and decides which site to serve.
+
+This is called virtual hosting. The word 'virtual' is important --
+the sites do not live on separate physical servers. They just
+present separate identities by looking at the Host header."
+
+[PAUSE]
+
+[SLIDE 3 — Configuring a virtual host]
+
+SPEAK:
+"Let's build a virtual host for shop dot example.
+
+First, create the document root -- the directory where the site's
+files live. On Ubuntu, the convention is slash var slash www slash
+site-name. So slash var slash www slash shop dot example.
+
+sudo mkdir dash p slash var slash www slash shop dot example
+sudo chown dash R www-data colon www-data slash var slash www slash
+shop dot example
+
+The chown matters -- Nginx runs as the www-data user, and it must
+be able to read the files in that directory.
+
+Second, create an index page -- a simple index dot html file with
+some content.
+
+Third, create a config file in slash etc slash nginx slash sites
+dash available slash shop dot example.
+
+The file contains a server block. Let me show you what goes in it.
+
+server space curly brace. listen 80 semicolon. server underscore
+name shop dot example semicolon. root slash var slash www slash
+shop dot example semicolon. index index dot html semicolon. And a
+simple location block that serves files.
+
+Fourth, enable the site by creating a symlink.
+
+sudo ln dash s slash etc slash nginx slash sites dash available
+slash shop dot example slash etc slash nginx slash sites dash
+enabled slash
+
+Fifth, test the config and reload.
+
+sudo nginx dash t
+sudo systemctl reload nginx
+
+Now if you have a client that can resolve shop dot example to your
+server's IP, a request will be served by this site."
+
+[SLIDE 4 — What each directive does]
+
+SPEAK:
+"Let me walk through the directives in the server block in detail.
+
+listen 80 -- this server accepts connections on port 80. You can
+specify an IP address as well, if you want a server to listen only
+on a specific interface. But for a normal site, listen 80 is enough.
+
+server underscore name shop dot example -- this server responds to
+requests whose Host header matches shop dot example. That is the
+virtual hosting discriminator.
+
+root slash var slash www slash shop dot example -- the directory
+to serve files from. When a request comes in for slash index dot
+html, the server reads the file slash var slash www slash shop dot
+example slash index dot html.
+
+index index dot html index dot htm -- if a request is for a
+directory, look for one of these files. If index dot html exists,
+serve it. If not, try index dot htm. If neither exists, return a
+directory listing or a 403 -- depending on the autoindex setting.
+
+The location block handles requests to specific URL prefixes. The
+location slash block matches every path and says: try the file
+first, then the directory, then return 404 if neither exists.
+The try underscore files directive is a common pattern."
+
+[PAUSE]
+
+[SLIDE 5 — Multiple virtual hosts]
+
+SPEAK:
+"Now the magic. Create a second config file in sites dash available
+for blog dot example. Point its server underscore name at blog dot
+example, and its root at a different directory. Symlink it into
+sites dash enabled. Test. Reload.
+
+Now you have two websites, on the same IP, on the same port,
+served by the same Nginx process. Nginx reads the Host header of
+each incoming request and dispatches to the appropriate server
+block.
+
+That is virtual hosting. It scales to dozens, hundreds, even
+thousands of sites on a single server, because each site is just
+a stanza in a configuration file, and each has its own document
+root."
+
+[SLIDE 6 — Default server]
+
+SPEAK:
+"What happens if a request arrives with a Host header that does not
+match any configured server underscore name?
+
+Nginx uses the default server. By default, the first server block
+on a given port is the default. If you want to make it explicit,
+you can add the default underscore server flag to the listen
+directive.
+
+Here is the pattern I recommend. Create a catch-all server block
+that responds to any unmatched request with a 444 -- a special
+Nginx status code that closes the connection without responding.
+This prevents random scans from generating noise in your logs.
+
+You mark it as default by saying listen 80 default underscore
+server. And you give it a server underscore name underscore, which
+is a placeholder that never matches a real Host header."
+
+[PAUSE]
+
+[SLIDE 7 — Location blocks]
+
+SPEAK:
+"Inside a server block, you have one or more location blocks. Each
+one matches a URL prefix and defines how to handle requests under
+that prefix.
+
+Here are the common patterns.
+
+location slash -- matches anything. The catch-all.
+
+location slash images slash -- matches paths beginning with
+slash images slash. Useful for applying special handling to
+image requests.
+
+location tilde star backslash dot parentheses jpg or png or
+css or js dollar parentheses -- this is a regular expression match.
+The tilde star means case-insensitive regex. Useful for setting
+caching headers on static assets.
+
+location slash api slash -- matches paths beginning with
+slash api slash. Typically used for proxy_pass, which we will
+cover in the next video.
+
+Nginx uses a specific priority order when deciding which location
+matches. Exact matches first, then prefix matches, then regex
+matches, then a catch-all. It is worth knowing this, but for most
+configurations, the natural ordering works out."
+
+[SLIDE 8 — Summary]
+
+SPEAK:
+"To summarize.
+
+Virtual hosts let one server host multiple sites. The Host header
+is the discriminator. Nginx reads it and dispatches to the matching
+server block.
+
+Each site gets its own config file in sites dash available, and is
+activated by symlinking into sites dash enabled.
+
+The key directives are listen, server underscore name, root, and
+location.
+
+A catch-all default server with a 444 response blocks unmatched
+requests from creating noise.
+
+Location blocks match URL prefixes and define how to handle them.
+
+In the next video, we look at reverse proxying -- putting Nginx in
+front of an application."
+
+[END OF VIDEO 12.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.8 — Reverse Proxy & Load Balancing                         ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Reverse Proxy & Load Balancing"]
+
+SPEAK:
+"Welcome to the eighth video of Week 12. So far, Nginx has been
+serving static files from disk. That is useful. But it is only
+half of what a modern web server does.
+
+The other half is being a reverse proxy -- accepting requests
+from clients and forwarding them to a backend application. This is
+the architecture of virtually every modern web service."
+
+[PAUSE]
+
+[SLIDE 2 — Forward vs reverse proxy]
+
+SPEAK:
+"First, let's clarify the terminology.
+
+A forward proxy sits between clients and the internet. The client
+is configured to send requests through the proxy. The proxy
+forwards them to arbitrary destinations on the client's behalf.
+Used for anonymity, content filtering, caching. The proxy is
+transparent to the destination server.
+
+A reverse proxy sits between the internet and a set of backend
+servers. Clients do not know they are talking to a proxy -- they
+think they are talking to the actual website. The proxy decides
+which backend serves each request.
+
+The names come from the direction of the network path. A forward
+proxy is forward of the client. A reverse proxy is forward of the
+server.
+
+We care about reverse proxies because that is what Nginx does when
+it is put in front of an application."
+
+[SLIDE 3 — Why use a reverse proxy?]
+
+SPEAK:
+"You might wonder -- why not just have the application listen
+directly on port 80? Why put Nginx in the middle?
+
+Several reasons.
+
+SSL termination. Nginx handles HTTPS. The backend sees plain HTTP.
+This simplifies the backend code considerably.
+
+Static file handling. Nginx serves images, CSS, and JavaScript
+from disk -- far faster than any application server can. The
+backend only handles dynamic requests.
+
+Load balancing. Nginx distributes requests across multiple backend
+servers. Clients do not know, and the application does not have to
+be changed.
+
+Caching. Nginx can cache backend responses, so repeated requests
+never reach the backend.
+
+Rate limiting. Nginx can throttle clients before they reach the
+backend.
+
+And -- very important for production -- zero-downtime deploys. You
+can restart the backend while Nginx keeps accepting connections.
+The client might see slightly slower responses during the restart,
+but connections are not dropped.
+
+All of these are things the backend would have to implement itself
+if Nginx were not there. Putting Nginx in front is a way to
+delegate that responsibility to a tool that specializes in it."
+
+[PAUSE]
+
+[SLIDE 4 — A minimal reverse proxy]
+
+SPEAK:
+"Here is the configuration for a simple reverse proxy. It assumes
+your application is running on port 5000 on the same machine.
+
+In the server block, in the location block that matches slash, add
+a proxy underscore pass directive. proxy underscore pass http colon
+slash slash 127 dot 0 dot 0 dot 1 colon 5000.
+
+Then several proxy underscore set underscore header directives.
+These modify the request headers before forwarding them to the
+backend.
+
+proxy underscore set underscore header Host dollar host -- forward
+the original Host header. Backends often use this to build URLs.
+
+proxy underscore set underscore header X dash Real dash IP dollar
+remote underscore addr -- set a custom header with the client's
+IP address.
+
+proxy underscore set underscore header X dash Forwarded dash For
+dollar proxy underscore add underscore x underscore forwarded
+underscore for -- the full chain of proxies.
+
+proxy underscore set underscore header X dash Forwarded dash Proto
+dollar scheme -- whether the original request came in over HTTP or
+HTTPS.
+
+Save the config. Test with nginx dash t. Reload.
+
+Now any request to your Nginx server is forwarded to the backend.
+The backend sees the headers Nginx set, so it can know the real
+client IP."
+
+[SLIDE 5 — What the backend sees]
+
+SPEAK:
+"Let me emphasize something important. The backend sees requests
+coming from Nginx -- usually from 127 dot 0 dot 0 dot 1. It does
+not see the original client's IP directly.
+
+The only way the backend can know the real client IP is by reading
+the X dash Real dash IP or X dash Forwarded dash For header that
+Nginx set.
+
+This is why it matters. Every application that logs client IP
+addresses, or that rate-limits by client IP, or that does any IP-
+based access control, must read those headers -- not the socket
+peer address.
+
+Many frameworks have a setting for this. Flask, Django, Express,
+Rails -- they all have a way to say 'trust the X-Forwarded-For
+header from this proxy'. You have to configure it, or the backend
+will see Nginx's IP and be confused."
+
+[PAUSE]
+
+[SLIDE 6 — Load balancing with upstream blocks]
+
+SPEAK:
+"A single backend is a single point of failure. If it goes down,
+the whole service is down.
+
+Nginx can distribute requests across several backends using an
+upstream block. It goes in the http block -- usually top-level or
+in a shared config file.
+
+upstream app underscore backend space curly brace. Inside, server
+127 dot 0 dot 0 dot 1 colon 5001 semicolon. server 127 dot 0 dot 0
+dot 1 colon 5002 semicolon. server 127 dot 0 dot 0 dot 1 colon 5003
+semicolon.
+
+Then in your server block, change the proxy underscore pass to
+point at the upstream group name instead of a single address.
+proxy underscore pass http colon slash slash app underscore
+backend semicolon.
+
+That is all. Nginx now distributes requests across the three
+backends using round-robin -- the default load balancing method."
+
+[SLIDE 7 — Load balancing methods]
+
+SPEAK:
+"There are several load balancing methods. Let me mention the main
+ones.
+
+Round-robin is the default. Each backend is used in turn, in order.
+
+Least underscore conn picks the backend with the fewest active
+connections. This is good when response times vary -- it avoids
+sending a new request to a backend that is already busy.
+
+IP underscore hash hashes the client IP. The same client IP always
+goes to the same backend. Useful for applications that do not
+share session state between backends.
+
+Weight gives a backend a higher proportion of requests. Useful
+when backends have different capacities.
+
+And there are more advanced methods, but these are the ones you
+will use."
+
+[PAUSE]
+
+[SLIDE 8 — Health checks]
+
+SPEAK:
+"One more thing. If a backend goes down, Nginx will keep sending
+it requests, and clients will see 502 errors.
+
+You can configure passive health checks with max underscore fails
+and fail underscore timeout. For example, server 127 dot 0 dot 0
+dot 1 colon 5001 max underscore fails equals 3 fail underscore
+timeout equals 30s.
+
+This tells Nginx: if this backend fails three times in a row, take
+it out of the pool for 30 seconds. After 30 seconds, try it again.
+If it responds well, it rejoins. If it does not, it stays out.
+
+This is passive -- Nginx only checks when there are requests to
+send. For proactive health checks -- where Nginx polls a health
+endpoint on its own schedule -- you need the commercial version or
+OpenResty. For our course, passive checks are sufficient."
+
+[SLIDE 9 — Summary]
+
+SPEAK:
+"To summarize.
+
+A reverse proxy sits between the internet and backend servers.
+Nginx is excellent at this role.
+
+Configure proxy underscore pass to forward requests to the backend.
+Set the X dash Real dash IP and X dash Forwarded dash For headers
+so the backend can find out the real client IP.
+
+Create upstream blocks to define pools of backends. Nginx
+distributes requests using round-robin, least underscore conn, IP
+underscore hash, or weighted load balancing.
+
+Configure passive health checks with max underscore fails and
+fail underscore timeout. When a backend fails repeatedly, Nginx
+takes it out of the pool.
+
+In the next video, we get hands-on. We will build two virtual hosts
+serving static content from disk."
+
+[END OF VIDEO 12.8 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.9 — Deep Lab: Serving Two Static Sites                     ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Serving Two Static Sites"]
+
+SPEAK:
+"Welcome to the practical side of Week 12. In this lab, we are going
+to build two virtual hosts on our Ubuntu VM. Both will be served by
+the same Nginx instance, on the same IP, on the same port -- and
+they will show completely different content.
+
+This is the classic setup that a small web hosting company would
+deploy for two customers. And you are going to do it in about
+fifteen minutes.
+
+Make sure your VM is running and reachable. If you have a client VM
+from the previous labs, keep it handy. We will use it to test that
+the sites are reachable from another machine."
+
+[SCREENCAST — terminal]
+
+SPEAK:
+"First, let's confirm Nginx is installed and running.
+
+sudo systemctl status nginx
+
+You should see active running. If not, install it with apt. Then
+let's verify it responds locally.
+
+curl dash I http colon slash slash localhost
+
+The output should show 200 OK. Good."
+
+[PAUSE]
+
+[SCREENCAST — creating document roots]
+
+SPEAK:
+"Now let's create the document roots for our two sites.
+
+sudo mkdir dash p slash var slash www slash shop dot example
+sudo mkdir dash p slash var slash www slash blog dot example
+
+Then set the ownership so that Nginx -- which runs as www-data --
+can read them.
+
+sudo chown dash R www-data colon www-data slash var slash www slash
+shop dot example
+sudo chown dash R www-data colon www-data slash var slash www slash
+blog dot example
+
+Now let's put an index dot html in each. I will use a here-doc to
+write the content without a text editor.
+
+sudo tee slash var slash www slash shop dot example slash index
+dot html space greater dash than space slash dev slash null space
+less less single quote EOF. Then I type in the HTML. Then EOF alone
+on a line closes the here-doc.
+
+The content is simple HTML -- a heading and a short paragraph. Do
+the same for blog dot example with different content."
+
+[SCREENCAST — creating the site configs]
+
+SPEAK:
+"Now let's create the site configuration files.
+
+sudo nano slash etc slash nginx slash sites dash available slash
+shop dot example
+
+I will paste in the server block I described in the theory video.
+Let me read it aloud so you can type it.
+
+server space curly brace. new line. listen 80 semicolon. new line.
+listen square bracket colon colon square bracket colon 80
+semicolon. new line. server underscore name shop dot example
+semicolon. new line. root slash var slash www slash shop dot
+example semicolon. new line. index index dot html semicolon. new
+line. access underscore log slash var slash log slash nginx slash
+shop dot access dot log semicolon. new line. error underscore log
+slash var slash log slash nginx slash shop dot error dot log
+semicolon. new line. location slash space curly brace. new line.
+try underscore files dollar uri dollar uri slash equals 404
+semicolon. new line. close curly brace. new line. close curly
+brace.
+
+Save with Ctrl O, enter, then Ctrl X.
+
+Now the same for blog dot example -- same structure, different
+server underscore name and different root directory.
+
+Save and exit."
+
+[SCREENCAST — enabling sites]
+
+SPEAK:
+"Enable both sites by symlinking them into sites dash enabled.
+
+sudo ln dash s slash etc slash nginx slash sites dash available
+slash shop dot example slash etc slash nginx slash sites dash
+enabled slash
+
+sudo ln dash s slash etc slash nginx slash sites dash available
+slash blog dot example slash etc slash nginx slash sites dash
+enabled slash
+
+Now remove the default site, so our server underscore name matching
+is unambiguous.
+
+sudo rm slash etc slash nginx slash sites dash enabled slash
+default
+
+Test the configuration.
+
+sudo nginx dash t
+
+If all is well, reload.
+
+sudo systemctl reload nginx"
+
+[PAUSE]
+
+[SCREENCAST — testing with curl]
+
+SPEAK:
+"Let's test locally using curl with a Host header.
+
+curl dash H space quote Host colon space shop dot example quote
+space http colon slash slash localhost
+
+The output should be the shop index page.
+
+curl dash H space quote Host colon space blog dot example quote
+space http colon slash slash localhost
+
+The output should be the blog index page.
+
+Same IP. Same port. Different content. The Host header did that."
+
+[SCREENCAST — testing from a client]
+
+SPEAK:
+"Now let's test from our client VM. On the client, we need to make
+sure the names shop dot example and blog dot example resolve to our
+server's IP.
+
+The best way is through the DNS server we built last week. But for
+a quick test, we can use the hosts file.
+
+sudo tee dash a slash etc slash hosts greater slash dev slash null
+here-doc, with two lines: 192 dot 168 dot 56 dot 1 space shop dot
+example, and 192 dot 168 dot 56 dot 1 space blog dot example.
+
+Now from the client:
+
+curl http colon slash slash shop dot example --
+curl http colon slash slash blog dot example --
+
+You should see the two different pages. The client is making a
+request to our server, and our server is dispatching to the
+correct virtual host based on the Host header."
+
+[PAUSE]
+
+[SCREENCAST — reading the logs]
+
+SPEAK:
+"Let's look at the access logs. This is a useful habit to develop.
+
+sudo tail dash f slash var slash log slash nginx slash shop dot
+access dot log
+
+While that is running, in another window, make a request from the
+client -- for example, curl http colon slash slash shop dot example
+slash index dot html.
+
+You should see a new log line appear immediately. The format is
+the standard combined log format. Let me read it.
+
+First field is the client IP. Then the remote user -- usually a
+dash. Then the timestamp. Then the request line in quotes. Then
+the status code. Then the response size in bytes. Then the referer
+-- usually a dash. Then the user agent in quotes.
+
+That is one line per request. If you ever need to debug a problem,
+the access log is where you look first."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, you built two complete virtual hosts on the same
+Nginx instance. Each has its own document root, its own config
+file, and its own log files.
+
+This is exactly the setup of a small hosting provider. When you
+add a third site, you just repeat the process -- create a document
+root, create a config file, symlink into sites dash enabled, reload.
+
+And notice that we did not do anything special for the virtual host
+mechanism. We just defined two server blocks. Nginx handles the
+rest.
+
+In the next video, we go one step further. We will put Nginx in
+front of a real application as a reverse proxy."
+
+[END OF VIDEO 12.9]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 12.10 — Deep Lab: Reverse Proxy to a Backend                  ║
+║  Target duration: ~22 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Reverse Proxy to a Backend"]
+
+SPEAK:
+"Welcome to the final video of Week 12. This is the culmination of
+everything we have learned about HTTP and Nginx. We are going to
+put Nginx in front of a real backend application.
+
+We will build a tiny Python Flask application, run it on port 5000,
+and configure Nginx to forward requests to it. We will set the
+header directives so the backend can see the real client IP. Then
+we will add caching so the backend is not hit on every request.
+
+This is the exact architecture of every production web service.
+You are going to build it from scratch."
+
+[PAUSE]
+
+[SCREENCAST — installing dependencies]
+
+SPEAK:
+"First, let's install Python and Flask.
+
+sudo apt install dash y python3 python3 dash pip
+
+pip3 install flask dash dash break dash system dash packages
+
+The break dash system dash packages flag tells pip to install into
+the system Python, which is normally discouraged but is fine for
+a lab. In production you would use a virtual environment."
+
+[SCREENCAST — creating the app]
+
+SPEAK:
+"Now let's create the application.
+
+sudo mkdir dash p slash opt slash myapp
+
+I am going to write the file with sudo tee, since we want it in
+slash opt.
+
+sudo tee slash opt slash myapp slash app dot py greater slash dev
+slash null less less single quote EOF
+
+Let me read the content. It is a Flask app. It defines two routes.
+The root route slash returns some HTML that includes the client IP
+and the forwarded headers. The health route slash health returns
+OK -- this is the endpoint a monitoring system would poll.
+
+The important part is the last line: app dot run with host equals
+127 dot 0 dot 0 dot 1 and port equals 5000. Binding to 127 dot 0
+dot 0 dot 1 -- not 0 dot 0 dot 0 dot 0 -- means the app only
+listens on the loopback interface. It is not reachable from the
+network. Only Nginx can reach it.
+
+That is the correct security posture for a backend behind a
+reverse proxy. The backend is not exposed.
+
+EOF to finish."
+
+[SCREENCAST — running the app]
+
+SPEAK:
+"Let's run the app in the background.
+
+python3 slash opt slash myapp slash app dot py amp
+
+Verify it works locally.
+
+curl http colon slash slash 127 dot 0 dot 0 dot 1 colon 5000
+
+You should see the HTML from the app. The X dash Real dash IP shows
+127 dot 0 dot 0 dot 1, because we are on the same machine. The
+X dash Forwarded dash For header is not set yet, because Nginx is
+not in the picture."
+
+[PAUSE]
+
+[SCREENCAST — creating the proxy config]
+
+SPEAK:
+"Now let's create the reverse proxy configuration.
+
+sudo nano slash etc slash nginx slash sites dash available slash
+app dot example
+
+I will paste in the server block. Let me read it.
+
+server space curly brace. listen 80 semicolon. server underscore
+name app dot example semicolon.
+
+A location block for slash static slash that serves files directly
+from Nginx. This is the static content path -- maybe images, CSS,
+JS -- that we do not want to proxy to the backend.
+
+location slash static slash space curly brace. root slash var
+slash www slash app dot example semicolon. expires 7d semicolon.
+access underscore log off semicolon. close curly brace.
+
+Then the location slash block -- the actual proxy. proxy underscore
+pass http colon slash slash 127 dot 0 dot 0 dot 1 colon 5000
+semicolon. proxy underscore http underscore version 1 dot 1
+semicolon. Then the header directives -- Host, X dash Real dash IP,
+X dash Forwarded dash For, X dash Forwarded dash Proto, X dash
+Forwarded dash Host.
+
+And finally, timeouts. proxy underscore connect underscore timeout
+5s. proxy underscore send underscore timeout 30s. proxy underscore
+read underscore timeout 30s.
+
+Save and exit."
+
+[SCREENCAST — enabling and testing]
+
+SPEAK:
+"Enable the site.
+
+sudo ln dash s slash etc slash nginx slash sites dash available
+slash app dot example slash etc slash nginx slash sites dash
+enabled slash
+
+Test.
+
+sudo nginx dash t
+
+Reload.
+
+sudo systemctl reload nginx
+
+Now let's test through Nginx.
+
+curl dash H space quote Host colon space app dot example quote
+space http colon slash slash localhost slash
+
+You should see the app's HTML response. But now -- look at the
+headers. The X dash Real dash IP should be 127 dot 0 dot 0 dot 1,
+because we are running locally. And X dash Forwarded dash For
+should be 127 dot 0 dot 0 dot 1 as well.
+
+Let's test from the client. On the client, add app dot example to
+slash etc slash hosts pointing at our server's IP. Then:
+
+curl http colon slash slash app dot example
+
+The X dash Real dash IP header in the output should now be the
+client's IP. That is what the proxy underscore set underscore
+header directive did -- it told Nginx to set that header with the
+real client IP before forwarding."
+
+[PAUSE]
+
+[SCREENCAST — verifying isolation]
+
+SPEAK:
+"Let's verify that the backend is not directly reachable. From the
+client, try to hit port 5000 on the server directly.
+
+curl http colon slash slash 192 dot 168 dot 56 dot 1 colon 5000
+
+You should get a connection refused error. The backend is bound to
+127 dot 0 dot 0 dot 1, so it is not reachable from the network. The
+only path is through Nginx.
+
+This is important. Many application servers -- even ones that are
+meant to be behind a proxy -- default to listening on 0 dot 0 dot 0
+dot 0, which is exposed. Always check the bind address, and always
+bind to 127 dot 0 dot 0 dot 1 unless the backend needs to be
+directly reachable."
+
+[SCREENCAST — adding caching]
+
+SPEAK:
+"Now let's add caching. This is a real optimization that production
+sites use.
+
+First, we need to define the cache zone. This goes in the http
+block in slash etc slash nginx slash nginx dot conf. Actually, we
+can also put it in a separate conf dot d file. Let me use a
+separate file.
+
+sudo nano slash etc slash nginx slash conf dot d slash proxy dash
+cache dot conf
+
+The content is one directive. proxy underscore cache underscore
+path slash var slash cache slash nginx -- the directory. levels
+equals 1 colon 2 -- two-level directory structure. keys underscore
+zone equals app underscore cache colon 10m -- a 10 megabyte zone
+named app underscore cache. max underscore size equals 1g. inactive
+equals 60m. use underscore temp underscore path off.
+
+Save.
+
+Create the cache directory and set ownership.
+
+sudo mkdir dash p slash var slash cache slash nginx
+sudo chown www-data colon www-data slash var slash cache slash nginx
+
+Now edit the app dot example config and add caching directives to
+the location slash block.
+
+proxy underscore cache app underscore cache semicolon.
+proxy underscore cache underscore valid 200 5m semicolon.
+proxy underscore cache underscore valid 404 1m semicolon.
+proxy underscore cache underscore use underscore stale error
+timeout updating http underscore 500 http underscore 502 http
+underscore 503 http underscore 504 semicolon.
+add underscore header X dash Cache dash Status dollar upstream
+underscore cache underscore status semicolon.
+
+Save. Test. Reload."
+
+[SCREENCAST — testing the cache]
+
+SPEAK:
+"Let's test. First request -- this should be a MISS.
+
+curl dash I dash H space quote Host colon space app dot example
+quote space http colon slash slash localhost slash
+
+Look for the X dash Cache dash Status header. It should say MISS.
+
+Second request -- this should be a HIT.
+
+curl dash I dash H space quote Host colon space app dot example
+quote space http colon slash slash localhost slash
+
+Now X dash Cache dash Status should say HIT. The response came from
+the cache. The backend was not touched.
+
+Let's verify with the app's own logs. If you are tailing the Flask
+output, you will see exactly one request, no matter how many times
+you curl the endpoint with the same URL. The cache absorbed the
+others."
+
+[PAUSE]
+
+[SCREENCAST — cleanup]
+
+SPEAK:
+"Let's clean up.
+
+pkill dash f slash opt slash myapp slash app dot py
+
+sudo rm slash etc slash nginx slash sites dash enabled slash app
+dot example
+sudo rm slash etc slash nginx slash sites dash available slash app
+dot example
+sudo systemctl reload nginx
+
+That restores our VM. If you want to keep this setup for the final
+project, of course, keep it."
+
+[SLIDE — What you built]
+
+SPEAK:
+"Let me emphasize what you just built.
+
+You built an HTTP reverse proxy. You have Nginx accepting requests
+from clients on port 80, forwarding the dynamic ones to a Python
+backend on port 5000, and serving static assets from disk. You set
+the standard proxy headers so the backend can see the real client
+IP. You added caching so repeated requests do not hit the backend.
+
+That is the architecture of virtually every modern web service.
+Google, Facebook, GitHub, your bank -- every one of them has a
+reverse proxy in front of application servers, and the details of
+the configuration are very similar to what you just wrote.
+
+The tools are different in scale -- some sites use HAProxy, or
+Envoy, or Amazon's Application Load Balancer -- but the pattern is
+identical. Nginx is a great tool for learning it, and it is also a
+production-quality tool that many serious companies use directly."
+
+[SLIDE — Week 12 wrap-up]
+
+SPEAK:
+"That wraps up Week 12. We covered a lot of ground.
+
+We started with HTTP fundamentals -- the request-response model, the
+message format, statelessness.
+
+We looked at methods -- the verbs of HTTP. GET, POST, PUT, DELETE,
+and the safety and idempotence properties that govern them.
+
+We looked at status codes -- the five classes and the specific
+codes you will encounter every day.
+
+We looked at headers -- how they carry metadata about the request
+and response.
+
+We looked at connections and versions -- persistent connections,
+head-of-line blocking, HTTP slash 2, and HTTP slash 3.
+
+Then we moved to Nginx. We installed it. We looked at the
+configuration layout. We built virtual hosts to serve multiple
+sites. We built a reverse proxy in front of a Python application
+and added caching.
+
+Please complete the written homework assignment for this week. It
+combines query analysis -- using dig and curl to inspect real
+traffic -- with an extensive deployment lab where you build two
+virtual hosts and a reverse proxy yourself.
+
+Next week -- Week 13 -- we continue Phase 2 with MariaDB, one of
+the most widely deployed open-source relational database systems.
+We will install and configure it, create databases and users, and
+connect our backend application to real database storage.
+
+See you then.
+
+Until then -- keep exploring."
+
+[END OF VIDEO 12.10 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 12
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~172 minutes of raw footage
+After editing and trimming: ~130–140 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)

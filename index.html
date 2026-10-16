@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Operating Systems &amp; Linux Practical</title>
+    <meta name="description"
+        content="COMP 1303 Operating Systems & Linux Practical – Cyber Khalil Academy. 15-week online course combining OS theory with weekly Linux touchpoints and a deep practical phase covering shell, DNS, HTTP, and MariaDB.">
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <div class="container">
+
+        <!-- ================= HERO HEADER ================= -->
+        <header class="course-header">
+            <div class="course-badge">
+                <i class="fas fa-microchip"></i> COMP 1303 | Bachelor of Cybersecurity Engineering
+            </div>
+            <h1>Operating Systems &amp; Linux Practical</h1>
+            <div class="course-sub">
+                From <strong>process &amp; thread fundamentals</strong> to memory management and file systems, with a
+                <strong>short hands-on Linux touchpoint every theory week</strong> — followed by 6 intensive weeks of
+                Linux practical covering shell, systemd, DNS, HTTP, and MariaDB.
+            </div>
+            <div class="instructor-panel">
+                <div class="instructor-item"><i class="fas fa-chalkboard-user"></i> <span>Mahmoud Khalil</span></div>
+                <div class="instructor-item"><i class="fas fa-envelope"></i> <span>makhalil@ucas.edu.ps</span></div>
+                <div class="instructor-item"><i class="fas fa-book"></i> <span>Course code: COMP 1303</span></div>
+                <div class="instructor-item"><i class="fas fa-calendar-alt"></i> <span>15 Weeks | 3 Academic Hours / Week</span></div>
+            </div>
+        </header>
+
+        <!-- ================= QUICK STATS ================= -->
+        <div class="quick-stats">
+            <div class="stat-card">
+                <div class="stat-icon"><i class="fas fa-layer-group"></i></div>
+                <div>
+                    <div class="stat-num">08</div>
+                    <div class="stat-label">OS Theory</div>
+                </div>
+            </div>
+            <div class="stat-card practical">
+                <div class="stat-icon"><i class="fas fa-terminal"></i></div>
+                <div>
+                    <div class="stat-num">06</div>
+                    <div class="stat-label">Linux Practical</div>
+                </div>
+            </div>
+            <div class="stat-card exam">
+                <div class="stat-icon"><i class="fas fa-file-pen"></i></div>
+                <div>
+                    <div class="stat-num">01</div>
+                    <div class="stat-label">Midterm Exam</div>
+                </div>
+            </div>
+            <div class="stat-card project">
+                <div class="stat-icon"><i class="fas fa-diagram-project"></i></div>
+                <div>
+                    <div class="stat-num">01</div>
+                    <div class="stat-label">Final Project</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ================= METHOD NOTE ================= -->
+        <div class="method-note">
+            <i class="fas fa-compass-drafting"></i>
+            <p>
+                <strong>Course methodology:</strong> Phase 1 builds the theoretical foundations of operating systems
+                with a <strong>short hands-on Linux touchpoint every week</strong>, grounding each concept in real
+                commands and tools. Phase 2 shifts to <strong>deep practical mode</strong>, where students configure,
+                deploy, and integrate real Linux services. Each week is delivered through a set of short video lessons,
+                with a total weekly budget of <strong>3 academic hours (135 minutes)</strong>.
+            </p>
+        </div>
+
+        <!-- ================= PHASE LEGEND ================= -->
+        <div class="phase-legend">
+            <div class="legend-item"><span class="legend-dot dot-blue"></span> Phase 1 · OS Theory + Weekly Touch Labs</div>
+            <div class="legend-item"><span class="legend-dot dot-green"></span> Phase 2 · Linux Practical (Deep Labs)</div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- PHASE 1: OPERATING SYSTEMS THEORY + TOUCH LABS               -->
+        <!-- ============================================================ -->
+        <section class="phase-section">
+            <div class="phase-header">
+                <div class="phase-icon"><i class="fas fa-microchip"></i></div>
+                <div class="phase-title-group">
+                    <h2>Phase 1 · Operating Systems Theory</h2>
+                    <div class="phase-meta">Weeks 1 – 8 · <strong>Core OS concepts</strong> + a short Linux touchpoint
+                        every week</div>
+                </div>
+            </div>
+            <div class="weeks-container">
+
+                <!-- Week 1 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 1</span>
+                        <span class="week-title-main">Introduction to Operating Systems</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture1.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 1</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP Intro · Silberschatz Ch 1–2</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Define the role and main components of an operating system</li>
+                                    <li>Differentiate user mode vs. kernel mode</li>
+                                    <li>Understand system calls, interrupts, and traps</li>
+                                    <li>Describe kernel structures (monolithic, microkernel, hybrid)</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-tools"></i> First Contact with Linux</h4>
+                                <ul>
+                                    <li>Terminal, shell, and <code>man</code> pages</li>
+                                    <li>Navigating the file system: <code>ls</code>, <code>cd</code>, <code>pwd</code></li>
+                                    <li>Understanding the FHS directory layout</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Set up the course VM (Ubuntu Server), open the terminal, and run
+                            your first commands — <code>man</code>, <code>ls</code>, <code>cd</code>, <code>pwd</code>,
+                            <code>uname -a</code>.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 2 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 2</span>
+                        <span class="week-title-main">Processes &amp; Process Management</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture2.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 2</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP Processes · Silberschatz Ch 3</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Explain process states, PCB, and context switching</li>
+                                    <li>Understand <code>fork()</code>, <code>exec()</code>, <code>wait()</code></li>
+                                    <li>Describe the basics of inter-process communication (IPC)</li>
+                                    <li>Distinguish between process and program</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-terminal"></i> Linux Commands Preview</h4>
+                                <ul>
+                                    <li><code>ps</code>, <code>top</code>, <code>htop</code></li>
+                                    <li><code>kill</code>, <code>jobs</code>, <code>fg</code>, <code>bg</code></li>
+                                    <li>Exploring <code>/proc/&lt;pid&gt;</code></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Write a short C program using <code>fork()</code>, observe the
+                            parent/child relationship with <code>pstree</code>, and inspect the process via
+                            <code>/proc</code>.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 3 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 3</span>
+                        <span class="week-title-main">Threads &amp; Multithreading</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture3.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 3</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP Threads · Silberschatz Ch 4</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Differentiate process vs. thread clearly</li>
+                                    <li>Explain thread models (1:1, N:1, M:N)</li>
+                                    <li>Understand thread benefits and overheads</li>
+                                    <li>Get introduced to race conditions</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-terminal"></i> Linux Commands Preview</h4>
+                                <ul>
+                                    <li><code>ps -eLf</code> to view threads (LWPs)</li>
+                                    <li>Inspect <code>/proc/&lt;pid&gt;/task</code></li>
+                                    <li>Basic <code>pthread</code> program in C</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Compile a program using <code>pthread_create</code>, run it,
+                            and use <code>ps -eLf</code> to observe the lightweight processes.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 4 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 4</span>
+                        <span class="week-title-main">Synchronization &amp; Concurrency</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture4.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 4</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP Locks · Semaphores · CV · Silberschatz Ch 5–6</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Identify race conditions and critical sections</li>
+                                    <li>Use mutexes, semaphores, and condition variables</li>
+                                    <li>Solve Producer–Consumer and Reader–Writer problems</li>
+                                    <li>Understand monitors in modern languages</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-code"></i> Hands-on Concepts</h4>
+                                <ul>
+                                    <li>Write multi-threaded code with <code>pthread_mutex</code></li>
+                                    <li>Use <code>sem_wait</code> / <code>sem_post</code></li>
+                                    <li>Debug with <code>valgrind --tool=helgrind</code></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Implement a minimal Producer–Consumer using
+                            <code>pthread</code> mutex and condition variables, then run it under Helgrind.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 5 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 5</span>
+                        <span class="week-title-main">CPU Scheduling</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture5.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 5</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP Scheduling · Silberschatz Ch 5</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Scheduling criteria: turnaround, waiting, response time</li>
+                                    <li>FCFS, SJF, SRTF, Round Robin, Priority</li>
+                                    <li>Multilevel Feedback Queues</li>
+                                    <li>Introduction to the Linux CFS scheduler</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-chart-line"></i> Analysis Concepts</h4>
+                                <ul>
+                                    <li>Compute average waiting time per algorithm</li>
+                                    <li>Compare preemptive vs non-preemptive</li>
+                                    <li>Observe priorities via <code>nice</code> and <code>chrt</code></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Launch CPU-intensive processes with different
+                            <code>nice</code> values and use <code>top</code> to observe how the scheduler allocates
+                            CPU time.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 6 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 6</span>
+                        <span class="week-title-main">Deadlocks</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture6.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 6</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP Deadlock · Silberschatz Ch 7</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Coffman's four necessary conditions</li>
+                                    <li>Prevention, avoidance, detection, recovery</li>
+                                    <li>Banker's Algorithm (avoidance)</li>
+                                    <li>Resource allocation graphs</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-compass-drafting"></i> Applied Concepts</h4>
+                                <ul>
+                                    <li>Deadlocks in database transaction systems</li>
+                                    <li>Diagnosing deadlocks in multi-threaded code</li>
+                                    <li>Using <code>pstack</code> / <code>gdb</code> to inspect threads</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Trace Banker's Algorithm step-by-step on a small resource
+                            allocation scenario using a Python or Bash script.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 7 -->
+                <div class="week-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge"><i class="fas fa-book"></i> Week 7</span>
+                        <span class="week-title-main">Memory Management &amp; Virtual Memory</span>
+                        <span class="week-type-tag"><i class="fas fa-chalkboard"></i> Theory + Touch Lab</span>
+                        <a href="lecture7.html" class="lecture-btn"><i class="fas fa-play-circle"></i> Lecture 7</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP VM · Silberschatz Ch 8–9</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Contiguous allocation, paging, segmentation</li>
+                                    <li>TLB, page tables, multi-level paging</li>
+                                    <li>Demand paging &amp; page replacement (FIFO, LRU, Optimal)</li>
+                                    <li>Thrashing and the working-set model</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-terminal"></i> Linux Tools Preview</h4>
+                                <ul>
+                                    <li><code>free</code>, <code>vmstat</code>, memory view in <code>top</code></li>
+                                    <li>Reading <code>/proc/meminfo</code></li>
+                                    <li>Swap usage and <code>swapon</code></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Inspect live memory usage with <code>free</code> and
+                            <code>vmstat</code>, and simulate FIFO/LRU page replacement on a reference string.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 8 (Midterm) -->
+                <div class="week-card exam-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge exam-badge"><i class="fas fa-star"></i> Week 8</span>
+                        <span class="week-title-main">File Systems, I/O &amp; Midterm Exam</span>
+                        <span class="week-type-tag"><i class="fas fa-graduation-cap"></i> Exam</span>
+                        <a href="mid_exam.html" class="lecture-btn"><i class="fas fa-file-pen"></i> Midterm</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>OSTEP File Systems · Silberschatz Ch 10–11</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>File abstraction: attributes, operations, directories</li>
+                                    <li>Allocation methods: contiguous, linked, indexed</li>
+                                    <li>Journaling &amp; RAID levels (0, 1, 5, 10)</li>
+                                    <li>Disk scheduling: FCFS, SSTF, SCAN, C-SCAN</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-file-signature"></i> Midterm (20%)</h4>
+                                <ul>
+                                    <li>Covers Weeks 1–7 material</li>
+                                    <li>Mixed MC, short answer, and problem-solving</li>
+                                    <li>90-minute exam</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="touch-lab">
+                            <i class="fas fa-terminal"></i>
+                            <strong>Touch Lab:</strong> Explore the file system with <code>df</code>,
+                            <code>mount</code>, <code>ls -i</code>, and inspect inode structure before starting the
+                            midterm.
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- PHASE 2: LINUX PRACTICAL (6 WEEKS)                           -->
+        <!-- ============================================================ -->
+        <section class="phase-section">
+            <div class="phase-header practical">
+                <div class="phase-icon"><i class="fas fa-terminal"></i></div>
+                <div class="phase-title-group">
+                    <h2>Phase 2 · Linux Practical</h2>
+                    <div class="phase-meta">Weeks 9 – 14 · <strong>Six intensive weeks of hands-on Linux</strong>: shell,
+                        permissions, systemd, DNS, HTTP, MariaDB — ending with an integrated services lab</div>
+                </div>
+            </div>
+            <div class="weeks-container">
+
+                <!-- Week 9 -->
+                <div class="week-card practical">
+                    <div class="week-header-bar">
+                        <span class="week-badge practical"><i class="fas fa-book"></i> Week 9</span>
+                        <span class="week-title-main">Linux Shell, Users, Permissions &amp; systemd</span>
+                        <span class="week-type-tag"><i class="fas fa-laptop-code"></i> Deep Lab</span>
+                        <a href="lecture9.html" class="lecture-btn practical"><i class="fas fa-play-circle"></i>
+                            Lecture 9</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>The Linux Command Line · How Linux Works</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Navigate the FHS directory tree confidently</li>
+                                    <li>Use pipes, redirection, and text tools: <code>grep</code>, <code>sed</code>,
+                                        <code>awk</code></li>
+                                    <li>Manage users and groups: <code>useradd</code>, <code>usermod</code>,
+                                        <code>groupadd</code></li>
+                                    <li>Change passwords: <code>passwd</code>; switch identity: <code>su</code>,
+                                        <code>sudo</code></li>
+                                    <li>Manage services with <code>systemctl</code> and <code>journalctl</code></li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-lock"></i> File Permissions</h4>
+                                <ul>
+                                    <li><code>chmod</code> in symbolic and numeric form</li>
+                                    <li><code>chown</code>, <code>chgrp</code>, and <code>umask</code></li>
+                                    <li>Understanding r/w/x for owner, group, and others</li>
+                                    <li>Awareness of setuid, setgid, and sticky bits</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-laptop-code"></i>
+                            <strong>Deep Lab:</strong> Build a multi-user environment, change passwords, manage
+                            services, and enforce permission rules on shared directories.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 10 -->
+                <div class="week-card practical">
+                    <div class="week-header-bar">
+                        <span class="week-badge practical"><i class="fas fa-book"></i> Week 10</span>
+                        <span class="week-title-main">Packages, Networking Basics &amp; DHCP Fundamentals</span>
+                        <span class="week-type-tag"><i class="fas fa-laptop-code"></i> Deep Lab</span>
+                        <a href="lecture10.html" class="lecture-btn practical"><i class="fas fa-play-circle"></i>
+                            Lecture 10</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>How Linux Works · Kea DHCP docs · UNIX/Linux SysAdmin Handbook</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Install and update packages with <code>apt</code> / <code>dnf</code></li>
+                                    <li>Understand systemd unit files and service dependencies</li>
+                                    <li>Read IP addresses, subnet masks, and gateways</li>
+                                    <li>Use <code>ip</code>, <code>ss</code>, <code>ping</code>,
+                                        <code>traceroute</code></li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-network-wired"></i> DHCP Fundamentals</h4>
+                                <ul>
+                                    <li>The DORA process: Discover, Offer, Request, Ack</li>
+                                    <li>Leases, scopes, and standard options</li>
+                                    <li>Static reservations by MAC address</li>
+                                    <li>Where DHCP fits in a small lab network</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-laptop-code"></i>
+                            <strong>Deep Lab:</strong> Configure a lightweight DHCP setup on the lab network to hand
+                            out addresses, and verify clients with <code>ip</code> and lease logs.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 11 -->
+                <div class="week-card practical">
+                    <div class="week-header-bar">
+                        <span class="week-badge practical"><i class="fas fa-book"></i> Week 11</span>
+                        <span class="week-title-main">DNS – Domain Name System</span>
+                        <span class="week-type-tag"><i class="fas fa-laptop-code"></i> Deep Lab</span>
+                        <a href="lecture11.html" class="lecture-btn practical"><i class="fas fa-play-circle"></i>
+                            Lecture 11</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>DNS and BIND (5th Ed.) · BIND 9 docs</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>DNS hierarchy: root, TLD, authoritative servers</li>
+                                    <li>Resource records: A, AAAA, CNAME, MX, NS, PTR</li>
+                                    <li>Forward zones, reverse zones, and zone files</li>
+                                    <li>Caching, forwarding, and iterative queries</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-server"></i> Hands-on BIND9</h4>
+                                <ul>
+                                    <li>Install and configure BIND9 or dnsmasq</li>
+                                    <li>Create a master zone file for a lab domain</li>
+                                    <li>Verify with <code>dig</code>, <code>nslookup</code>, <code>host</code></li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-laptop-code"></i>
+                            <strong>Deep Lab:</strong> Deploy a BIND9 server for <code>lab.local</code> with A, CNAME,
+                            and MX records, then test resolution from a client.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 12 -->
+                <div class="week-card practical">
+                    <div class="week-header-bar">
+                        <span class="week-badge practical"><i class="fas fa-book"></i> Week 12</span>
+                        <span class="week-title-main">HTTP – Web Service with Nginx</span>
+                        <span class="week-type-tag"><i class="fas fa-laptop-code"></i> Deep Lab</span>
+                        <a href="lecture12.html" class="lecture-btn practical"><i class="fas fa-play-circle"></i>
+                            Lecture 12</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>HTTP: The Definitive Guide · Nginx docs</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>HTTP methods, status codes, and headers</li>
+                                    <li>Persistent vs non-persistent connections</li>
+                                    <li>Virtual hosts and document roots</li>
+                                    <li>Basic reverse proxy configuration</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-server"></i> Hands-on Nginx</h4>
+                                <ul>
+                                    <li>Serve a static site with Nginx</li>
+                                    <li>Configure two virtual hosts on one server</li>
+                                    <li>Reverse proxy to a simple backend</li>
+                                    <li>Read access and error logs</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-laptop-code"></i>
+                            <strong>Deep Lab:</strong> Deploy Nginx with two virtual hosts, configure a reverse proxy
+                            to a backend service, and inspect logs.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 13 -->
+                <div class="week-card practical">
+                    <div class="week-header-bar">
+                        <span class="week-badge practical"><i class="fas fa-book"></i> Week 13</span>
+                        <span class="week-title-main">MariaDB – Database Service</span>
+                        <span class="week-type-tag"><i class="fas fa-laptop-code"></i> Deep Lab</span>
+                        <a href="lecture13.html" class="lecture-btn practical"><i class="fas fa-play-circle"></i>
+                            Lecture 13</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>MariaDB official documentation</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Understand the role of relational databases in a Linux stack</li>
+                                    <li>Install and start MariaDB with <code>systemctl</code></li>
+                                    <li>Create databases, users, and grant privileges</li>
+                                    <li>Perform basic SQL: <code>CREATE</code>, <code>INSERT</code>,
+                                        <code>SELECT</code></li>
+                                    <li>Backup and restore with <code>mysqldump</code></li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-database"></i> Administration Practice</h4>
+                                <ul>
+                                    <li>Secure the installation with <code>mariadb-secure-installation</code></li>
+                                    <li>Configure remote access per user and host</li>
+                                    <li>Inspect the server status and running queries</li>
+                                    <li>Verify data with a small client script</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-laptop-code"></i>
+                            <strong>Deep Lab:</strong> Install MariaDB, create a database and user, grant
+                            least-privilege access, load sample data, and export a backup.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Week 14 -->
+                <div class="week-card practical">
+                    <div class="week-header-bar">
+                        <span class="week-badge practical"><i class="fas fa-book"></i> Week 14</span>
+                        <span class="week-title-main">Integrated Services Lab: DNS + HTTP + MariaDB</span>
+                        <span class="week-type-tag"><i class="fas fa-flask"></i> Project Lab</span>
+                        <a href="project.html" class="lecture-btn practical"><i class="fas fa-diagram-project"></i>
+                            Integrated Lab</a>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>Guided integrated hands-on project</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Design a small end-to-end Linux service environment</li>
+                                    <li>Wire DNS → HTTP → MariaDB into one coherent stack</li>
+                                    <li>Diagnose service issues using logs and CLI tools</li>
+                                    <li>Document configurations and test results</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-toolbox"></i> Deliverables</h4>
+                                <ul>
+                                    <li>Working DNS + Nginx + MariaDB setup on VMs</li>
+                                    <li>Screenshots and service test logs</li>
+                                    <li>Written report and/or short walkthrough video</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-laptop-code"></i>
+                            <strong>Integrated Lab:</strong> Build a small network where DNS resolves an internal
+                            domain, Nginx serves a web app, and MariaDB stores its data — all on VMs.
+                        </div>
+                    </div>
+                </div>
+
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- WEEK 15 — FINAL PROJECT                                      -->
+        <!-- ============================================================ -->
+        <section class="phase-section">
+            <div class="phase-header practical">
+                <div class="phase-icon"><i class="fas fa-diagram-project"></i></div>
+                <div class="phase-title-group">
+                    <h2>Week 15 · Final Project Presentations &amp; Review</h2>
+                    <div class="phase-meta">Wrap-up week — <strong>demo day</strong> and comprehensive review before
+                        the final exam</div>
+                </div>
+            </div>
+            <div class="weeks-container">
+                <div class="week-card project-card">
+                    <div class="week-header-bar">
+                        <span class="week-badge project-badge"><i class="fas fa-star"></i> Week 15</span>
+                        <span class="week-title-main">Project Presentations &amp; Course Review</span>
+                        <span class="week-type-tag"><i class="fas fa-microphone"></i> Presentation</span>
+                    </div>
+                    <div class="week-body">
+                        <div class="week-meta"><span>Deliverables due — live defense</span></div>
+                        <div class="content-grid">
+                            <div class="info-box">
+                                <h4><i class="fas fa-bullseye"></i> Learning Outcomes</h4>
+                                <ul>
+                                    <li>Present a technical solution to peers</li>
+                                    <li>Defend design decisions clearly</li>
+                                    <li>Complete a full course review</li>
+                                </ul>
+                            </div>
+                            <div class="info-box">
+                                <h4><i class="fas fa-list-check"></i> Deliverables</h4>
+                                <ul>
+                                    <li>Live demo of integrated Linux services</li>
+                                    <li>Final written report (PDF)</li>
+                                    <li>Short video walkthrough (max 10 min)</li>
+                                </ul>
+                            </div>
+                        </div>
+                        <div class="practical-lab">
+                            <i class="fas fa-trophy"></i>
+                            <strong>Final Project:</strong> Present a working integrated environment covering all
+                            Phase 2 services and demonstrate real end-to-end functionality.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- ============================================================ -->
+        <!-- ASSESSMENT & GRADING                                         -->
+        <!-- ============================================================ -->
+        <div class="assessment-block">
+            <h2><i class="fas fa-chart-simple"></i> Assessment &amp; Grading</h2>
+            <p class="section-desc">Continuous assessment with weekly labs, midterm, final project, and a cumulative
+                final exam</p>
+            <div class="assess-grid">
+                <div class="assess-card">
+                    <h3>25%</h3>
+                    <p>Labs &amp; Assignments</p>
+                    <small>Weekly touch labs + deep labs</small>
+                </div>
+                <div class="assess-card">
+                    <h3>10%</h3>
+                    <p>Quizzes</p>
+                    <small>Short in-class or online quizzes</small>
+                </div>
+                <div class="assess-card">
+                    <h3>20%</h3>
+                    <p>Midterm Exam</p>
+                    <small>Weeks 1–7 theory coverage</small>
+                </div>
+                <div class="assess-card">
+                    <h3>20%</h3>
+                    <p>Final Project</p>
+                    <small>Integrated Linux services deployment</small>
+                </div>
+                <div class="assess-card">
+                    <h3>25%</h3>
+                    <p>Final Exam</p>
+                    <small>Comprehensive (theory + applied)</small>
+                </div>
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- TEXTBOOK & REFERENCES                                        -->
+        <!-- ============================================================ -->
+        <div class="textbook-section">
+            <h3><i class="fas fa-book-open"></i> Official Textbook &amp; References</h3>
+            <div class="book-grid">
+
+                <div class="book-card">
+                    <span class="book-role main">Main Theory</span>
+                    <h4>Operating System Concepts</h4>
+                    <p>Silberschatz, Galvin, Gagne — 10th/11th Edition. The official course textbook for the OS theory
+                        phase.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role free">Modern &amp; Free</span>
+                    <h4>Operating Systems: Three Easy Pieces (OSTEP)</h4>
+                    <p>Arpaci-Dusseau — free, modern, and excellent for building deep intuition on processes, threads,
+                        memory, and file systems.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role lab">Linux Basics</span>
+                    <h4>How Linux Works</h4>
+                    <p>Brian Ward — 3rd Edition. The go-to reference for understanding how Linux actually works under
+                        the hood.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role lab">Linux Commands</span>
+                    <h4>The Linux Command Line</h4>
+                    <p>William Shotts — 2nd Edition. A complete guide to shell usage, scripting, and everyday Linux
+                        tasks.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role">Sysadmin Reference</span>
+                    <h4>UNIX and Linux System Administration Handbook</h4>
+                    <p>Nemeth et al. — 5th Edition. A comprehensive administration reference used during the practical
+                        phase.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role">DNS</span>
+                    <h4>DNS and BIND</h4>
+                    <p>Cricket Liu &amp; Paul Albitz — 5th Edition. Foundational DNS concepts, paired with modern BIND 9
+                        official documentation.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role">HTTP</span>
+                    <h4>HTTP: The Definitive Guide</h4>
+                    <p>Gourley &amp; Totty — complementary protocol depth, used alongside the Nginx official
+                        documentation.</p>
+                </div>
+
+                <div class="book-card">
+                    <span class="book-role">Database</span>
+                    <h4>MariaDB Official Documentation</h4>
+                    <p>The primary reference for installing, configuring, and administering MariaDB during the database
+                        service week.</p>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- FOOTER                                                       -->
+        <!-- ============================================================ -->
+        <footer>
+            <p><i class="fas fa-university"></i> University College of Applied Sciences — Cybersecurity Engineering
+                Dept. | Course code: <strong>COMP 1303</strong></p>
+            <p>Based on <strong>Silberschatz (Operating System Concepts)</strong>, <strong>OSTEP</strong>, and modern
+                Linux services documentation | Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p class="copyright-year">© <span id="current-year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </div>
+
+    <script>
+        document.getElementById('current-year').textContent = new Date().getFullYear();
+    </script>
+</body>
+
+</html>

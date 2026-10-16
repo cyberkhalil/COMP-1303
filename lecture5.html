@@ -1,0 +1,1458 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>COMP 1303 | Week 5: CPU Scheduling</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="lecture.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐧</text></svg>">
+</head>
+
+<body>
+    <div class="bg-grid"></div>
+
+    <main class="lecture-container">
+
+        <a href="index.html" class="home-button">
+            <i class="fas fa-arrow-left"></i> Back to Course Home
+        </a>
+
+        <div class="lecture-meta">
+            <span><i class="fas fa-layer-group"></i> Week 5</span>
+            <span class="warn"><i class="fas fa-microchip"></i> Phase 1 · OS Theory</span>
+            <span><i class="fas fa-clock"></i> Theory + Touch Lab</span>
+        </div>
+
+        <h1>CPU Scheduling</h1>
+        <p class="lecture-sub">
+            Based on <em>Operating Systems: Three Easy Pieces (OSTEP)</em> — Chapters 7 (Scheduling: Introduction),
+            8 (Scheduling: The Multi-Level Feedback Queue) &amp; <em>Operating System Concepts</em> —
+            Silberschatz, Chapter 5.
+        </p>
+
+        <nav class="quick-nav">
+            <a href="#why">5.1 · Why Scheduling Matters</a>
+            <a href="#criteria">5.2 · Criteria &amp; Metrics</a>
+            <a href="#classical">5.3 · FCFS · SJF · SRTF</a>
+            <a href="#rr-prio">5.4 · Round Robin &amp; Priority</a>
+            <a href="#mlfq">5.5 · MLFQ</a>
+            <a href="#cfs">5.6 · Linux CFS</a>
+            <a href="#lab-nice">5.7 · Lab: nice &amp; chrt</a>
+            <a href="#lab-observe">5.8 · Lab: Observing with top</a>
+            <a href="#homework">Homework</a>
+        </nav>
+
+        <!-- ============================================================ -->
+        <!-- 5.1 WHY SCHEDULING MATTERS                                   -->
+        <!-- ============================================================ -->
+        <h2 id="why"><i class="fas fa-gauge-high"></i> 5.1 · Why Scheduling Matters</h2>
+
+        <p>
+            In the last four weeks, we built up a stack of abstractions: the OS as resource manager, the process as
+            an isolated unit of execution, the thread as a lightweight unit of parallelism, and locks, semaphores,
+            and condition variables as tools for making concurrent code correct. There is one crucial piece missing.
+            We have never asked: <em>when there are more runnable threads than CPUs, who actually gets to run?</em>
+        </p>
+
+        <p>
+            That question is the entire subject of <strong>CPU scheduling</strong>. It sounds simple, but it lies at
+            the heart of every performance complaint you will ever hear about a computer — a sluggish UI, a slow
+            build, a server that drops connections under load. All of these are, at bottom, consequences of
+            scheduling decisions made billions of times per second by the kernel.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>One-sentence definition:</strong> the CPU scheduler is the part of the kernel that decides which
+            ready thread runs next on each CPU core, and how long it is allowed to run before being preempted.
+        </div>
+
+        <h3>The scheduling problem in context</h3>
+
+        <p>
+            Imagine a system with a single CPU core and three runnable threads, all wanting nothing more than to run
+            to completion. The scheduler has to answer two questions:
+        </p>
+
+        <ul>
+            <li><strong>Which one runs first?</strong> This determines the order of completion.</li>
+            <li><strong>How long does each one run before being preempted?</strong> This determines whether a thread
+                is interrupted mid-work or allowed to finish.</li>
+        </ul>
+
+        <p>
+            Different answers to those two questions produce dramatically different performance, fairness, and
+            responsiveness — and different workloads demand different answers. A batch processing machine at a
+            financial firm wants maximum throughput; a smartphone wants minimum response time to touches; a
+            scientific cluster wants fairness under heavy load; a real-time system needs guaranteed deadlines.
+            No single scheduler wins everywhere.
+        </p>
+
+        <h3>Preemptive vs non-preemptive</h3>
+
+        <p>
+            Before comparing algorithms, we need one key distinction.
+        </p>
+
+        <div class="two-cols">
+            <div class="col warn">
+                <h4><i class="fas fa-hand"></i> Non-preemptive</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    Once a thread starts running on a CPU, it keeps running until it either finishes, blocks on I/O,
+                    or voluntarily calls <code>sched_yield()</code>. The scheduler has no power to take the CPU away
+                    from a running thread. Simple to implement, but a poorly behaved thread can hog the CPU
+                    indefinitely.
+                </p>
+            </div>
+            <div class="col green">
+                <h4><i class="fas fa-hand"></i> Preemptive</h4>
+                <p style="font-size:0.9rem; margin: 0;">
+                    The scheduler can interrupt a running thread at any moment — typically at the end of a
+                    <em>time slice</em> (also called a time quantum) driven by a periodic timer interrupt. This is
+                    what every modern general-purpose OS uses. It guarantees fairness, at the cost of more
+                    context switches.
+                </p>
+            </div>
+        </div>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>Which is right?</strong> All modern desktop, server, and mobile operating systems use
+            <em>preemptive</em> scheduling. Non-preemptive schedulers appear only in tiny embedded systems and in
+            historical batch operating systems.
+        </div>
+
+        <!-- SVG: preemptive vs non-preemptive Gantt -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 240" xmlns="http://www.w3.org/2000/svg"
+                aria-label="Preemptive vs non-preemptive timeline">
+                <!-- Non-preemptive -->
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#fbbf24" text-anchor="middle"
+                    font-weight="700">Non-preemptive — running thread keeps the CPU until it finishes</text>
+
+                <rect x="40" y="45" width="300" height="40" rx="6" fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="190" y="70" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Thread A · runs to completion</text>
+
+                <rect x="340" y="45" width="200" height="40" rx="6" fill="rgba(16, 185, 129, 0.2)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="440" y="70" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Thread B</text>
+
+                <rect x="540" y="45" width="240" height="40" rx="6" fill="rgba(139, 92, 246, 0.2)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="660" y="70" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">Thread C</text>
+
+                <text x="40" y="115" font-family="Courier New" font-size="11" fill="#94a3b8">t=0</text>
+                <text x="340" y="115" font-family="Courier New" font-size="11" fill="#94a3b8">t=30</text>
+                <text x="540" y="115" font-family="Courier New" font-size="11" fill="#94a3b8">t=50</text>
+                <text x="780" y="115" font-family="Courier New" font-size="11" fill="#94a3b8">t=74</text>
+
+                <!-- Preemptive -->
+                <text x="410" y="160" font-family="Inter" font-size="14" fill="#34d399" text-anchor="middle"
+                    font-weight="700">Preemptive — scheduler preempts every time slice</text>
+
+                <rect x="40" y="180" width="100" height="40" rx="6" fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="90" y="205" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">A</text>
+
+                <rect x="140" y="180" width="100" height="40" rx="6" fill="rgba(16, 185, 129, 0.2)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="190" y="205" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">B</text>
+
+                <rect x="240" y="180" width="100" height="40" rx="6" fill="rgba(139, 92, 246, 0.2)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="290" y="205" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">C</text>
+
+                <rect x="340" y="180" width="100" height="40" rx="6" fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="390" y="205" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">A</text>
+
+                <rect x="440" y="180" width="100" height="40" rx="6" fill="rgba(16, 185, 129, 0.2)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="490" y="205" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">B</text>
+
+                <rect x="540" y="180" width="100" height="40" rx="6" fill="rgba(139, 92, 246, 0.2)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="590" y="205" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">C</text>
+
+                <rect x="640" y="180" width="100" height="40" rx="6" fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="690" y="205" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">A</text>
+
+                <text x="780" y="205" font-family="Courier New" font-size="11" fill="#94a3b8">…</text>
+            </svg>
+            <div class="svg-caption">Non-preemptive scheduling lets each thread finish uninterrupted. Preemptive scheduling chops execution into time slices, allowing fair interleaving.</div>
+        </div>
+
+        <h3>Where does the scheduler run?</h3>
+
+        <p>
+            The scheduler is just a piece of kernel code. It gets invoked in a few situations:
+        </p>
+
+        <ul>
+            <li><strong>A thread blocks.</strong> If a thread issues a syscall that cannot complete immediately
+                (reading a file, waiting on a mutex), it moves to Waiting and the CPU is free. The scheduler picks
+                someone else.</li>
+            <li><strong>A thread becomes ready.</strong> When an interrupt fires — the timer tick, a disk
+                completing I/O, a network packet arriving — a waiting thread may become runnable. The scheduler
+                may preempt the current thread if the new one is more urgent.</li>
+            <li><strong>A thread finishes.</strong> Nothing to schedule — but the scheduler must still pick the
+                next thread to run.</li>
+            <li><strong>The time slice ends.</strong> A periodic timer interrupt fires and the scheduler checks
+                whether the running thread has consumed its quantum. If yes, it preempts and picks the next one.</li>
+        </ul>
+
+        <p>
+            The first and third cases are unavoidable. The second and fourth are where scheduler design actually
+            matters — they are the moments when the scheduler must decide.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 5.2 CRITERIA AND METRICS                                     -->
+        <!-- ============================================================ -->
+        <h2 id="criteria"><i class="fas fa-chart-line"></i> 5.2 · Scheduling Criteria &amp; Metrics</h2>
+
+        <p>
+            Before we can compare algorithms, we need ways to measure them. The literature and the textbooks use a
+            standard set of metrics. Learn these — they appear in every exam question about scheduling.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 22%;">Metric</th>
+                    <th style="width: 45%;">Definition</th>
+                    <th style="width: 33%;">What optimises it</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Arrival time</strong></td>
+                    <td>The moment a thread first becomes ready to run.</td>
+                    <td>Not controllable — it is an input.</td>
+                </tr>
+                <tr>
+                    <td><strong>Burst time</strong></td>
+                    <td>How long the thread needs on the CPU to finish, if it ran uninterrupted.</td>
+                    <td>Usually estimated from history.</td>
+                </tr>
+                <tr>
+                    <td><strong>Completion time</strong></td>
+                    <td>The moment the thread finishes.</td>
+                    <td>Depends on the algorithm.</td>
+                </tr>
+                <tr>
+                    <td><strong>Turnaround time</strong></td>
+                    <td><code>completion − arrival</code>. The total time from when a thread was submitted to when it
+                        finished.</td>
+                    <td>Minimised by Shortest-Job-First family.</td>
+                </tr>
+                <tr>
+                    <td><strong>Waiting time</strong></td>
+                    <td>The total time the thread spent in the ready queue, not running.</td>
+                    <td>Minimised by SJF for the average case.</td>
+                </tr>
+                <tr>
+                    <td><strong>Response time</strong></td>
+                    <td><code>first_run − arrival</code>. How long the user waited before the system did
+                        <em>anything</em>.</td>
+                    <td>Minimised by Round Robin.</td>
+                </tr>
+                <tr>
+                    <td><strong>Throughput</strong></td>
+                    <td>How many threads the system completes per unit of time.</td>
+                    <td>Maximised by minimising context switches and idle time.</td>
+                </tr>
+                <tr>
+                    <td><strong>CPU utilisation</strong></td>
+                    <td>Percentage of time the CPU is doing useful work.</td>
+                    <td>High utilisation means good scheduling for batch workloads.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The most important distinction:</strong> <em>turnaround time</em> and <em>response time</em>
+            optimise very different things. Turnaround measures total time to completion; response measures how
+            long until the user sees the first sign of life. Batch jobs want low turnaround; interactive systems
+            want low response. <strong>These two goals are often in direct conflict.</strong>
+        </div>
+
+        <h3>Worked example — always use a Gantt chart</h3>
+
+        <p>
+            Throughout this week, when we compare algorithms, we will do so on the same workload so the differences
+            are real. Here is our standard test workload — four threads, all arriving at <code>t = 0</code>:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 20%;">Thread</th>
+                    <th style="width: 20%;">Arrival</th>
+                    <th style="width: 20%;">Burst</th>
+                    <th>Notes</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>P1</strong></td>
+                    <td>0</td>
+                    <td>20</td>
+                    <td>Long job</td>
+                </tr>
+                <tr>
+                    <td><strong>P2</strong></td>
+                    <td>0</td>
+                    <td>5</td>
+                    <td>Short job</td>
+                </tr>
+                <tr>
+                    <td><strong>P3</strong></td>
+                    <td>0</td>
+                    <td>3</td>
+                    <td>Very short</td>
+                </tr>
+                <tr>
+                    <td><strong>P4</strong></td>
+                    <td>0</td>
+                    <td>8</td>
+                    <td>Medium</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            All four arrive simultaneously. The algorithm decides the order in which they execute. We will compute
+            average waiting time and average turnaround time for each algorithm so you can see exactly how much the
+            choice matters.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 5.3 CLASSICAL ALGORITHMS — FCFS, SJF, SRTF                   -->
+        <!-- ============================================================ -->
+        <h2 id="classical"><i class="fas fa-list-ol"></i> 5.3 · Classical Algorithms: FCFS, SJF, SRTF</h2>
+
+        <p>
+            The three simplest policies were described in the 1960s and are still the vocabulary of every scheduling
+            discussion. Everyone knows their names; every interview asks about them.
+        </p>
+
+        <h3>FCFS — First Come, First Served</h3>
+
+        <p>
+            The simplest possible policy. Threads are placed in a FIFO queue. When the CPU becomes available, the
+            thread at the front runs — and keeps running until it finishes or blocks. This is a non-preemptive
+            algorithm.
+        </p>
+
+        <p>
+            On our test workload, the order is P1, P2, P3, P4 because they all arrived simultaneously and FCFS
+            breaks ties by thread order.
+        </p>
+
+        <!-- SVG: FCFS Gantt -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 130" xmlns="http://www.w3.org/2000/svg" aria-label="FCFS Gantt chart">
+                <text x="410" y="25" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">FCFS — First Come, First Served</text>
+
+                <rect x="40" y="50" width="400" height="40" rx="6" fill="rgba(59, 130, 246, 0.2)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="240" y="75" font-family="Inter" font-size="12" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">P1 · 20</text>
+
+                <rect x="440" y="50" width="100" height="40" rx="6" fill="rgba(16, 185, 129, 0.2)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="490" y="75" font-family="Inter" font-size="12" fill="#34d399" text-anchor="middle"
+                    font-weight="700">P2 · 5</text>
+
+                <rect x="540" y="50" width="60" height="40" rx="6" fill="rgba(139, 92, 246, 0.2)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="570" y="75" font-family="Inter" font-size="12" fill="#c4b5fd" text-anchor="middle"
+                    font-weight="700">P3</text>
+
+                <rect x="600" y="50" width="160" height="40" rx="6" fill="rgba(236, 72, 153, 0.2)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="680" y="75" font-family="Inter" font-size="12" fill="#f472b6" text-anchor="middle"
+                    font-weight="700">P4 · 8</text>
+
+                <text x="40" y="110" font-family="Courier New" font-size="11" fill="#94a3b8">0</text>
+                <text x="440" y="110" font-family="Courier New" font-size="11" fill="#94a3b8">20</text>
+                <text x="540" y="110" font-family="Courier New" font-size="11" fill="#94a3b8">25</text>
+                <text x="600" y="110" font-family="Courier New" font-size="11" fill="#94a3b8">28</text>
+                <text x="755" y="110" font-family="Courier New" font-size="11" fill="#94a3b8">36</text>
+            </svg>
+            <div class="svg-caption">FCFS: P1 runs first, blocking everyone else for its full 20-unit burst.</div>
+        </div>
+
+        <p>Computing the metrics:</p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Thread</th>
+                    <th>Burst</th>
+                    <th>Waiting</th>
+                    <th>Completion</th>
+                    <th>Turnaround</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>P1</td><td>20</td><td>0</td><td>20</td><td>20</td></tr>
+                <tr><td>P2</td><td>5</td><td>20</td><td>25</td><td>25</td></tr>
+                <tr><td>P3</td><td>3</td><td>25</td><td>28</td><td>28</td></tr>
+                <tr><td>P4</td><td>8</td><td>28</td><td>36</td><td>36</td></tr>
+                <tr>
+                    <td colspan="2"><strong>Average</strong></td>
+                    <td><strong>18.25</strong></td>
+                    <td></td>
+                    <td><strong>27.25</strong></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            The problem with FCFS is obvious from this table: the short jobs wait behind the long job. This is
+            called the <strong>convoy effect</strong> — a single long-running job delays everything behind it, even
+            though the job could have been deferred. FCFS has the property that its average waiting time depends
+            heavily on the order of arrival; a single heavy job at the front can triple the average latency.
+        </p>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>The convoy effect:</strong> imagine a supermarket with one checkout lane and one customer whose
+            cart contains a hundred items. Every customer behind them waits, even if they are only buying a bottle
+            of water. FCFS produces exactly this behaviour. That is why no real OS uses it for general-purpose
+            scheduling.
+        </div>
+
+        <h3>SJF — Shortest Job First</h3>
+
+        <p>
+            The fix is straightforward. When the CPU becomes free, pick the ready thread with the shortest burst
+            time. This minimises the average waiting time — a result provable mathematically for any fixed set of
+            jobs whose burst times are known in advance.
+        </p>
+
+        <p>
+            On our workload, the order becomes P3 (3), P2 (5), P4 (8), P1 (20):
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th>Thread</th>
+                    <th>Burst</th>
+                    <th>Waiting</th>
+                    <th>Completion</th>
+                    <th>Turnaround</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr><td>P3</td><td>3</td><td>0</td><td>3</td><td>3</td></tr>
+                <tr><td>P2</td><td>5</td><td>3</td><td>8</td><td>8</td></tr>
+                <tr><td>P4</td><td>8</td><td>8</td><td>16</td><td>16</td></tr>
+                <tr><td>P1</td><td>20</td><td>16</td><td>36</td><td>36</td></tr>
+                <tr>
+                    <td colspan="2"><strong>Average</strong></td>
+                    <td><strong>6.75</strong></td>
+                    <td></td>
+                    <td><strong>15.75</strong></td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Average waiting time fell from <strong>18.25</strong> to <strong>6.75</strong>. This is not a small
+            improvement — it is a factor of nearly three. SJF is provably optimal for minimising average waiting
+            time on a fixed workload, and this is one of the classic results of operating systems theory.
+        </p>
+
+        <div class="warn-note">
+            <i class="fas fa-triangle-exclamation"></i>
+            <strong>The catch — and it is a big one:</strong> SJF needs to know the burst time of each thread
+            <em>in advance</em>. Real operating systems do not have that information. We can only estimate it,
+            usually by averaging recent CPU usage from a thread's history. This is called
+            <strong>exponential averaging</strong>, and it is what real schedulers use as a heuristic.
+        </div>
+
+        <h3>SRTF — Shortest Remaining Time First</h3>
+
+        <p>
+            SRTF is the preemptive version of SJF. When a new thread arrives, its <em>remaining</em> burst time is
+            compared against the running thread's remaining burst time. If the new one needs less, the current
+            thread is preempted. This is the theoretically optimal algorithm for average waiting time, under the
+            same unrealistic assumption that burst times are known in advance.
+        </p>
+
+        <p>
+            Another problem: starvation. A thread with a long burst time may never run if short threads keep
+            arriving. This becomes acute in an interactive system where user threads are short and a background
+            job is long.
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 25%;">Algorithm</th>
+                    <th style="width: 20%;">Preemptive?</th>
+                    <th style="width: 30%;">Optimal for</th>
+                    <th style="width: 25%;">Main problem</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>FCFS</strong></td>
+                    <td>No</td>
+                    <td>Simplicity</td>
+                    <td>Convoy effect — terrible for interactive loads</td>
+                </tr>
+                <tr>
+                    <td><strong>SJF</strong></td>
+                    <td>No</td>
+                    <td>Average waiting time</td>
+                    <td>Burst times unknown; starves long threads</td>
+                </tr>
+                <tr>
+                    <td><strong>SRTF</strong></td>
+                    <td>Yes</td>
+                    <td>Average waiting time (preemptive)</td>
+                    <td>Same as SJF, plus starvation is worse</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <!-- ============================================================ -->
+        <!-- 5.4 ROUND ROBIN AND PRIORITY                                 -->
+        <!-- ============================================================ -->
+        <h2 id="rr-prio"><i class="fas fa-circle-notch"></i> 5.4 · Round Robin &amp; Priority Scheduling</h2>
+
+        <p>
+            FCFS, SJF, and SRTF all optimise <em>average</em> statistics — but average turnaround is not what a user
+            of an interactive computer experiences. When you type a keystroke and wait for a character to appear,
+            you care about <strong>response time</strong> — how long until the system does <em>something</em>. For
+            that, we need a very different policy.
+        </p>
+
+        <h3>Round Robin</h3>
+
+        <p>
+            Round Robin assigns each thread a fixed <strong>time slice</strong> — typically 1 to 100 milliseconds
+            in a real system. Ready threads are arranged in a circular queue. The scheduler runs the front of the
+            queue for at most one slice; if the thread is not finished, it goes to the back again.
+        </p>
+
+        <p>
+            With a time slice of, say, 4 units and our workload, the execution looks like this:
+        </p>
+
+        <pre><code>P1 (0-4)  P2 (4-8)  P3 (8-11, done)  P4 (11-15)
+P1 (15-19)  P2 (19-23, done)  P4 (23-27)  P1 (27-31)
+P4 (31-35, done)  P1 (35-39)</code></pre>
+
+        <p>
+            Every thread gets serviced within the first slice of its neighbor — no thread waits behind a long job.
+            Average turnaround suffers compared to SJF, but <strong>response time is dramatically better</strong>.
+            This is why Round Robin is the base of every general-purpose OS scheduler.
+        </p>
+
+        <div class="two-cols">
+            <div class="col green">
+                <h4><i class="fas fa-thumbs-up"></i> Small time slice</h4>
+                <ul>
+                    <li>Lower response time — every thread gets the CPU quickly.</li>
+                    <li>Better timesharing fairness.</li>
+                    <li>But more context switches — overhead grows.</li>
+                </ul>
+            </div>
+            <div class="col warn">
+                <h4><i class="fas fa-triangle-exclamation"></i> Large time slice</h4>
+                <ul>
+                    <li>Fewer context switches — better throughput.</li>
+                    <li>But a thread that arrives just after a slice start waits a full quantum.</li>
+                    <li>Behaviour approaches FCFS as the slice grows.</li>
+                </ul>
+            </div>
+        </div>
+
+        <p>
+            The choice of time slice is a careful trade-off. On typical Linux systems it is on the order of a few
+            milliseconds, and it is <em>dynamically adjusted</em> — a key feature of modern schedulers we will see
+            shortly.
+        </p>
+
+        <h3>Priority Scheduling</h3>
+
+        <p>
+            Round Robin treats all threads equally. But real systems want to express <em>"this thread is more
+            important than that one"</em>. Priority scheduling attaches an integer priority to each thread and
+            always runs the highest-priority ready one.
+        </p>
+
+        <ul>
+            <li>Priorities may be <strong>preemptive</strong> (a newly-ready higher-priority thread immediately
+                preempts the running one) or <strong>non-preemptive</strong> (the running thread finishes its slice
+                first).</li>
+            <li>In most systems, <em>lower</em> numbers mean higher priority — this is the Linux convention.</li>
+            <li>Priority can be <strong>static</strong> (set by the administrator or by the thread itself) or
+                <strong>dynamic</strong> (adjusted by the kernel based on behavior — e.g., I/O-bound threads get a
+                boost).</li>
+        </ul>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Starvation and aging:</strong> priority scheduling has one famous failure mode — a low-priority
+            thread may never run if higher-priority threads keep arriving. The fix is called <strong>aging</strong>:
+            the kernel gradually increases the priority of threads that have been waiting a long time, so that no
+            thread waits forever. This is used in every production scheduler.
+        </div>
+
+        <h3>Priority in the real world</h3>
+
+        <p>
+            Every operating system exposes some form of priority to user space:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 30%;">Platform</th>
+                    <th>Priority mechanism</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>Linux — nice value</strong></td>
+                    <td>Each thread has a nice value from <code>−20</code> (highest) to <code>+19</code> (lowest).
+                        Changing it requires privileges for decreases below 0. Higher nice = "nicer to others" = less
+                        CPU.</td>
+                </tr>
+                <tr>
+                    <td><strong>Linux — real-time</strong></td>
+                    <td>SCHED_FIFO and SCHED_RR offer real-time priorities from 1 to 99. Used only for
+                        latency-critical threads.</td>
+                </tr>
+                <tr>
+                    <td><strong>Windows</strong></td>
+                    <td>Priority classes 0–31. The REALTIME_PRIORITY_CLASS and thread priority boosts for I/O-bound
+                        threads.</td>
+                </tr>
+                <tr>
+                    <td><strong>macOS / iOS</strong></td>
+                    <td>Quality of Service classes (User Interactive, User Initiated, Utility, Background). The user
+                        never sees raw numbers.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <p>
+            Modern operating systems hide the raw priority model behind simpler abstractions (QoS classes,
+            cgroups, scheduling policies selected by role). The idea — a thread's importance can be expressed and
+            the scheduler uses it — is universal.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 5.5 MULTI-LEVEL FEEDBACK QUEUE                               -->
+        <!-- ============================================================ -->
+        <h2 id="mlfq"><i class="fas fa-layer-group"></i> 5.5 · Multi-Level Feedback Queue (MLFQ)</h2>
+
+        <p>
+            All the algorithms so far need to know something they usually cannot know: whether a thread is
+            CPU-bound or I/O-bound, short or long, interactive or batch. SJF needs burst times. Priority scheduling
+            needs priorities. Neither is reliably available in advance.
+        </p>
+
+        <p>
+            The <strong>Multi-Level Feedback Queue</strong> — MLFQ — sidesteps the problem entirely. Instead of
+            being told what kind of thread each one is, the scheduler <em>infers</em> it from behaviour. Threads
+            that yield often (interactive, I/O-bound) are treated as important; threads that hold the CPU for full
+            slices (CPU-bound) are demoted. The scheduler learns the workload.
+        </p>
+
+        <h3>The structure</h3>
+
+        <!-- SVG: MLFQ structure -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 340" xmlns="http://www.w3.org/2000/svg" aria-label="MLFQ structure">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">Multi-Level Feedback Queue — multiple queues with different priorities</text>
+
+                <!-- Queue 0 - highest priority -->
+                <rect x="60" y="50" width="700" height="55" rx="8" fill="rgba(16, 185, 129, 0.18)"
+                    stroke="#10b981" stroke-width="2" />
+                <text x="90" y="75" font-family="Inter" font-size="12" fill="#34d399" font-weight="700">
+                    Q0 · slice = 8 ms
+                </text>
+                <text x="90" y="93" font-family="Inter" font-size="11" fill="#cbd5e1">
+                    Highest priority — for interactive / I/O-bound threads
+                </text>
+                <text x="720" y="85" font-family="Inter" font-size="11" fill="#34d399" text-anchor="end"
+                    font-weight="700">runs first</text>
+
+                <!-- Queue 1 -->
+                <rect x="60" y="120" width="700" height="55" rx="8" fill="rgba(59, 130, 246, 0.18)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="90" y="145" font-family="Inter" font-size="12" fill="#7dd3fc" font-weight="700">
+                    Q1 · slice = 16 ms
+                </text>
+                <text x="90" y="163" font-family="Inter" font-size="11" fill="#cbd5e1">
+                    Medium priority — mixed workloads
+                </text>
+
+                <!-- Queue 2 -->
+                <rect x="60" y="190" width="700" height="55" rx="8" fill="rgba(245, 158, 11, 0.18)"
+                    stroke="#f59e0b" stroke-width="2" />
+                <text x="90" y="215" font-family="Inter" font-size="12" fill="#fbbf24" font-weight="700">
+                    Q2 · slice = 32 ms
+                </text>
+                <text x="90" y="233" font-family="Inter" font-size="11" fill="#cbd5e1">
+                    Low priority — CPU-bound threads
+                </text>
+
+                <!-- Queue 3 -->
+                <rect x="60" y="260" width="700" height="55" rx="8" fill="rgba(236, 72, 153, 0.18)"
+                    stroke="#ec4899" stroke-width="2" />
+                <text x="90" y="285" font-family="Inter" font-size="12" fill="#f472b6" font-weight="700">
+                    Q3 · FCFS (Round Robin-ish)
+                </text>
+                <text x="90" y="303" font-family="Inter" font-size="11" fill="#cbd5e1">
+                    Lowest priority — long-running batch jobs
+                </text>
+            </svg>
+            <div class="svg-caption">MLFQ uses several queues, each with its own priority and time slice. New threads start in the highest queue; long-running threads sink to lower ones.</div>
+        </div>
+
+        <h3>The rules (in their simplest form)</h3>
+
+        <ol>
+            <li><strong>New threads go to the highest queue (Q0).</strong> We assume each thread starts out
+                interactive until proven otherwise.</li>
+            <li><strong>The scheduler always prefers higher-priority queues.</strong> Only if Q0 is empty does it
+                consider Q1, then Q2, and so on. Round Robin runs within each queue.</li>
+            <li><strong>If a thread uses its entire time slice</strong>, it is <em>demoted</em> — moved to the
+                queue below it. This punishes threads that are truly CPU-bound.</li>
+            <li><strong>If a thread yields the CPU</strong> before its slice ends — typically because it is waiting
+                for I/O, waiting on a lock, or simply being interactive — it stays at its current level, or is
+                even <em>promoted</em> in some variants.</li>
+        </ol>
+
+        <h3>Priority boost — the anti-starvation rule</h3>
+
+        <p>
+            With just those four rules, MLFQ would eventually starve threads that sank to the lowest queue. If a
+            long CPU-bound job lands in Q3, and new interactive jobs keep filling Q0, the long job never runs.
+            Real MLFQ adds one more rule:
+        </p>
+
+        <ol start="5">
+            <li><strong>After a fixed period of time</strong> — say, every second of CPU time — <em>every</em>
+                thread is moved back to the top queue. This prevents starvation and adapts to changing thread
+                behaviour.</li>
+        </ol>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The cleverness of MLFQ:</strong> the OS does not need to know whether a thread is interactive
+            or CPU-bound. It <em>learns</em> it. If the thread yields often, it keeps running at the top. If it
+            hogs the CPU, it sinks. The behavior of the thread determines its own priority, without any explicit
+            classification.
+        </div>
+
+        <h3>MLFQ in practice</h3>
+
+        <p>
+            MLFQ-style schedulers have been used in Windows, Solaris, and BSD for decades. Linux's O(1) scheduler —
+            used from 2.6 through 2.6.22 — was a form of MLFQ. Even the modern CFS, which we will look at next, is
+            philosophically descended from MLFQ's idea that the scheduler should infer behaviour rather than
+            require explicit classification.
+        </p>
+
+        <!-- ============================================================ -->
+        <!-- 5.6 LINUX CFS — COMPLETELY FAIR SCHEDULER                    -->
+        <!-- ============================================================ -->
+        <h2 id="cfs"><i class="fas fa-scale-balanced"></i> 5.6 · Linux CFS — The Completely Fair Scheduler</h2>
+
+        <p>
+            Modern Linux does not use MLFQ. Since kernel version 2.6.23 (2007), the default scheduler is the
+            <strong>Completely Fair Scheduler</strong> — CFS. It is worth studying because it is a genuinely
+            different approach to scheduling, and because it tells you something important about Linux's design
+            philosophy.
+        </p>
+
+        <h3>The core idea — virtual runtime</h3>
+
+        <p>
+            CFS does not assign explicit priorities or time slices. Instead, it tracks one number per thread:
+            <strong>virtual runtime</strong> — usually written <code>vruntime</code>. Virtual runtime is the total
+            CPU time the thread has consumed, weighted by its priority. A thread with a high priority accrues
+            virtual runtime more slowly than a low-priority thread.
+        </p>
+
+        <p>
+            The scheduler's rule is beautifully simple: <em>always run the thread with the smallest virtual
+            runtime.</em> That is it. The thread that has had the least CPU relative to its priority runs next.
+        </p>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>The insight:</strong> no explicit time slice, no priority queue, no aging. Just a single
+            comparison — "whose vruntime is smallest?" — executed billions of times per second. The result is a
+            system that is very nearly fair, and that scales from a Raspberry Pi to a supercomputer without
+            redesign.
+        </div>
+
+        <!-- SVG: CFS red-black tree -->
+        <div class="svg-container">
+            <svg viewBox="0 0 820 320" xmlns="http://www.w3.org/2000/svg" aria-label="CFS red-black tree concept">
+                <text x="410" y="25" font-family="Inter" font-size="14" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">CFS keeps runnable threads in a red-black tree, keyed by vruntime</text>
+
+                <!-- Tree nodes representing vruntime -->
+                <line x1="410" y1="95" x2="260" y2="150" stroke="#3b82f6" stroke-width="1.5" />
+                <line x1="410" y1="95" x2="560" y2="150" stroke="#3b82f6" stroke-width="1.5" />
+                <line x1="260" y1="175" x2="160" y2="230" stroke="#3b82f6" stroke-width="1.5" />
+                <line x1="260" y1="175" x2="360" y2="230" stroke="#3b82f6" stroke-width="1.5" />
+                <line x1="560" y1="175" x2="660" y2="230" stroke="#3b82f6" stroke-width="1.5" />
+
+                <circle cx="410" cy="80" r="28" fill="rgba(59, 130, 246, 0.25)"
+                    stroke="#3b82f6" stroke-width="2" />
+                <text x="410" y="78" font-family="Courier New" font-size="11" fill="#7dd3fc"
+                    text-anchor="middle" font-weight="700">10 ms</text>
+                <text x="410" y="93" font-family="Inter" font-size="9" fill="#94a3b8"
+                    text-anchor="middle">root</text>
+
+                <circle cx="260" cy="155" r="26" fill="rgba(139, 92, 246, 0.25)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="260" y="155" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">5 ms</text>
+
+                <circle cx="560" cy="155" r="26" fill="rgba(139, 92, 246, 0.25)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="560" y="155" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">18 ms</text>
+
+                <!-- Leftmost = next to run -->
+                <circle cx="160" cy="235" r="26" fill="rgba(16, 185, 129, 0.35)"
+                    stroke="#10b981" stroke-width="3" />
+                <text x="160" y="232" font-family="Courier New" font-size="11" fill="#a7f3d0"
+                    text-anchor="middle" font-weight="700">2 ms</text>
+                <text x="160" y="247" font-family="Inter" font-size="9" fill="#6ee7b7"
+                    text-anchor="middle">next to run</text>
+
+                <circle cx="360" cy="235" r="26" fill="rgba(139, 92, 246, 0.25)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="360" y="235" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">7 ms</text>
+
+                <circle cx="660" cy="235" r="26" fill="rgba(139, 92, 246, 0.25)"
+                    stroke="#8b5cf6" stroke-width="2" />
+                <text x="660" y="235" font-family="Courier New" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle" font-weight="700">22 ms</text>
+
+                <text x="410" y="300" font-family="Inter" font-size="12" fill="#94a3b8" text-anchor="middle">
+                    The thread at the leftmost node always has the smallest vruntime — it runs next.
+                </text>
+            </svg>
+            <div class="svg-caption">CFS maintains runnable threads in a red-black tree sorted by virtual runtime. The leftmost node is always the thread to run next — an O(log n) operation.</div>
+        </div>
+
+        <h3>How the tree helps — and why it scales</h3>
+
+        <p>
+            CFS maintains its runnable threads in a <strong>red-black tree</strong>. It is a self-balancing binary
+            search tree, which guarantees <code>O(log n)</code> insert, delete, and leftmost-node lookup. That is
+            why CFS scales smoothly from a handful of threads to tens of thousands.
+        </p>
+
+        <p>
+            When a thread runs for a while, its vruntime increases. When it is preempted, it is re-inserted into
+            the tree at its new vruntime. When the scheduler needs the next thread, it takes the leftmost node.
+            No linear scans, no priority queues, no time slices — a single, elegant structure doing all the work.
+        </p>
+
+        <h3>The scheduler latency parameter</h3>
+
+        <p>
+            Though CFS has no <em>fixed</em> time slice, it does have a target called
+            <strong>sched_latency</strong> — typically 6 milliseconds on desktop systems. The idea: the scheduler
+            tries to run every runnable thread at least once within that window. If there are <code>n</code>
+            runnable threads, each gets <code>sched_latency / n</code> of CPU time.
+        </p>
+
+        <p>
+            When <code>n</code> grows large, the per-thread slice would become too small for efficiency (context
+            switches would dominate). CFS protects against this with <strong>min_granularity</strong> — often
+            0.75 ms. If the calculated slice falls below this value, it clamps it. The scheduler latency and the
+            minimum granularity together determine the actual time slice each thread receives.
+        </p>
+
+        <!-- SVG: dynamic time slice -->
+        <div class="svg-container">
+            <svg viewBox="0 0 800 220" xmlns="http://www.w3.org/2000/svg" aria-label="CFS dynamic time slice">
+                <text x="400" y="25" font-family="Inter" font-size="13" fill="#7dd3fc" text-anchor="middle"
+                    font-weight="700">CFS divides sched_latency among runnable threads</text>
+
+                <!-- 4 threads, each gets sched_latency/4 -->
+                <text x="40" y="65" font-family="Inter" font-size="12" fill="#cbd5e1">
+                    n = 4 threads, latency = 24 ms → each gets 6 ms
+                </text>
+
+                <rect x="40" y="75" width="180" height="30" rx="4" fill="rgba(59, 130, 246, 0.25)"
+                    stroke="#3b82f6" />
+                <text x="130" y="95" font-family="Inter" font-size="11" fill="#7dd3fc"
+                    text-anchor="middle">6 ms</text>
+                <rect x="220" y="75" width="180" height="30" rx="4" fill="rgba(16, 185, 129, 0.25)"
+                    stroke="#10b981" />
+                <text x="310" y="95" font-family="Inter" font-size="11" fill="#34d399"
+                    text-anchor="middle">6 ms</text>
+                <rect x="400" y="75" width="180" height="30" rx="4" fill="rgba(139, 92, 246, 0.25)"
+                    stroke="#8b5cf6" />
+                <text x="490" y="95" font-family="Inter" font-size="11" fill="#c4b5fd"
+                    text-anchor="middle">6 ms</text>
+                <rect x="580" y="75" width="180" height="30" rx="4" fill="rgba(245, 158, 11, 0.25)"
+                    stroke="#f59e0b" />
+                <text x="670" y="95" font-family="Inter" font-size="11" fill="#fbbf24"
+                    text-anchor="middle">6 ms</text>
+
+                <!-- 100 threads: clamped to min_granularity -->
+                <text x="40" y="145" font-family="Inter" font-size="12" fill="#cbd5e1">
+                    n = 100 threads, latency = 24 ms → each would get 0.24 ms
+                </text>
+
+                <text x="40" y="175" font-family="Inter" font-size="12" fill="#f472b6">
+                    ↓ but min_granularity = 0.75 ms clamps this up
+                </text>
+
+                <rect x="40" y="185" width="720" height="25" rx="4" fill="rgba(236, 72, 153, 0.22)"
+                    stroke="#ec4899" />
+                <text x="400" y="202" font-family="Inter" font-size="11" fill="#f9a8d4"
+                    text-anchor="middle">each thread actually gets 0.75 ms — sched_latency is exceeded</text>
+            </svg>
+            <div class="svg-caption">CFS scales its time slice dynamically: fewer threads means longer slices, but a minimum granularity prevents slices from becoming too short to be efficient.</div>
+        </div>
+
+        <h3>Nice values, weighted by CFS</h3>
+
+        <p>
+            CFS does not ignore priority — it interprets it as a <strong>weight</strong> affecting how fast
+            <code>vruntime</code> grows. A thread with a nice value of −5 has a much larger weight than a thread
+            with nice +5. This means it can stay ahead of the lower-priority thread in the tree for longer, even
+            though both accumulate wall-clock CPU time at the same rate.
+        </p>
+
+        <p>
+            In practice, changing a thread's nice value by 5 points roughly multiplies its CPU share by a known
+            factor — that is the whole point of the nice scale. A thread with nice 0 gets a base share. A thread
+            with nice <code>−10</code> gets more CPU; a thread with nice <code>+10</code> gets less.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Why the name "completely fair"?</strong> In the limit where every thread has the same nice
+            value, CFS gives every thread exactly the same share of CPU time — regardless of when it arrived, how
+            long it has been running, or what it is doing. Fairness is the default; any priority difference is a
+            purposeful deviation from that baseline.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 5.7 LAB: NICE AND CHRT                                       -->
+        <!-- ============================================================ -->
+        <h2 id="lab-nice"><i class="fas fa-terminal"></i> 5.7 · Touch Lab — Priority in Practice with nice &amp; chrt</h2>
+
+        <p>
+            Let's now touch the scheduler from user space. Linux exposes its scheduling priorities through two
+            commands: <code>nice</code> for ordinary threads, and <code>chrt</code> for real-time policies. We will
+            use both, and we will verify the effect with <code>top</code>.
+        </p>
+
+        <h3>Step 1 — Inspect your current nice value</h3>
+
+        <pre><code>$ nice
+0
+
+$ ps -o pid,ni,pri,comm -p $$
+PID    NI  PRI COMMAND
+4523    0   19 bash</code></pre>
+
+        <p>
+            The <code>NI</code> column is the nice value — 0 by default. The <code>PRI</code> column shows the
+            kernel's internal priority — a number derived from nice. Lower PRI means higher priority.
+        </p>
+
+        <h3>Step 2 — Start a CPU-intensive job at the default priority</h3>
+
+        <pre><code>$ yes > /dev/null &
+[1] 4700</code></pre>
+
+        <p>
+            The <code>yes</code> command prints <code>y</code> characters forever — but by redirecting the output
+            to <code>/dev/null</code>, we just made it a pure CPU hog. It runs at nice 0.
+        </p>
+
+        <h3>Step 3 — Start a CPU-intensive job at a lower priority</h3>
+
+        <pre><code>$ nice -n 19 yes > /dev/null &
+[2] 4701</code></pre>
+
+        <p>
+            This second <code>yes</code> runs at nice 19 — the lowest possible priority. If the scheduler does its
+            job, this one gets dramatically less CPU time than the first.
+        </p>
+
+        <h3>Step 4 — Observe the difference in top</h3>
+
+        <pre><code>$ top -p 4700,4701
+
+  PID USER   PR  NI    %CPU  TIME+    COMMAND
+ 4700 student 20  0   99.7  0:15.23  yes
+ 4701 student 39 19    4.3  0:00.68  yes</code></pre>
+
+        <p>
+            Look carefully at the numbers:
+        </p>
+
+        <ul>
+            <li><strong>%CPU</strong> — the first thread is using about 100% of a core. The second is using about
+                4%. The scheduler is giving the first thread almost all the CPU.</li>
+            <li><strong>NI</strong> — the nice values differ: 0 vs 19.</li>
+            <li><strong>PR</strong> — the kernel's reported priority: 20 vs 39. Lower is higher priority. The 19
+                point difference in nice corresponds to a 19 point difference in PR — this is the base of the
+                Linux nice model.</li>
+        </ul>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>What you are seeing:</strong> the two <code>yes</code> processes are trying to run exactly as
+            often. The scheduler is honouring the nice values, so the first one wins the CPU far more often. Try
+            running only one <code>yes</code>, then starting a second at nice 0 — the two will split the CPU
+            roughly evenly. Then change one to nice 19 and watch it collapse.
+        </div>
+
+        <h3>Step 5 — Change a running process's nice value</h3>
+
+        <pre><code>$ sudo renice -n 10 -p 4700
+4700 (process ID) old priority 0, new priority 10</code></pre>
+
+        <p>
+            The first <code>yes</code> now runs at nice 10. Its CPU share will shift slightly. Note that lowering
+            priority (increasing the nice number) does not require root — it is the safe direction. Raising
+            priority (decreasing the nice number, or going negative) requires <code>sudo</code>, because otherwise
+            any user could starve the system.
+        </p>
+
+        <h3>Step 6 — Real-time scheduling with chrt</h3>
+
+        <pre><code>$ chrt -p $$
+pid 4523's current scheduling policy: SCHED_OTHER
+pid 4523's current scheduling priority: 0</code></pre>
+
+        <p>
+            <code>chrt</code> is the tool for inspecting and setting a process's scheduling policy. Let's see the
+            options:
+        </p>
+
+        <ul>
+            <li><strong>SCHED_OTHER</strong> — the default. This is what almost everything uses, and it is
+                the CFS policy.</li>
+            <li><strong>SCHED_BATCH</strong> — for non-interactive CPU-bound threads. Tells CFS to allow longer
+                slices and less frequent preemption.</li>
+            <li><strong>SCHED_IDLE</strong> — runs only when nothing else wants the CPU. Extremely low priority.</li>
+            <li><strong>SCHED_FIFO</strong> — real-time, first-in-first-out. A running thread keeps the CPU until
+                it voluntarily blocks or yields. There is no time slice.</li>
+            <li><strong>SCHED_RR</strong> — real-time, round robin. Same as FIFO, but each thread gets a time
+                slice.</li>
+        </ul>
+
+        <div class="danger-note">
+            <i class="fas fa-biohazard"></i>
+            <strong>Careful with SCHED_FIFO.</strong> Real-time threads run before <em>every</em> other thread on the
+            system. If a SCHED_FIFO thread enters an infinite loop and never yields, it can freeze the entire
+            system — the shell, the scheduler daemon, even the timer handling. This is the classic way to lock up a
+            Linux machine. Use real-time scheduling only when you truly understand it, and always as a bounded,
+            well-behaved task.
+        </div>
+
+        <h3>Step 7 — Bounded real-time experiment</h3>
+
+        <p>
+            Let's run a real-time thread for a controlled length of time so we can observe the effect without
+            risking the system:
+        </p>
+
+        <pre><code>$ sudo chrt -f 10 timeout 5s yes > /dev/null &
+[1] 5100</code></pre>
+
+        <p>
+            This starts a SCHED_FIFO thread with real-time priority 10, but caps its runtime at 5 seconds with the
+            <code>timeout</code> command. While it runs, open another terminal and try typing. You may notice
+            slightly slower response — the shell is being preempted by the real-time thread.
+        </p>
+
+        <p>
+            After the 5 seconds, the real-time thread exits and the system returns to normal.
+        </p>
+
+        <h3>Step 8 — Verify with ps</h3>
+
+        <pre><code>$ ps -o pid,ni,pri,cls,rtprio,comm -p 5100
+  PID  NI PRI CLS RTPRIO COMMAND
+ 5100   -   -  FF     10 yes</code></pre>
+
+        <ul>
+            <li><strong>CLS</strong> — the scheduling class: <code>TS</code> for SCHED_OTHER, <code>FF</code> for
+                SCHED_FIFO, <code>RR</code> for SCHED_RR, <code>B</code> for SCHED_BATCH, <code>IDL</code> for
+                SCHED_IDLE.</li>
+            <li><strong>RTPRIO</strong> — the real-time priority, from 1 to 99.</li>
+            <li><strong>NI</strong> is empty for real-time threads — nice values do not apply to them.</li>
+        </ul>
+
+        <h3>Step 9 — Clean up</h3>
+
+        <pre><code>$ kill %1 %2
+$ jobs
+[1]-  Terminated   ...
+[2]+  Terminated   ...</code></pre>
+
+        <p>
+            Always clean up background jobs at the end of a lab. A stray <code>yes</code> process will happily
+            consume 100% of a core until you notice it — usually because the fan on your laptop suddenly started
+            spinning at full speed.
+        </p>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>Why does nice only go from −20 to +19?</strong> The scale was chosen decades ago as an
+            arbitrary range that felt natural. What matters is not the numbers themselves, but the relative
+            weights they map to inside the kernel. In CFS, the mapping is non-linear — each step of nice
+            represents a fixed ratio, not a fixed amount.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- 5.8 LAB: OBSERVING SCHEDULING WITH TOP                       -->
+        <!-- ============================================================ -->
+        <h2 id="lab-observe"><i class="fas fa-chart-simple"></i> 5.8 · Touch Lab — Observing the Scheduler with top &amp; /proc</h2>
+
+        <p>
+            In the previous lab we changed nice values and confirmed the effect. Now let's look at how the scheduler
+            actually reveals itself through system monitoring tools. Everything in this lab is read-only — you can
+            safely run it on any Linux machine, including your course VM.
+        </p>
+
+        <h3>Load average — the systemic overview</h3>
+
+        <p>
+            The first thing to look at is load average. In <code>top</code> or with the <code>uptime</code>
+            command, you will see three numbers:
+        </p>
+
+        <pre><code>$ uptime
+14:35:12 up  2:14,  2 users,  load average: 0.42, 0.31, 0.28</code></pre>
+
+        <p>
+            These are the average number of runnable (or uninterruptible) threads over the last 1, 5, and 15
+            minutes:
+        </p>
+
+        <ul>
+            <li><strong>If load &lt; number of cores →</strong> the system is not fully loaded. Some cores are
+                idle.</li>
+            <li><strong>If load ≈ number of cores →</strong> the system is fully utilized, but not overloaded.</li>
+            <li><strong>If load &gt; number of cores →</strong> threads are waiting in the ready queue. The
+                scheduler is running at capacity.</li>
+        </ul>
+
+        <p>
+            On a 4-core system, a load average of <code>0.5</code> means half of one core is being used on
+            average. A load average of <code>4.0</code> means all four cores are fully loaded. Any number above
+            that means you have more runnable threads than cores — the scheduler genuinely has to choose.
+        </p>
+
+        <h3>The CPU usage breakdown</h3>
+
+        <p>
+            In <code>top</code>, the CPU line looks like this:
+        </p>
+
+        <pre><code>%Cpu(s):  3.2 us,  0.8 sy,  0.0 ni, 95.6 id,  0.4 wa,  0.0 hi,  0.0 si,  0.0 st</code></pre>
+
+        <p>
+            Each of these categories is a place the CPU time went. Understanding them is essential for diagnosing
+            performance issues:
+        </p>
+
+        <table class="comparison-table">
+            <thead>
+                <tr>
+                    <th style="width: 15%;">Label</th>
+                    <th style="width: 30%;">Meaning</th>
+                    <th>What high values indicate</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td><strong>us</strong></td>
+                    <td>User time — running user-space code.</td>
+                    <td>Typical for compute-heavy or application workloads.</td>
+                </tr>
+                <tr>
+                    <td><strong>sy</strong></td>
+                    <td>System time — running kernel code.</td>
+                    <td>Excessive syscalls, heavy I/O, too many context switches.</td>
+                </tr>
+                <tr>
+                    <td><strong>ni</strong></td>
+                    <td>Time spent running nice-adjusted user processes.</td>
+                    <td>Only nonzero if you use nice values consistently.</td>
+                </tr>
+                <tr>
+                    <td><strong>id</strong></td>
+                    <td>Idle — the CPU had nothing to do.</td>
+                    <td>Good for servers, expected on desktops.</td>
+                </tr>
+                <tr>
+                    <td><strong>wa</strong></td>
+                    <td>I/O wait — CPU idle waiting for disk or network.</td>
+                    <td>Slow disk, network bottleneck, or heavily-loaded storage.</td>
+                </tr>
+                <tr>
+                    <td><strong>hi</strong></td>
+                    <td>Time handling hardware interrupts.</td>
+                    <td>Heavy network traffic or misbehaving device.</td>
+                </tr>
+                <tr>
+                    <td><strong>si</strong></td>
+                    <td>Time handling software interrupts.</td>
+                    <td>Heavy network traffic, especially small packets.</td>
+                </tr>
+                <tr>
+                    <td><strong>st</strong></td>
+                    <td>Steal time — time the hypervisor took from this VM.</td>
+                    <td>Only visible inside virtual machines, like ours.</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <div class="info-note">
+            <i class="fas fa-lightbulb"></i>
+            <strong>The most underrated number:</strong> <code>wa</code> — I/O wait. A system with 90% I/O wait
+            and 5% user time looks almost idle, but is actually crippled by slow storage or network. If your
+            application feels sluggish and <code>top</code> shows idle CPU, check the I/O wait before assuming the
+            problem is elsewhere.
+        </div>
+
+        <h3>Per-CPU view</h3>
+
+        <p>
+            In <code>top</code>, press <code>1</code> to toggle the per-CPU view. You will see one line for each
+            core, with its own usage. This is where the scheduler's work becomes visible: on a multi-core system,
+            the load should spread across cores fairly evenly when there is enough work.
+        </p>
+
+        <p>
+            If one core is at 100% while the others are idle, you may be looking at a single-threaded workload that
+            cannot be parallelized — not a scheduler problem. This is a critical diagnostic distinction: the
+            scheduler can only distribute work that is actually available.
+        </p>
+
+        <h3>Reading /proc for scheduling information</h3>
+
+        <p>
+            The <code>/proc/&lt;pid&gt;/sched</code> file exposes per-thread scheduler statistics — accumulated
+            runtime, context switches, wakeup count, and more:
+        </p>
+
+        <pre><code>$ cat /proc/$$/sched
+
+bash (4523, #threads: 1)
+-------------------------------------------------------------------
+se.exec_start                                :    34219.4325
+se.vruntime                                  :      321.419
+se.sum_exec_runtime                          :       12.837
+se.nr_migrations                             :          3
+nr_switches                                  :        184
+nr_voluntary_switches                        :         42
+nr_involuntary_switches                      :        142
+prio                                         :        120
+clock-delta                                  :         24</code></pre>
+
+        <p>
+            A few fields worth understanding:
+        </p>
+
+        <ul>
+            <li><strong>se.vruntime</strong> — the CFS virtual runtime we discussed earlier. This is the number
+                CFS uses to order threads in the red-black tree.</li>
+            <li><strong>se.sum_exec_runtime</strong> — the total CPU time consumed by this thread, in milliseconds.</li>
+            <li><strong>nr_voluntary_switches</strong> — times the thread voluntarily gave up the CPU (typically
+                because it blocked on I/O). High values are typical of I/O-bound threads.</li>
+            <li><strong>nr_involuntary_switches</strong> — times the thread was preempted by the scheduler. High
+                values are typical of CPU-bound threads being rotated out of the CPU.</li>
+            <li><strong>se.nr_migrations</strong> — how many times this thread has been moved between CPU cores.
+                Too many migrations indicate poor cache locality — the scheduler is shuffling the thread between
+                caches.</li>
+        </ul>
+
+        <h3>Putting it together — a diagnostic exercise</h3>
+
+        <ol>
+            <li>Start three CPU-intensive jobs in the background at the default priority:
+                <code>yes &gt; /dev/null &amp;</code> (three times).</li>
+            <li>Run <code>top</code> and press <code>1</code> to see per-CPU usage. On a 4-core machine, all three
+                cores should show high usage. On a 2-core machine, one job will be waiting.</li>
+            <li>Note the load average — it should climb to roughly the number of active jobs.</li>
+            <li>Now <code>renice</code> one of them to +19 and watch its <code>%CPU</code> drop in <code>top</code>.</li>
+            <li>Simulate I/O load with <code>dd if=/dev/zero of=/tmp/testfile bs=1M count=2000</code>. Watch the
+                <code>wa</code> column in <code>top</code>.</li>
+            <li>Stop everything with <code>kill %1 %2 %3</code>.</li>
+        </ol>
+
+        <div class="success-note">
+            <i class="fas fa-check-circle"></i>
+            <strong>When you can predict what <code>top</code> will show before you run it, you understand
+            scheduling.</strong> That is the goal of this lab — not just reading the numbers, but anticipating them
+            from first principles.
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- HOMEWORK                                                     -->
+        <!-- ============================================================ -->
+        <h2 id="homework"><i class="fas fa-tasks"></i> Homework Assignment</h2>
+
+        <div class="homework-box">
+            <h3><i class="fas fa-pen"></i> Week 5 — Written Assignment</h3>
+            <p>
+                Submit your answers as a PDF plus your shell outputs. This assignment contributes to your
+                <strong>labs &amp; assignments</strong> grade.
+            </p>
+
+            <h4>Part I — Conceptual Questions (30 points)</h4>
+            <ol>
+                <li>Define each of the following metrics and explain in one sentence what type of workload values
+                    it: <em>turnaround time</em>, <em>waiting time</em>, <em>response time</em>, <em>throughput</em>,
+                    <em>CPU utilisation</em>.</li>
+                <li>Explain the difference between preemptive and non-preemptive scheduling. Give one realistic
+                    scenario where each style is preferred.</li>
+                <li>What is the <strong>convoy effect</strong>? Give an example with three threads where FCFS
+                    performs dramatically worse than SJF, and compute the average waiting time for both.</li>
+                <li>Why is SJF theoretically optimal but practically unusable as-is? How do real systems work
+                    around the problem of not knowing the burst times in advance?</li>
+                <li>Explain the difference between priority scheduling, MLFQ, and CFS. What problem does each one
+                    solve that the previous one did not?</li>
+            </ol>
+
+            <h4>Part II — Numerical Problems (40 points)</h4>
+            <p>
+                Use the following workload for all problems below. All threads arrive at time 0.
+            </p>
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Thread</th>
+                        <th>Burst time</th>
+                        <th>Priority (lower = higher)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>P1</td><td>10</td><td>3</td></tr>
+                    <tr><td>P2</td><td>3</td><td>1</td></tr>
+                    <tr><td>P3</td><td>6</td><td>4</td></tr>
+                    <tr><td>P4</td><td>4</td><td>2</td></tr>
+                    <tr><td>P5</td><td>8</td><td>5</td></tr>
+                </tbody>
+            </table>
+
+            <ol>
+                <li>Draw the Gantt chart and compute the average waiting time and average turnaround time for
+                    <strong>FCFS</strong>, in arrival order P1..P5.</li>
+                <li>Repeat for <strong>SJF</strong> — always pick the thread with the smallest burst time.</li>
+                <li>Repeat for <strong>Priority Scheduling</strong> — always run the highest-priority ready
+                    thread. Note: this is non-preemptive.</li>
+                <li>Repeat for <strong>Round Robin</strong> with a time slice of 3 units.</li>
+                <li>Compare the four results in a table. Which algorithm minimised average waiting time? Which
+                    minimised average response time (first execution)? Which one is most fair? Justify each answer
+                    with the numbers.</li>
+            </ol>
+
+            <h4>Part III — Practical Lab (30 points)</h4>
+            <ol>
+                <li>On your Ubuntu VM, start two CPU-intensive jobs (<code>yes &gt; /dev/null</code>) at nice 0.
+                    Use <code>top</code> and report the CPU usage of each. Are they roughly equal? Why?</li>
+                <li>Restart both jobs, this time with one at nice 0 and the other at nice 19. Report the CPU usage
+                    of each. Explain why they differ by the ratio you observe.</li>
+                <li>While one job is running, capture <code>cat /proc/&lt;pid&gt;/sched | grep -E "runtime|switches"</code>
+                    twice, one minute apart. Compute the voluntary and involuntary switch rates. Is your workload
+                    I/O-bound or CPU-bound? Justify your answer from the numbers.</li>
+                <li>With all jobs stopped, run <code>uptime</code> and capture the load average. Start four
+                    <code>yes</code> jobs. Run <code>uptime</code> again a minute later. Report both load averages
+                    and explain the difference. How many CPU cores does your VM have? (Check with
+                    <code>nproc</code>.)</li>
+            </ol>
+
+            <p style="margin-top:1.2rem;">
+                <strong>Deadline:</strong> One week from the lecture date.<br>
+                <strong>Submission:</strong> Upload your PDF containing all answers and command outputs to the
+                course platform.
+            </p>
+        </div>
+
+        <!-- ============================================================ -->
+        <!-- SUMMARY                                                      -->
+        <!-- ============================================================ -->
+        <div class="summary-box">
+            <h3><i class="fas fa-check-double"></i> Week 5 Summary</h3>
+            <ul>
+                <li><strong>What scheduling does:</strong> decides which ready thread runs next on each CPU core,
+                    and for how long before being preempted. Happens billions of times per second on a live
+                    system.</li>
+                <li><strong>Preemptive vs non-preemptive:</strong> all modern general-purpose OSes are preemptive —
+                    the kernel can interrupt a running thread at the end of its time slice.</li>
+                <li><strong>Metrics:</strong> turnaround time (total), waiting time (queued), response time (to
+                    first execution), throughput, utilisation. Turnaround and response often conflict.</li>
+                <li><strong>FCFS:</strong> simple, no preemption, but suffers from the <em>convoy effect</em> — a
+                    single long job delays everyone behind it.</li>
+                <li><strong>SJF / SRTF:</strong> provably optimal for average waiting time, but require knowing
+                    burst times — practically unattainable. Approximation via exponential averaging.</li>
+                <li><strong>Round Robin:</strong> fixed time slice per thread, minimises response time. The basis
+                    of every general-purpose scheduler.</li>
+                <li><strong>Priority scheduling:</strong> explicit priorities, subject to starvation — fixed by
+                    aging. Linux exposes it through nice values and real-time classes.</li>
+                <li><strong>MLFQ:</strong> multiple priority queues, demotion on full-slice use, promotion on
+                    yield, periodic priority boost. Learns thread behaviour without being told.</li>
+                <li><strong>Linux CFS:</strong> no explicit time slices — order threads in a red-black tree by
+                    virtual runtime, always run the smallest. Scales to any workload. Regulated by
+                    <code>sched_latency</code> and <code>min_granularity</code>.</li>
+                <li><strong>Tools:</strong> <code>nice</code>, <code>renice</code>, <code>chrt</code>,
+                    <code>top</code>, <code>uptime</code>, <code>/proc/&lt;pid&gt;/sched</code> — everything you
+                    need to observe and control scheduling from user space.</li>
+            </ul>
+        </div>
+
+        <footer>
+            <p><i class="fas fa-university"></i> COMP 1303 — Operating Systems &amp; Linux Practical</p>
+            <p>Based on <strong>OSTEP</strong> &amp; <strong>Silberschatz, Operating System Concepts</strong> |
+                Instructor: <strong>Mahmoud Khalil</strong></p>
+            <p>© <span id="year"></span> Cyber Khalil — All Rights Reserved</p>
+        </footer>
+    </main>
+    <script src="main.js" defer></script>
+</body>
+
+</html>

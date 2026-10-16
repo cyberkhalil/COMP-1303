@@ -1,0 +1,2124 @@
+═══════════════════════════════════════════════════════════════════════
+COMP 1303 — Operating Systems & Linux Practical
+WEEK 13 — MariaDB – Database Service
+Video Narration Script (Instructor's Speaking Notes)
+═══════════════════════════════════════════════════════════════════════
+
+Notes for the instructor:
+• Total target time: three academic hours (~135 minutes) split across
+  ten short videos.
+• Each video is designed to be between 12 and 18 minutes of screen time.
+• Bracketed [ ] lines are stage directions, not to be read aloud.
+• "SPEAK:" marks the exact words to be said on camera.
+• Keep a steady, friendly pace — pause briefly between concepts.
+• This is the fifth week of Phase 2. Students are expected to have
+  completed Week 9 (users, permissions, systemd), Week 10 (packages,
+  networking basics, DHCP), Week 11 (DNS), and Week 12 (HTTP + Nginx).
+  Their VMs should have a working BIND9 server for the lab.local zone
+  and an Nginx reverse proxy configuration from Week 12.
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.1 — Why a Database Service                                 ║
+║  Target duration: ~15 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title slide: "MariaDB – Database Service" + course name]
+
+SPEAK:
+"Welcome to Week 13 of Operating Systems and Linux Practical. I'm
+Mahmoud Khalil.
+
+Last week, we built a reverse proxy in front of a Python web
+application. That was a huge step — we now have a working web service.
+But there was one piece missing. The application had no persistent
+storage. Its data lived in Python dictionaries and disappeared the
+moment the process exited.
+
+This week, we fill in that last piece. We are going to install,
+configure, secure, and administer a real database service — MariaDB,
+one of the most widely deployed open-source relational databases in
+the world.
+
+By the end of this week, you will have a complete three-tier web
+application running entirely on your VM: DNS resolving your own
+internal domain, Nginx proxying HTTP requests, a Flask backend
+handling business logic, and MariaDB providing persistent storage.
+That is the architecture of every serious web service in the world."
+
+[PAUSE]
+
+[SLIDE 2 — The stack diagram from weeks 10–13]
+
+SPEAK:
+"Let me show you the stack as it stands.
+
+At the bottom, our VMs — the network substrate from Weeks 10 and 11.
+DNS resolves names so clients can find services. DHCP assigns
+addresses to clients.
+
+Above that, Nginx, listening on port 80. Clients talk to Nginx.
+Nginx either serves static files directly or forwards requests to
+our backend application.
+
+The backend application — our Flask app — handles the business
+logic. It responds to HTTP requests, and it needs to store and
+retrieve data.
+
+And that is where the last piece comes in. Below the application, we
+need a database. Persistent, transactional, queryable.
+
+That is what we are building this week."
+
+[PAUSE]
+
+[SLIDE 3 — What persistence means]
+
+SPEAK:
+"Let me be very precise about what we mean when we say a database
+provides persistence.
+
+If I write a Python dictionary in memory, the data lives in RAM. The
+moment the process exits — deliberately or due to a crash — that data
+is gone. If I write to a file, the data survives, but managing files
+by hand for structured data is painful. I would need to invent a
+file format, handle concurrent access, deal with partial writes, and
+implement my own recovery logic.
+
+A database takes all of that off my plate. It provides a structured
+way to store data, guarantees that writes survive crashes, runs
+concurrent queries safely, and lets me query the data in flexible
+ways without pre-deciding the access patterns.
+
+The specific piece I want to highlight is durability. When I commit
+a transaction to a database and get a success response, that data
+will survive a crash. Even if the machine loses power a millisecond
+later. This is a guarantee that a file system alone cannot give me
+without a lot of work."
+
+[PAUSE]
+
+[SLIDE 4 — Why MariaDB specifically]
+
+SPEAK:
+"Why MariaDB and not some other database?
+
+Well, first, because it ships in Ubuntu's default repositories. We
+install it with apt — no third-party repositories, no GPG key
+juggling, no surprise.
+
+Second, because MariaDB is a drop-in fork of MySQL. MySQL is
+probably the most widely deployed relational database in the world.
+It powers countless websites, from tiny blogs to enormous enterprises.
+If you learn MariaDB, you know MySQL, and you know the vast majority
+of what you need for any relational database.
+
+Third, because MariaDB is 100% open source, community-governed, with
+no proprietary enterprise edition that locks features away. It is
+used in production by companies you have heard of — Wikipedia,
+Google, and many others.
+
+And fourth, because the skills transfer. The SQL you learn here works
+in PostgreSQL, in SQL Server, in Oracle, in SQLite — there are
+differences, but they are small compared to the similarities."
+
+[SLIDE 5 — Summary]
+
+SPEAK:
+"To summarize.
+
+A database provides persistent structured storage with strong
+guarantees — ACID — that a file system alone cannot provide
+gracefully.
+
+MariaDB is a community fork of MySQL. It ships in Ubuntu's default
+repositories, is drop-in compatible with MySQL, and teaches skills
+that transfer to any relational database.
+
+By the end of this week, we will have a complete three-tier stack:
+DNS, HTTP, application, and database — all running on your VM.
+
+In the next video, we will look at the relational model and SQL —
+the vocabulary you need to understand before you touch the database."
+
+[END OF VIDEO 13.1 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.2 — The Relational Model & SQL                             ║
+║  Target duration: ~18 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "The Relational Model & SQL"]
+
+SPEAK:
+"Welcome back. In the previous video we talked about why we need a
+database. Now let's learn the vocabulary — the concepts and the
+language.
+
+The relational model was proposed by Edgar Codd in 1970. It was a
+turning point in database design. Before it, databases were
+hierarchical or network-shaped, with data tied to structure. The
+relational model decoupled the two. You store data in simple tables
+of rows and columns, and you query it declaratively in SQL. That
+separation of structure from access is what made the relational
+model so powerful."
+
+[PAUSE]
+
+[SLIDE 2 — The fundamental units]
+
+SPEAK:
+"Let me define the fundamental units.
+
+A database is a named collection of tables that belong together.
+Usually it corresponds to one application. For our lab, we will
+create a database called shop_app.
+
+A table is a set of rows with the same structure. If you come from
+an object-oriented background, a table is like a class, and a row is
+like an instance of that class. If you come from a spreadsheet,
+a table is like a sheet, and a row is like a spreadsheet row.
+
+A column is a named field with a type. Every row has a value — or
+NULL — for each column. The column defines what can be stored:
+integer, text, timestamp, decimal.
+
+A row is a single record — one customer, one order, one product.
+
+A primary key is a column — or a set of columns — that uniquely
+identifies a row. It cannot be null, and no two rows can have the
+same value. Usually it is an integer ID.
+
+A foreign key is a column in one table that references the primary
+key of another table. It is how relationships are expressed. An
+order has a customer_id that points at a customer.
+
+An index is a data structure that speeds up lookups on a column. You
+create indexes on columns you query often, at the cost of extra
+storage.
+
+A view is a stored query that appears like a table. Useful for
+abstracting a complex join so the application can query it as if it
+were a simple table."
+
+[SLIDE 3 — A concrete example]
+
+SPEAK:
+"Let me show you a real schema.
+
+We have a customers table with an integer ID, a name, an email, and
+a timestamp. The ID is auto-incremented — the database assigns it
+automatically. The email is unique — no two customers can have the
+same email address.
+
+Then an orders table. Each order has its own ID, a customer_id that
+references a customer, a total amount, and when the order was
+placed.
+
+The customer_id column is a foreign key. If you try to create an
+order with a customer_id that does not exist, the database will
+refuse. That is referential integrity, enforced by the database,
+not by the application.
+
+This schema lets us do useful things. We can ask: how many orders
+has each customer placed? Which customer placed the largest total?
+What is the total revenue this month? All with SQL queries, without
+the application needing to know how the data is structured in memory."
+
+[SLIDE 4 — SQL families]
+
+SPEAK:
+"SQL is divided into four families of statements. Knowing which is
+which helps you keep things straight.
+
+DDL is Data Definition Language. It defines structure — CREATE,
+ALTER, DROP, TRUNCATE. These commands change the schema, not the
+data.
+
+DML is Data Manipulation Language. It works with the data —
+SELECT, INSERT, UPDATE, DELETE.
+
+DCL is Data Control Language. It manages permissions — GRANT,
+REVOKE.
+
+TCL is Transaction Control Language. It manages transactional
+boundaries — BEGIN, COMMIT, ROLLBACK.
+
+We use all four this week. DDL to define tables, DML to work with
+data, DCL to grant privileges, TCL to demonstrate transaction
+semantics."
+
+[PAUSE]
+
+[SLIDE 5 — Declarative vs imperative]
+
+SPEAK:
+"One more point before we move on. SQL is declarative, not
+imperative.
+
+When you write SELECT name FROM customers WHERE email equals
+alice at example dot com, you are not telling the database how to
+find this row. You are telling it what you want. The database
+decides.
+
+The database has a query planner — a piece of software that has been
+refined for decades. It looks at your query, looks at what indexes
+are available, looks at statistics about the data, and picks an
+execution plan. It might use an index on email. It might scan the
+whole table if the table is small. It might do either, depending on
+what the statistics say.
+
+This is the difference between SQL and imperative languages. You
+say what. The database says how. And the database is usually much
+better at deciding how than you would be, because it has fifty years
+of academic optimization and it can see statistics about the actual
+data.
+
+This is why learning SQL is worth it even in an era of ORMs and
+abstraction layers. You can still tell when a query is poorly
+written, and you can often make a slow query ten times faster by
+rewriting it."
+
+[SLIDE 6 — Summary]
+
+SPEAK:
+"To summarize.
+
+The relational model organizes data into tables, with rows and
+columns, related by primary and foreign keys.
+
+The concepts are: database, table, column, row, primary key, foreign
+key, index, view.
+
+SQL has four families: DDL, DML, DCL, TCL.
+
+SQL is declarative — you say what, not how.
+
+In the next video, we install MariaDB."
+
+[END OF VIDEO 13.2 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.3 — Installing MariaDB                                     ║
+║  Target duration: ~15 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Installing MariaDB"]
+
+SPEAK:
+"Welcome to the practical side of Week 13. Make sure your Ubuntu VM
+is running, that it has internet access, and that you are logged in.
+
+In this video, we install MariaDB, verify that the service is
+running, and connect for the first time."
+
+[SCREENCAST — install]
+
+SPEAK:
+"First, update the package list to make sure we have the latest
+versions.
+
+sudo apt update
+
+Then install MariaDB.
+
+sudo apt install mariadb-server mariadb-client -y
+
+The -y flag accepts any prompts automatically.
+
+The install may take a minute. When it finishes, systemd will have
+already started the service. Let's check.
+
+systemctl status mariadb
+
+You should see something like active running, with a process ID for
+mariadbd. The daemon is called mariadbd — that is the actual running
+process."
+
+[PAUSE]
+
+[SCREENCAST — inspecting the install]
+
+SPEAK:
+"Let's look at what was installed and where things live.
+
+The MariaDB daemon binary is at /usr/sbin/mariadbd.
+
+The data directory — where all the actual databases live — is
+/var/lib/mysql.
+
+The configuration directory is /etc/mysql.
+
+The default port is 3306 for TCP, and there is also a Unix socket
+at /run/mysqld/mysqld.sock for local connections.
+
+Let me check what is listening.
+
+sudo ss -tlnp | grep 3306
+
+On a fresh install, MariaDB usually listens only on the local socket
+and on 127.0.0.1 by default. That is what we want — it means no one
+from the network can reach it. We will talk about remote access
+later if we need it."
+
+[SCREENCAST — first connection]
+
+SPEAK:
+"Now let's connect. On Ubuntu, the root user of the system can
+connect as the root database user without a password, using sudo.
+
+sudo mariadb
+
+You should see a MariaDB prompt. Something like:
+
+MariaDB [(none)]>
+
+The (none) means we are not connected to any specific database yet.
+
+Let's check the basics.
+
+SELECT VERSION();
+
+That should print the MariaDB version.
+
+SHOW DATABASES;
+
+That lists the databases that exist. On a fresh install, you will
+see information_schema, mysql, performance_schema, and sys. These
+are internal databases that MariaDB uses to track its own state. Do
+not delete them.
+
+On older versions, there is also a database named test. That is
+where the security discussions come in.
+
+Let's exit.
+
+quit"
+
+[SLIDE — Why we do not allow remote access by default]
+
+SPEAK:
+"Let me pause on one thing. On a fresh install, MariaDB by default
+listens on localhost only. It does not accept connections from the
+network.
+
+Why? Because it is dangerous to expose a database to the network
+unless you have a very specific reason and you have taken proper
+precautions.
+
+Databases are usually accessed by applications that run on the same
+machine. In our three-tier setup — Nginx plus Flask plus MariaDB, all
+on one VM — the application connects to the database over the local
+socket. No network access is needed.
+
+For distributed setups — where the application server and the
+database server are on separate machines — you have to enable remote
+access, but you should restrict it to the specific IP of the
+application server, and you should use encryption for the connection.
+
+For now, local only is the right default."
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we installed MariaDB and made our first connection.
+
+We verified that the service is running with systemctl.
+
+We confirmed that the daemon is listening only on localhost.
+
+We connected as root via the Unix socket and inspected the default
+databases.
+
+Notice that everything so far has been simple — because Ubuntu ships
+MariaDB ready to use. That is one of the many reasons we chose
+Ubuntu for this course.
+
+But we are not done. The default install has some security gaps —
+anonymous users, a test database, and root with no password. In the
+next video, we run the security script and close those gaps."
+
+[END OF VIDEO 13.3 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.4 — Securing the Installation                              ║
+║  Target duration: ~15 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Securing MariaDB"]
+
+SPEAK:
+"Welcome back. In the previous video, we installed MariaDB. Now we
+harden it.
+
+MySQL and MariaDB ship with a script that walks you through a small
+set of security tasks. On MariaDB, that script is called
+mariadb-secure-installation. On MySQL, it is called
+mysql_secure_installation. Either way, you run it once, on the day
+you install the database, before you put any real data in it.
+
+Let's run it."
+
+[SCREENCAST]
+
+SPEAK:
+"Type:
+
+sudo mariadb-secure-installation
+
+The script will ask you a series of questions. Let me walk through
+each one as it appears.
+
+The first question is about setting a root password. Depending on
+your MariaDB version, this might be skippable, because root already
+authenticates via the Unix socket. But setting a password is a good
+idea anyway. Answer yes if asked, and choose a strong password.
+
+Next: remove anonymous users. MariaDB, in its historical
+configuration, has anonymous user accounts — accounts with empty
+usernames. These were a convenience back when anyone at a terminal
+could be trusted. They are a security risk today. Answer yes.
+
+Next: disallow root login remotely. The root user should only ever
+be able to connect from the local machine. If you need to
+administer a remote database, you use SSH to get to the server
+first, then connect locally. Answer yes.
+
+Next: remove the test database. That database is usable by anyone
+and is only there for testing. Drop it. Answer yes.
+
+Next: reload privilege tables. This applies the changes so far.
+Answer yes.
+
+And that is it."
+
+[PAUSE]
+
+[SCREENCAST — verify the result]
+
+SPEAK:
+"Let's confirm what changed. Reconnect to MariaDB.
+
+sudo mariadb
+
+Then check the users.
+
+SELECT User, Host FROM mysql.user;
+
+On a well-secured fresh install, you should see only two accounts:
+root at localhost, and mariadb.sys at localhost.
+
+No anonymous users. No root at percent, meaning root from anywhere.
+Just the two local accounts.
+
+And check the databases.
+
+SHOW DATABASES;
+
+The test database is gone.
+
+That is the standard hardening. From here on, any account we create
+should be justified by a specific need, and should have the
+minimum privileges required."
+
+[SLIDE — Beyond the script]
+
+SPEAK:
+"The security script covers the standard cases, but it is a starting
+point, not the end.
+
+A few additional things you would do on a production server.
+
+One: bind to localhost only in the config. The default on Ubuntu is
+already localhost only, but verify with ss -tlnp. If it is listening
+on 0.0.0.0, that means it is reachable from every interface, and
+that is almost never what you want.
+
+Two: firewall the port. If you need remote access, restrict port
+3306 to specific source IPs using ufw or iptables. Never allow
+3306 from the internet.
+
+Three: enable the slow query log. Any query that takes more than a
+few seconds should be logged. This helps you find and fix performance
+problems before they become outages.
+
+Four: schedule backups. We will do this in the last lab. Without
+backups, all the security in the world will not save you if a disk
+fails.
+
+Five: keep MariaDB updated. Security patches for the database
+arrive through apt like any other package. Run apt update and apt
+upgrade regularly, or better, subscribe to the Ubuntu security
+mailing list."
+
+[SLIDE — Summary]
+
+SPEAK:
+"To summarize.
+
+Run mariadb-secure-installation immediately after installing
+MariaDB, before putting any data in it.
+
+The script removes anonymous users, disallows remote root, drops the
+test database, and optionally sets a root password.
+
+After running it, verify that the user table has only root and the
+internal system users.
+
+Additional hardening: bind to localhost, firewall the port,
+enable slow query logging, schedule backups, and keep the server
+patched.
+
+In the next video, we start actually using the database. We will
+create a database, define tables, and insert some data."
+
+[END OF VIDEO 13.4 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.5 — Databases, Tables & SQL Basics                         ║
+║  Target duration: ~20 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Databases, Tables & SQL Basics"]
+
+SPEAK:
+"Welcome to the fifth video of Week 13. Now we get to the heart of
+the week. We are going to create a database, define tables, insert
+data, and query it back.
+
+Let's open the MariaDB client.
+
+sudo mariadb
+
+And let's get to work."
+
+[SCREENCAST — create a database]
+
+SPEAK:
+"First, create a database for our shop application.
+
+CREATE DATABASE shop_app
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+Let me explain the parts.
+
+CREATE DATABASE shop_app is the command. It creates an empty database
+with that name.
+
+CHARACTER SET utf8mb4 selects the modern UTF-8 encoding. The
+four-byte variant. This handles the full Unicode range — including
+emoji and many non-Latin scripts.
+
+COLLATE utf8mb4_unicode_ci sets the collation. The ci at the end
+means case-insensitive. So Alice and alice would be considered equal
+in string comparisons. That is usually what you want for
+user-facing data.
+
+Note: always use utf8mb4 rather than utf8. In MySQL and MariaDB,
+utf8 is a legacy three-byte encoding that cannot store emoji or most
+non-BMP characters. It is a historical wart. utf8mb4 is always what
+you want.
+
+Now let's use the database.
+
+USE shop_app;
+
+The prompt changes from (none) to shop_app, indicating we are
+working in that database."
+
+[SCREENCAST — create tables]
+
+SPEAK:
+"Now let's create the customers table.
+
+CREATE TABLE customers (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+Let me walk through the columns.
+
+id is an integer, auto-incremented — the database assigns it
+automatically on every insert. It is the primary key.
+
+name is a variable-length string up to a hundred characters. NOT
+NULL means it cannot be empty.
+
+email is a longer string, also NOT NULL, and UNIQUE — no two
+customers can share an email.
+
+created_at is a timestamp with a default of the current time. When
+we insert a row without specifying this column, it gets the current
+time automatically.
+
+And ENGINE=InnoDB at the end specifies the storage engine. InnoDB
+is the modern default — it supports transactions and foreign keys.
+The older MyISAM engine does not.
+
+Now the orders table.
+
+CREATE TABLE orders (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id  INT NOT NULL,
+    total        DECIMAL(10, 2) NOT NULL,
+    placed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+customer_id is a foreign key. Every order belongs to a customer, and
+the foreign key enforces that the customer_id must match an existing
+customer.
+
+total is a DECIMAL with ten total digits and two after the decimal
+point. This is the correct type for money. Never use FLOAT for
+currency — floating point cannot exactly represent most decimal
+fractions, and you will get rounding errors.
+
+ON DELETE CASCADE means that if a customer is deleted, their orders
+are deleted too. Without it, the delete would fail because orders
+would still reference the customer."
+
+[SCREENCAST — insert data]
+
+SPEAK:
+"Now let's insert some data.
+
+INSERT INTO customers (name, email) VALUES
+    ('Alice', 'alice@example.com'),
+    ('Bob',   'bob@example.com'),
+    ('Carol', 'carol@example.com');
+
+Notice that we do not provide id or created_at — the database fills
+them in. id gets the next integer, created_at gets the current time.
+
+If you want to see what IDs were assigned:
+
+SELECT LAST_INSERT_ID();
+
+But we can just query the table.
+
+SELECT * FROM customers;
+
+You should see three rows with IDs 1, 2, 3 and their creation
+timestamps. Order might not be guaranteed unless you add ORDER BY,
+but in practice with InnoDB it will be ascending.
+
+Now the orders.
+
+INSERT INTO orders (customer_id, total) VALUES
+    (1, 49.99),
+    (1, 99.50),
+    (2, 12.00),
+    (3, 210.75);
+
+SELECT * FROM orders;"
+
+[SCREENCAST — query with filters]
+
+SPEAK:
+"Now let's query with filters.
+
+SELECT * FROM customers WHERE email = 'alice@example.com';
+
+This returns Alice's row. If the email column is indexed, this query
+would be fast even on millions of rows. Without an index, it would
+scan the whole table.
+
+SELECT name FROM customers WHERE email LIKE '%example.com';
+
+The percent sign is a wildcard that matches any sequence of
+characters. This query finds everyone with an example.com email,
+regardless of the local part."
+
+[SCREENCAST — update and delete]
+
+SPEAK:
+"Now update and delete.
+
+UPDATE customers SET name = 'Alice Smith' WHERE id = 1;
+
+SELECT * FROM customers WHERE id = 1;
+
+Alice's row now shows the new name.
+
+DELETE FROM orders WHERE id = 3;
+
+SELECT * FROM orders;
+
+Order 3 is gone.
+
+Now watch this. This is the dangerous part.
+
+SELECT COUNT(*) FROM orders;
+
+You see how many orders are left. Now:
+
+DELETE FROM orders;
+
+SELECT COUNT(*) FROM orders;
+
+Zero. Every row in orders is gone. Because there was no WHERE
+clause, every row matched.
+
+This is the single most dangerous kind of SQL mistake. No WHERE
+clause on a DELETE or an UPDATE. In production, there is no undo.
+The data is gone. Many DBAs configure their clients to refuse
+unqualified DELETE and UPDATE statements, and you should seriously
+consider doing the same."
+
+[SCREENCAST — insert them back]
+
+SPEAK:
+"Let's put them back.
+
+INSERT INTO orders (customer_id, total) VALUES
+    (1, 49.99),
+    (1, 99.50),
+    (2, 12.00),
+    (3, 210.75);
+
+SELECT * FROM orders;
+
+OK, we are back to normal."
+
+[SLIDE — Summary]
+
+SPEAK:
+"In this lab, we did the essential SQL operations.
+
+CREATE DATABASE and CREATE TABLE for DDL.
+
+USE to select the current database.
+
+INSERT, SELECT, UPDATE, DELETE for DML.
+
+We saw the importance of proper data types — VARCHAR for strings,
+DECIMAL for money, TIMESTAMP for dates.
+
+We saw the danger of unqualified DELETE.
+
+In the next video, we look at users, hosts, and privileges — the
+security layer around the database."
+
+[END OF VIDEO 13.5 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.6 — Users, Hosts & Privileges                              ║
+║  Target duration: ~17 minutes                                        ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Users, Hosts & Privileges"]
+
+SPEAK:
+"Welcome back. We now have a database with tables and data. But we
+have been doing everything as root, which is not what a real
+application would do. In this video we create application users
+with the least privilege they need.
+
+This is the security layer around MariaDB. It is one of the few
+areas where MariaDB has a genuinely unusual design — the
+user-at-host concept — so let's dig into it."
+
+[PAUSE]
+
+[SLIDE 2 — user@host]
+
+SPEAK:
+"In MariaDB, a user account is not a username. It is a pair — a
+username and a host. Two accounts with the same username but
+different hosts are entirely separate accounts, with separate
+passwords and separate privileges.
+
+This is unusual. Most systems do not care where you connect from as
+part of your identity. MariaDB does.
+
+Why? Because it lets you express things like this.
+
+The shop user, when connecting from localhost, has full read-write
+access to the shop database.
+
+The shop user, when connecting from anywhere else on the network,
+has no access at all.
+
+That is a single user, and the permissions depend on where they are
+connecting from. It is a genuinely useful capability, but it is
+easy to get wrong if you are not paying attention.
+
+The host field can be a literal IP, a hostname, a wildcard using the
+percent sign, or a subnet in some notations. Let me give the common
+ones.
+
+app at localhost means app connecting from the local machine only.
+
+app at 192.168.56.10 means app connecting from exactly that IP.
+
+app at 192.168.56.% means app connecting from any address in the
+192.168.56.0/24 subnet.
+
+app at percent means app connecting from anywhere. This is
+the universal wildcard, and it should be used with great caution.
+
+The most common mistake beginners make is creating app at percent
+and then wondering why their credentials are being tried by bots
+from the internet. Because the account is accessible from
+everywhere — that is what percent means."
+
+[PAUSE]
+
+[SLIDE 3 — Creating a user]
+
+SPEAK:
+"Let's create the application user.
+
+CREATE USER 'shop'@'localhost' IDENTIFIED BY 'a-strong-password';
+
+This creates a user shop, host localhost, with that password.
+
+Notice that the username and host are both quoted strings. This is
+required MariaDB syntax. It is easy to forget the quotes around the
+host, and the error message when you do is not helpful.
+
+Now, immediately after creating the user, they have no privileges.
+They can connect, but they cannot do anything. They cannot even
+select from a single table.
+
+Privileges are granted explicitly.
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON shop_app.*
+    TO 'shop'@'localhost';
+
+FLUSH PRIVILEGES;
+
+The GRANT statement specifies four privileges on all tables in the
+shop_app database — indicated by shop_app.*.
+
+There are dozens of possible privileges in MariaDB. Let me mention
+the ones you are most likely to use.
+
+SELECT — read data.
+
+INSERT — add new rows.
+
+UPDATE — modify existing rows.
+
+DELETE — remove rows.
+
+CREATE, ALTER, DROP — modify the schema. Rarely needed by
+applications.
+
+INDEX — create indexes. Sometimes needed by migrations.
+
+CREATE USER, GRANT OPTION — manage accounts. Only for administrators.
+
+FILE — read and write files on the server. Very dangerous.
+
+PROCESS — see other users' processes. Useful for monitoring tools.
+
+SHOW DATABASES — list databases the user cannot otherwise see.
+
+For a web application, the typical grant is SELECT, INSERT, UPDATE,
+DELETE on the specific database. Nothing else."
+
+[SLIDE 4 — The principle of least privilege]
+
+SPEAK:
+"Let me hammer on this point because it is one of the most important
+principles in database security.
+
+Grant only what is needed. Nothing more.
+
+Every privilege you grant is a capability that can be abused if the
+application is ever compromised. An attacker who gains control of a
+web application is limited to what its database user can do.
+
+If the application's user has SELECT only, a compromised application
+can read data. Bad, but not catastrophic.
+
+If the application's user has SELECT, INSERT, UPDATE, DELETE, a
+compromised application can read, modify, and delete data. Bad, but
+data can be restored from backups.
+
+If the application's user has DROP and CREATE USER, a compromised
+application can drop every table and create new admin users. This
+is a disaster that may be unrecoverable.
+
+So: never grant CREATE or DROP to an application user unless the
+application genuinely needs them. Most do not. Migrations run
+separately, with elevated privileges, by a deployment tool. The
+running application has the minimum set of privileges it needs.
+
+This is not paranoia. This is standard practice on any serious
+production system."
+
+[PAUSE]
+
+[SLIDE 5 — Verifying and revoking]
+
+SPEAK:
+"Let's verify what privileges the shop user has.
+
+SHOW GRANTS FOR 'shop'@'localhost';
+
+You should see two lines — one for the grant we just gave, and one
+for the default usage grant that every user has.
+
+If you ever want to revoke a privilege, use REVOKE. The syntax is
+similar to GRANT.
+
+REVOKE DELETE ON shop_app.* FROM 'shop'@'localhost';
+
+And to remove a user entirely, use DROP USER.
+
+DROP USER 'shop'@'localhost';
+
+That removes the account and all its privileges. It does not affect
+the data in shop_app — that is a separate thing."
+
+[SLIDE 6 — Testing the new user]
+
+SPEAK:
+"Let's test what the shop user can actually do. Exit root and
+reconnect as shop.
+
+quit
+
+mariadb -u shop -p shop_app
+
+Enter the password. You should get the prompt for the shop_app
+database.
+
+Try some things.
+
+SELECT * FROM customers;
+
+This should work. The shop user has SELECT on this database.
+
+INSERT INTO customers (name, email) VALUES ('Dave', 'dave@example.com');
+
+This should also work. The user has INSERT.
+
+Now try something they should not be able to do.
+
+DROP TABLE customers;
+
+This should fail with an error. The shop user does not have DROP
+privilege. Let me read the error message.
+
+CREATE DATABASE another;
+
+This should also fail. The user cannot create new databases.
+
+This is the principle of least privilege. The shop user has exactly
+what the application needs, and nothing more."
+
+[SLIDE 7 — Summary]
+
+SPEAK:
+"To summarize.
+
+MariaDB users are user-at-host pairs. The host is part of the
+identity. Two users with the same name but different hosts are
+different accounts.
+
+Create users with CREATE USER. Grant privileges with GRANT.
+
+Grant only what the application actually needs. SELECT, INSERT,
+UPDATE, DELETE for most applications. Do not grant DROP, CREATE
+USER, or FILE unless there is a very specific reason.
+
+Verify with SHOW GRANTS. Revoke with REVOKE. Remove accounts with
+DROP USER.
+
+In the next video, we connect a real web application to the
+database."
+
+[END OF VIDEO 13.6 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.7 — Connecting from a Web App                              ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Connecting from a Web App"]
+
+SPEAK:
+"Welcome to the seventh video of Week 13. In Week 12 we built a
+Flask application behind Nginx. That application was stateless — its
+data lived in memory and vanished on restart.
+
+This week we fix that. We connect the Flask application to our
+MariaDB database."
+
+[SCREENCAST — installing the connector]
+
+SPEAK:
+"First, install the MySQL connector for Python. Ubuntu has a package
+for it.
+
+sudo apt install python3-mysql.connector -y
+
+Verify with:
+
+python3 -c "import mysql.connector; print('ok')"
+
+You should see 'ok' printed."
+
+[PAUSE]
+
+[SCREENCAST — writing the app]
+
+SPEAK:
+"Now let's write the application. Open a new file.
+
+sudo nano /opt/myapp/app.py
+
+I will paste in the code, and then walk through it.
+
+The important parts to notice:
+
+First, we create a connection pool at startup. The pool has five
+connections. Instead of opening a new connection on every request,
+the app reuses connections from this pool. This is critical for
+performance.
+
+Second, we define a get_db function that pulls a connection from the
+pool. Every handler calls get_db, uses the connection, then closes
+it — which returns it to the pool.
+
+Third, look at the endpoints. The /customers endpoint does a SELECT
+query and returns the result as JSON. The /customers slash
+identifier endpoint takes an ID and returns one customer or a 404.
+
+The POST endpoint inserts a new customer. Note the try-except block:
+if the email is already taken, the database raises an integrity
+error, and we return a 409 conflict response.
+
+And the /health endpoint verifies that the database is reachable.
+This is the endpoint a load balancer or monitoring system polls.
+
+Save the file."
+
+[SCREENCAST — the SQL injection issue]
+
+SPEAK:
+"Let me pause on one critical detail.
+
+Look at this line, in the single-customer endpoint:
+
+cur.execute('SELECT * FROM customers WHERE id = %s', (cid,))
+
+This is a parameterized query. The %s is a placeholder, and the value
+of cid is passed separately.
+
+Now imagine we had done it the wrong way:
+
+cur.execute(f'SELECT * FROM customers WHERE id = {cid}')
+
+This builds the SQL string by concatenation. It looks equivalent. It
+is not.
+
+If an attacker makes a request with cid equal to something like
+'1 OR 1=1' or '1; DROP TABLE customers', their input becomes part of
+the SQL. In the first case, they read every row. In the second case,
+they drop the table.
+
+This is SQL injection, and it is one of the most common web
+vulnerabilities in the world. It has been at the top of the OWASP
+top-ten list for decades.
+
+Parameterized queries — passing values separately from the SQL
+string — completely prevent SQL injection, because the SQL structure
+is fixed and the values cannot change it.
+
+Use parameterized queries for every query that takes user input.
+There is no exception."
+
+[SCREENCAST — running the app]
+
+SPEAK:
+"Let's run the app.
+
+python3 /opt/myapp/app.py &
+
+It listens on 127.0.0.1 port 5000 — the loopback only. The backend
+is not directly reachable from the network. Good.
+
+Test locally.
+
+curl http://127.0.0.1:5000/customers
+
+You should see the JSON array of customers from our database. If
+you do not see them, check the console output from the app for
+errors.
+
+curl http://127.0.0.1:5000/customers/1
+
+You should see Alice's row.
+
+Now create a new customer:
+
+curl -X POST http://127.0.0.1:5000/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Dave","email":"dave2@example.com"}'
+
+You should get back a JSON object with the new ID.
+
+Make the same request again. Now you get a 409 conflict — the email
+is already taken.
+
+curl http://127.0.0.1:5000/health
+
+Should return OK."
+
+[PAUSE]
+
+[SCREENCAST — putting Nginx in front]
+
+SPEAK:
+"From Week 12 we have Nginx configured as a reverse proxy. Let's
+create a virtual host for our app.
+
+sudo nano /etc/nginx/sites-available/shop.local
+
+Paste in the reverse proxy configuration:
+
+server {
+    listen 80;
+    server_name shop.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+Save, enable it, and reload Nginx.
+
+sudo ln -s /etc/nginx/sites-available/shop.local
+           /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+
+Now test through Nginx.
+
+curl http://localhost/customers -H "Host: shop.local"
+
+You should see the same JSON output, but this time it went through
+Nginx."
+
+[SCREENCAST — DNS integration]
+
+SPEAK:
+"If you completed Week 11, your BIND9 server manages the lab.local
+zone. Let's add shop to it.
+
+Edit /etc/bind/db.lab.local and add:
+
+shop    IN    A    192.168.56.1
+
+Increment the serial in the SOA. Validate with named-checkzone.
+Reload BIND9.
+
+Now, on a client machine that uses our BIND9 for DNS, the name
+shop.lab.local resolves to our server.
+
+curl http://shop.lab.local/customers
+
+And there you have it — a client on the network resolves our name
+via DNS, opens an HTTP connection to Nginx, Nginx proxies to the
+Flask app, the Flask app queries MariaDB, and the response comes
+back. Three layers of service, all built by you, all working
+together."
+
+[SLIDE — Summary]
+
+SPEAK:
+"In this lab, we connected a web application to the database.
+
+We used a connection pool to reuse connections instead of opening
+one per request.
+
+We used parameterized queries to prevent SQL injection.
+
+We tested the app locally, then wired it up to Nginx via a reverse
+proxy.
+
+And we added a DNS record so the app is accessible by name on our
+lab network.
+
+What you have built is a complete three-tier application. This is
+the architecture that every serious web service uses."
+
+[END OF VIDEO 13.7 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.8 — Backup & Restore                                       ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Backup & Restore"]
+
+SPEAK:
+"Welcome to the eighth video of Week 13. This is the video I hope you
+will remember longest, because it is the one that saves you when
+everything else goes wrong.
+
+This is about backups.
+
+Backups are the single most important thing a database administrator
+does. Every other task can be delayed or skipped. Backups cannot.
+Because there are exactly three scenarios that destroy databases
+without a backup, and all three are common.
+
+One: hardware failure. Disks die. RAID helps, but do not confuse
+RAID with backup.
+
+Two: human error. Someone runs the wrong DROP command, or updates
+the wrong rows, or deploys broken code that corrupts data.
+
+Three: ransomware. Malicious software encrypts everything it can
+reach. If a backup is stored on the same machine, it is gone too.
+
+Let's talk about how to prevent all three."
+
+[PAUSE]
+
+[SLIDE 2 — mysqldump]
+
+SPEAK:
+"The classic backup tool for MySQL and MariaDB is mysqldump.
+
+It connects to the server, reads the schema and data, and writes a
+text file containing SQL statements. Those statements, when replayed,
+recreate the database exactly.
+
+Let's take a dump of our shop_app database.
+
+mysqldump -u root -p shop_app > /tmp/shop_app_$(date +%F).sql
+
+You will be prompted for the root password. After a second, you
+have a file at /tmp/shop_app_2024-11-15.sql.
+
+Let's look at it.
+
+head -50 /tmp/shop_app_2024-11-15.sql
+
+You will see SQL — CREATE TABLE statements, INSERT statements, and
+various other statements. The dump starts with a header comment,
+then a LOCK TABLES statement, then the CREATE TABLE for customers,
+then its data as a series of INSERT statements.
+
+Every byte of your database is now in a text file. You can read it,
+you can diff it, you can mail it, you can store it in git. This is
+the beauty of a logical backup."
+
+[PAUSE]
+
+[SLIDE 3 — Common mysqldump options]
+
+SPEAK:
+"Let me show you some mysqldump options you should know.
+
+--single-transaction — this takes a consistent snapshot without
+locking tables. It works for InnoDB tables, which is what you should
+be using. It is the modern way to take a backup without stopping
+writes.
+
+--all-databases — dump everything on the server, not just one
+database.
+
+--no-data — dump the schema only. Useful for versioning your schema
+in git.
+
+--routines — include stored procedures and functions.
+
+--events — include scheduled events.
+
+--triggers — this is included by default, but worth knowing.
+
+--where='condition' — dump only a subset of rows. Useful for partial
+backups.
+
+--ignore-table=database.table — exclude a specific table.
+
+Consider a realistic full backup command:
+
+mysqldump -u root -p \
+    --single-transaction \
+    --routines \
+    --events \
+    --all-databases \
+    > /tmp/full_backup_$(date +%F).sql
+
+This captures everything — all databases, all their data, all their
+procedures, all their scheduled events — in a single consistent
+snapshot."
+
+[SLIDE 4 — Restore]
+
+SPEAK:
+"Now let's restore. First, let's prove that our dump actually works
+by restoring into a scratch database.
+
+In the MariaDB client:
+
+CREATE DATABASE shop_app_restore;
+
+In the shell:
+
+mysql -u root -p shop_app_restore < /tmp/shop_app_2024-11-15.sql
+
+Back in the client:
+
+SELECT COUNT(*) FROM customers;
+SELECT COUNT(*) FROM orders;
+
+The counts should match the original database."
+
+[PAUSE]
+
+[SCREENCAST — testing the restore]
+
+SPEAK:
+"Let's actually run this now. I will do the dump, then restore it to
+a scratch database, then verify.
+
+mysqldump -u root -p shop_app > /tmp/shop_app.sql
+
+mysql -u root -p -e "CREATE DATABASE shop_app_restore"
+
+mysql -u root -p shop_app_restore < /tmp/shop_app.sql
+
+mysql -u root -p shop_app_restore -e "SELECT COUNT(*) FROM customers"
+
+mysql -u root -p shop_app -e "SELECT COUNT(*) FROM customers"
+
+Both counts should be the same.
+
+Now that we have proven we can restore, let's clean up the scratch
+database.
+
+mysql -u root -p -e "DROP DATABASE shop_app_restore"
+
+And that is the whole cycle. Dump, restore, verify. This is what you
+test — regularly — so that when you actually need your backup, you
+are sure it works."
+
+[SLIDE 5 — Automating backups]
+
+SPEAK:
+"A backup you take by hand once is not a backup strategy. You want a
+script on a schedule.
+
+On Linux, the standard scheduler is cron. Here is a simple backup
+script. I will write it to /usr/local/bin/backup-mariadb.sh.
+
+Let me walk through it.
+
+#!/bin/bash is the shebang — tells the system to run this with
+bash.
+
+set -euo pipefail makes the script fail fast on errors. This is a
+good practice for scripts that run unattended.
+
+BACKUP_DIR is where we store the backups.
+
+DATE is a formatted timestamp, so each dump has a unique name.
+
+FILE is the name of today's dump file.
+
+mkdir -p creates the backup directory if it does not exist yet.
+
+Then the mysqldump command. We pipe it through gzip to compress on
+the fly. SQL text compresses very well — ten to twenty times — so
+this saves a lot of disk space.
+
+Then find — it deletes any dump files older than fourteen days. This
+gives us a rotating window of the last two weeks of backups.
+
+And finally, a log line so we can see when the script ran and what
+it produced."
+
+[SCREENCAST — creating and testing the script]
+
+SPEAK:
+"Let's create the script.
+
+sudo nano /usr/local/bin/backup-mariadb.sh
+
+Paste the script, save, and make it executable.
+
+sudo chmod +x /usr/local/bin/backup-mariadb.sh
+
+Then test it manually before scheduling.
+
+sudo /usr/local/bin/backup-mariadb.sh
+
+Then check what was produced.
+
+ls -lh /var/backups/mariadb/
+
+You should see a .sql.gz file. Let's verify it is a valid gzip file.
+
+gzip -t /var/backups/mariadb/*.sql.gz
+
+No output means it is valid."
+
+[SCREENCAST — scheduling with cron]
+
+SPEAK:
+"Now let's schedule it with cron.
+
+crontab -e
+
+Add this line at the end:
+
+30 2 * * * /usr/local/bin/backup-mariadb.sh >> /var/log/mariadb-backup.log 2>&1
+
+The five fields are: minute, hour, day of month, month, day of week.
+30 2 * * * means every day at 2:30 AM.
+
+The redirection at the end appends stdout and stderr to a log file.
+
+Save and exit.
+
+You can verify the crontab was installed.
+
+crontab -l
+
+The backup will run tonight at 2:30 AM. Tomorrow morning, check the
+backup directory and the log to confirm.
+
+A word of warning — cron runs in a very minimal environment. It does
+not have your shell's environment variables, and it does not have
+your PATH setup. If your script relies on any of that, you will need
+to set it explicitly in the script."
+
+[SLIDE 6 — Beyond mysqldump]
+
+SPEAK:
+"mysqldump is a solid tool, but for very large databases — hundreds
+of gigabytes or more — it has limitations.
+
+It can take a long time. Hours for a large database. During that
+time, it competes with the live workload.
+
+It generates a lot of I/O. It reads every row of every table.
+
+For larger deployments, consider:
+
+mariabackup — a physical backup tool. It copies the actual data
+files, without stopping the server, and does crash recovery after
+the copy. Much faster than mysqldump for large databases.
+
+Filesystem snapshots — if your database lives on LVM, ZFS, or Btrfs,
+you can take a snapshot of the data directory in seconds. This is
+elegant but requires the right filesystem.
+
+Replication — a replica is a live copy that continuously receives
+all writes from the primary. This is not a backup per se, because a
+mistake on the primary is immediately replicated. But it provides
+fast failover and a warm standby.
+
+Cloud-managed backups — if you are on a cloud platform, most managed
+databases offer automated point-in-time backups. Use them."
+
+[SLIDE — The three rules of backup]
+
+SPEAK:
+"Let me close with the three rules of backup.
+
+Rule one: produce backups regularly. Daily at minimum. For critical
+systems, hourly or more.
+
+Rule two: test the restore regularly. At least monthly. Restore to a
+test environment, run a sanity query, confirm the data is there. An
+untested backup is a hope, not a backup.
+
+Rule three: store the backup somewhere other than the primary
+server. A backup on the same disk as the database is not a backup.
+An off-site or cloud-stored backup is resilient to hardware failure,
+ransomware, and accidental deletion.
+
+And one more: verify the backup integrity. Take a checksum. Make
+sure the file is complete and valid before you rely on it.
+
+That is the entire topic of database backups, distilled. Do these
+things, and you will sleep better."
+
+[END OF VIDEO 13.8 — fade out]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.9 — Deep Lab: Deploy MariaDB & Create a Database           ║
+║  Target duration: ~18 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Deploy MariaDB & Create a Database"]
+
+SPEAK:
+"Welcome to the first deep lab of Week 13. Now we put together
+everything we learned in this week's theory videos.
+
+We are going to install MariaDB from scratch, secure it, create a
+database with proper structure, insert test data, create an
+application user with least privilege, and verify everything.
+
+Make sure your VM is running. Let's get started."
+
+[SCREENCAST — install]
+
+SPEAK:
+"Install the packages.
+
+sudo apt update
+sudo apt install mariadb-server mariadb-client -y
+
+Check that the service is running.
+
+systemctl status mariadb
+
+The output should show active running. If not, check the journal
+with journalctl -u mariadb -n 50."
+
+[SCREENCAST — secure]
+
+SPEAK:
+"Now secure the installation.
+
+sudo mariadb-secure-installation
+
+Answer the prompts. Let me do them on camera so you see exactly
+what to do.
+
+For the root password question, if your version asks, enter yes and
+set a strong password.
+
+Remove anonymous users — yes.
+
+Disallow root login remotely — yes.
+
+Remove test database — yes.
+
+Reload privilege tables — yes.
+
+Done. Let's verify.
+
+sudo mariadb -e "SELECT User, Host FROM mysql.user;"
+
+You should see only root at localhost, and possibly mariadb.sys at
+localhost. No anonymous users, no root at percent."
+
+[SCREENCAST — create database and tables]
+
+SPEAK:
+"Now create the database. Connect.
+
+sudo mariadb
+
+Then:
+
+CREATE DATABASE shop_app
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_unicode_ci;
+
+USE shop_app;
+
+Then the tables.
+
+CREATE TABLE customers (
+    id         INT AUTO_INCREMENT PRIMARY KEY,
+    name       VARCHAR(100) NOT NULL,
+    email      VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+CREATE TABLE orders (
+    id           INT AUTO_INCREMENT PRIMARY KEY,
+    customer_id  INT NOT NULL,
+    total        DECIMAL(10,2) NOT NULL,
+    placed_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_customer
+        FOREIGN KEY (customer_id) REFERENCES customers(id)
+        ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+Let's insert some data.
+
+INSERT INTO customers (name, email) VALUES
+    ('Alice', 'alice@example.com'),
+    ('Bob',   'bob@example.com'),
+    ('Carol', 'carol@example.com');
+
+INSERT INTO orders (customer_id, total) VALUES
+    (1, 49.99),
+    (1, 99.50),
+    (2, 12.00),
+    (3, 210.75);
+
+SELECT * FROM customers;
+SELECT * FROM orders;"
+
+[SCREENCAST — query with joins]
+
+SPEAK:
+"Let's run a join to see related data across tables.
+
+SELECT   c.name,
+         COUNT(o.id) AS order_count,
+         COALESCE(SUM(o.total), 0) AS total_spent
+FROM     customers c
+LEFT JOIN orders o ON o.customer_id = c.id
+GROUP BY c.id, c.name
+ORDER BY total_spent DESC;
+
+This returns every customer, the number of orders they have placed,
+and the total amount they have spent. Carol is at the top with
+210.75, then Alice with 149.49, then Bob with 12.00.
+
+Notice the LEFT JOIN — it includes all customers, even those with
+no orders. The COALESCE function handles the case where SUM returns
+NULL — it replaces NULL with zero.
+
+This is exactly the kind of aggregate query that a real application
+would run to build a dashboard, or to produce a report."
+
+[SCREENCAST — create the application user]
+
+SPEAK:
+"Now let's create the application user with least privilege.
+
+CREATE USER 'shop'@'localhost' IDENTIFIED BY 'a-strong-password';
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON shop_app.*
+    TO 'shop'@'localhost';
+
+FLUSH PRIVILEGES;
+
+SHOW GRANTS FOR 'shop'@'localhost';
+
+You should see the SELECT, INSERT, UPDATE, DELETE grant on shop_app,
+plus the default usage grant that every user has."
+
+[SCREENCAST — test the security boundary]
+
+SPEAK:
+"Now let's prove the security boundary works. Exit and reconnect as
+the shop user.
+
+quit
+
+mariadb -u shop -p shop_app
+
+Enter the password.
+
+Try some allowed operations.
+
+SELECT * FROM customers;
+
+This works.
+
+INSERT INTO customers (name, email) VALUES ('Dave', 'dave@example.com');
+
+This works.
+
+Now try things the user should NOT be able to do.
+
+DROP TABLE customers;
+
+ERROR. No DROP privilege.
+
+CREATE DATABASE another_db;
+
+ERROR. No CREATE DATABASE privilege.
+
+CREATE USER 'evil'@'localhost' IDENTIFIED BY 'password';
+
+ERROR. No CREATE USER privilege.
+
+Try to see databases the user cannot access.
+
+SHOW DATABASES;
+
+You see shop_app and information_schema. Not the mysql system
+database. That is exactly what we want.
+
+Exit.
+
+quit
+
+And reconnect as root to finish the lab.
+
+sudo mariadb"
+
+[SLIDE — Lab summary]
+
+SPEAK:
+"In this lab, we deployed MariaDB from scratch. We secured it. We
+created a database with proper structure, including a foreign key
+and a proper data type for money. We inserted test data. We created
+an application user with least privilege and proved that the user
+cannot do anything beyond what they were granted.
+
+This is the standard deployment pattern you would use on any real
+system. There is nothing lab-specific about it.
+
+In the next lab, we integrate this with the web application and
+demonstrate a full three-tier stack."
+
+[END OF VIDEO 13.9]
+
+
+╔══════════════════════════════════════════════════════════════════════╗
+║  VIDEO 13.10 — Deep Lab: Full Stack Integration                      ║
+║  Target duration: ~22 minutes (screencast)                           ║
+╚══════════════════════════════════════════════════════════════════════╝
+
+[SLIDE 1 — Title: "Deep Lab — Full Stack Integration"]
+
+SPEAK:
+"Welcome to the final video of Week 13. This is the culmination of
+the entire course. We are going to wire together everything from
+Phase 2: DNS from Week 11, Nginx from Week 12, and MariaDB from this
+week. When we are done, we will have a fully working three-tier web
+application running on a single VM.
+
+Let's do it."
+
+[SCREENCAST — install dependencies]
+
+SPEAK:
+"First install the Python MariaDB connector.
+
+sudo apt install python3-mysql.connector -y
+
+And confirm it works.
+
+python3 -c "import mysql.connector; print(mysql.connector.__version__)""
+
+[SCREENCAST — write the app]
+
+SPEAK:
+"Now write the Flask application. I am going to paste in a complete
+version that reads and writes to the database.
+
+sudo nano /opt/myapp/app.py
+
+Let me walk through the parts.
+
+The app creates a connection pool at startup. Five connections. They
+are shared across requests.
+
+The root route is a simple hello.
+
+The /customers route lists all customers.
+
+The /customers slash identifier route returns one customer.
+
+The /customers POST endpoint creates a new customer. It takes JSON,
+validates the input, tries to insert, and returns 201 on success or
+409 on conflict.
+
+And the /health endpoint verifies that the database is reachable.
+
+Notice the SQL. Everywhere we take user input, we use parameterized
+queries. The identifier in the path is passed as a tuple. The name
+and email in the POST are passed as a tuple. Never string
+concatenation. This is the single most important security rule in
+application development.
+
+Save the file and exit."
+
+[SCREENCAST — start the app]
+
+SPEAK:
+"Start the app in the background.
+
+python3 /opt/myapp/app.py &
+
+It binds to 127.0.0.1 port 5000. Only reachable from the local
+machine. Only Nginx can talk to it."
+
+[SCREENCAST — test locally]
+
+SPEAK:
+"Test locally.
+
+curl http://127.0.0.1:5000/customers
+
+You should see the JSON array.
+
+curl http://127.0.0.1:5000/customers/1
+
+Alice.
+
+curl -X POST http://127.0.0.1:5000/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Dave","email":"dave@example.com"}'
+
+201 Created with the new customer.
+
+Now the same request again. It should return 409 Conflict, because
+the email is already taken.
+
+curl http://127.0.0.1:5000/health
+
+OK."
+
+[PAUSE]
+
+[SCREENCAST — configure Nginx]
+
+SPEAK:
+"Now let's create the Nginx virtual host. We reuse the pattern from
+Week 12.
+
+sudo nano /etc/nginx/sites-available/shop.local
+
+Paste in:
+
+server {
+    listen 80;
+    server_name shop.local;
+
+    location / {
+        proxy_pass http://127.0.0.1:5000;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+
+Save. Enable and reload.
+
+sudo ln -s /etc/nginx/sites-available/shop.local
+           /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl reload nginx
+
+Test through Nginx.
+
+curl -H "Host: shop.local" http://localhost/customers
+
+The same JSON comes back."
+
+[SCREENCAST — add DNS]
+
+SPEAK:
+"If you have BIND9 running from Week 11, let's add the DNS record.
+
+sudo nano /etc/bind/db.lab.local
+
+Add near the other A records:
+
+shop    IN    A    192.168.56.1
+
+Update the serial. Since this is a lab change, let me just set it to
+2024111502.
+
+Save and validate.
+
+sudo named-checkzone lab.local /etc/bind/db.lab.local
+
+Reload BIND9.
+
+sudo systemctl reload named
+
+Verify.
+
+dig @127.0.0.1 shop.lab.local
+
+The A record should appear."
+
+[SCREENCAST — test from the client]
+
+SPEAK:
+"Now from the client machine — the second VM with its DNS pointed at
+our server — test.
+
+dig shop.lab.local
+
+The A record returns 192.168.56.1.
+
+curl http://shop.lab.local/customers
+
+The JSON comes back. The client did not know the IP address — it
+resolved the name via our DNS server. Then it made an HTTP request
+to Nginx. Nginx forwarded to Flask. Flask queried MariaDB. The
+response came back."
+
+[SCREENCAST — full round-trip]
+
+SPEAK:
+"Let's do a full round-trip. Create a customer through the full
+stack.
+
+curl -X POST http://shop.lab.local/customers \
+    -H "Content-Type: application/json" \
+    -d '{"name":"Eve","email":"eve@example.com"}'
+
+Then verify in the database directly.
+
+sudo mariadb shop_app -e "SELECT * FROM customers WHERE email='eve@example.com'"
+
+The row is there. Persisted. Survives.
+
+Now restart the Flask app. Kill it and start it again.
+
+pkill -f /opt/myapp/app.py
+python3 /opt/myapp/app.py &
+
+Make the query again.
+
+curl http://shop.lab.local/customers
+
+Eve is still there. Because the data is not in the app's memory
+anymore — it is in MariaDB. This is what persistence means."
+
+[PAUSE]
+
+[SCREENCAST — resiliency test]
+
+SPEAK:
+"Let's test crash recovery. Stop the database.
+
+sudo systemctl stop mariadb
+
+Try to query.
+
+curl -i http://shop.lab.local/customers
+
+This returns an error — a 500-level status. The application cannot
+reach the database.
+
+Check the health endpoint.
+
+curl http://shop.lab.local/health
+
+It reports the database is unreachable. This is exactly what a
+monitoring system looks for.
+
+Now bring the database back up.
+
+sudo systemctl start mariadb
+
+Wait a second.
+
+curl http://shop.lab.local/customers
+
+The app recovers. The connection pool reconnects. Everything works
+again.
+
+This is the value of connection pooling and proper error handling.
+The app did not need to be restarted. It just needed the database
+back."
+
+[SCREENCAST — backup]
+
+SPEAK:
+"One last exercise. Let's take a backup of the running database.
+
+mysqldump -u root -p shop_app > /tmp/shop_app_final.sql
+
+Look at how big the file is.
+
+ls -lh /tmp/shop_app_final.sql
+
+Not very big, because it is a small database. But the structure is
+what matters.
+
+Now restore it into a test database.
+
+mysql -u root -p -e "CREATE DATABASE shop_app_restore"
+mysql -u root -p shop_app_restore < /tmp/shop_app_final.sql
+mysql -u root -p shop_app_restore -e "SELECT COUNT(*) FROM customers;"
+mysql -u root -p shop_app -e "SELECT COUNT(*) FROM customers;"
+
+Both counts match. The backup works."
+
+[SCREENCAST — cleanup]
+
+SPEAK:
+"Clean up.
+
+mysql -u root -p -e "DROP DATABASE shop_app_restore"
+pkill -f /opt/myapp/app.py
+sudo rm /etc/nginx/sites-enabled/shop.local
+sudo systemctl reload nginx
+
+Now the system is back to its baseline state. But the knowledge
+remains. And the database still contains all the data we created."
+
+[SLIDE — What you built]
+
+SPEAK:
+"Let me emphasize what you built in this lab.
+
+You built a complete three-tier web application. From the moment a
+client resolves a name via DNS, through the HTTP request that hits
+Nginx, through the reverse proxy to Flask, through the SQL query
+against MariaDB, and back out through all the layers — every piece
+of that flow is code you wrote this week and in the previous four
+weeks.
+
+This is the architecture of practically every web service in the
+world. Google, Facebook, Amazon, your bank — they all have this
+shape. The scale is different, but the pattern is identical.
+
+You are not learning toy examples. You are learning the real thing,
+at small scale."
+
+[SLIDE — Week 13 wrap-up]
+
+SPEAK:
+"That wraps up Week 13. And it wraps up the core service work of
+Phase 2.
+
+We have now built four services: a DHCP server from Week 10, a DNS
+server from Week 11, a web server and reverse proxy from Week 12,
+and a database from Week 13. Each one was real, running on your own
+VM, doing real work.
+
+Please complete the written homework assignment for this week. It is
+substantial — a full SQL lab where you design a schema for a library
+system, plus a full-stack integration exercise. Take it seriously,
+because it pulls together everything you have learned in this
+phase.
+
+Next week — Week 14 — we have the integrated services lab. That is
+where you will bring together DNS, HTTP, and MariaDB into one
+coherent environment, and produce the deliverables you will use for
+your final project. It is the biggest lab of the course.
+
+See you then.
+
+Until then — keep exploring."
+
+[END OF VIDEO 13.10 — fade out]
+
+
+═══════════════════════════════════════════════════════════════════════
+END OF SCRIPT — WEEK 13
+═══════════════════════════════════════════════════════════════════════
+
+Total estimated recording time: ~176 minutes of raw footage
+After editing and trimming: ~135–145 minutes of final content
+Target weekly student time: 135 minutes (video + exercises + homework)
