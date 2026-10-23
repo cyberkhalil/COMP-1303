@@ -917,3 +917,25 @@ footer .copyright-year { margin-top: 10px; font-size: 0.78rem; color: #475569; }
 
     .lecture-btn { display: none !important; }
 }
+
+/* ============================================================
+ *   توسيط العنوان الرئيسي — Course Header Centered
+ *   ============================================================ */
+.course-header {
+    text-align: center;
+}
+
+.course-sub {
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.instructor-panel {
+    justify-content: center;
+}
+
+/* توسيط التوهج الزخرفي أيضاً ليبقى متناسقاً */
+.course-header::after {
+    right: 50%;
+    transform: translateX(50%);
+}
