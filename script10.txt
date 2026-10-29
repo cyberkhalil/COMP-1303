@@ -12,7 +12,7 @@ Notes for the instructor:
 • "SPEAK:" marks the exact words to be said on camera.
 • Keep a steady, friendly pace — pause briefly between concepts.
 • This is the second week of Phase 2. Students are expected to have a
-  working Ubuntu Server VM from Week 1 and to have completed the Week 9
+  working Ubutnu Desktop VM from Week 1 and to have completed the Week 9
   labs on users, permissions, and systemd.
 
 
@@ -1564,7 +1564,7 @@ DHCP client's logs.
 journalctl -u systemd-networkd --since '1 hour ago' | grep -i dhcp
 
 Depending on your system, the DHCP client may be systemd-networkd,
-or NetworkManager, or isc-dhcp-client. On a fresh Ubuntu Server
+or NetworkManager, or isc-dhcp-client. On a fresh Ubutnu Desktop
 install, it is usually systemd-networkd.
 
 You should see log lines related to DHCP. Look for the four

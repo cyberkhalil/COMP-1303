@@ -529,11 +529,11 @@ system. See you there."
 
 
 ╔══════════════════════════════════════════════════════════════════════╗
-║  VIDEO 1.5 — Setting Up Your Ubuntu Server VM                        ║
+║  VIDEO 1.5 — Setting Up Your Ubutnu Desktop VM                        ║
 ║  Target duration: ~20 minutes (screencast)                           ║
 ╚══════════════════════════════════════════════════════════════════════╝
 
-[SLIDE 1 — Title: "Setting Up Your Ubuntu Server VM"]
+[SLIDE 1 — Title: "Setting Up Your Ubutnu Desktop VM"]
 
 SPEAK:
 "Welcome to the practical side of Week 1. From this point on, we're
@@ -548,13 +548,13 @@ right way to learn systems administration."
 
 [PAUSE]
 
-[SLIDE 2 — Overview checklist: VirtualBox, Ubuntu Server ISO, VM
+[SLIDE 2 — Overview checklist: VirtualBox, Ubutnu Desktop ISO, VM
 configuration]
 
 SPEAK:
 "Here's what we need. First, a virtualization platform. I'll use
 VirtualBox because it's free and cross-platform, but VMware and other
-tools work just as well. Second, the Ubuntu Server installation image,
+tools work just as well. Second, the Ubutnu Desktop installation image,
 which you can download from ubuntu.com. Third — that's it. No other
 software."
 
@@ -614,10 +614,10 @@ in Week 10."
 
 [PAUSE]
 
-[SCREENCAST — booting the VM with the Ubuntu Server ISO]
+[SCREENCAST — booting the VM with the Ubutnu Desktop ISO]
 
 SPEAK:
-"Now attach the Ubuntu Server ISO to the VM and start it. You'll see
+"Now attach the Ubutnu Desktop ISO to the VM and start it. You'll see
 the Ubuntu installer begin.
 
 The installer will ask you a series of questions. Let me highlight the
@@ -681,7 +681,7 @@ of the great advantages of learning with a VM."
 
 SPEAK:
 "To summarize what you should have after this video: a working VirtualBox
-installation, an Ubuntu Server VM with a non-root user, OpenSSH
+installation, an Ubutnu Desktop VM with a non-root user, OpenSSH
 enabled, and a snapshot of the clean state.
 
 If any of this didn't work, please ask on the course forum — we can
@@ -701,7 +701,7 @@ inside our new system."
 [SLIDE 1 — Title: "Your First Linux Commands"]
 
 SPEAK:
-"Welcome to the last video of Week 1. We've set up our Ubuntu Server
+"Welcome to the last video of Week 1. We've set up our Ubutnu Desktop
 VM, and it's time to start using it. In this video, I'll introduce the
 commands I want you to know before next week. We'll keep the pace
 gentle — these are the fundamentals, and mastering them now will save

@@ -1097,7 +1097,7 @@ We will run it on the exact data we walked through in the theory
 video, and then on some variations that show unsafe states.
 
 Make sure your Ubuntu VM is running, and Python 3 is installed. It
-is pre-installed on Ubuntu Server, so you should have it already.
+is pre-installed on Ubutnu Desktop, so you should have it already.
 Let's get started."
 
 [SCREENCAST — terminal]

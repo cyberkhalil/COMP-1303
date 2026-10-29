@@ -11,6 +11,7 @@
 }
 
 :root {
+    font-size: 17px;
     --bg-dark: #0b1120;
     --bg-card: rgba(18, 25, 45, 0.92);
     --bg-inner: rgba(0, 0, 0, 0.28);
@@ -119,7 +120,7 @@ body {
 }
 
 .course-header h1 {
-    font-size: clamp(1.5rem, 4vw, 2.6rem);
+    font-size: clamp(1.6rem, 4.2vw, 2.75rem);
     font-weight: 800;
     background: linear-gradient(135deg, #ffffff, var(--accent) 60%, #a5f3fc);
     -webkit-background-clip: text;
@@ -338,7 +339,7 @@ body {
 }
 
 .phase-title-group h2 {
-    font-size: 1.25rem;
+    font-size: 1.32rem;
     font-weight: 700;
     color: #ffffff;
     margin-bottom: 3px;
@@ -427,8 +428,8 @@ body {
 .week-badge.project-badge { background: rgba(139, 92, 246, 0.18); color: #a78bfa; border-color: rgba(139, 92, 246, 0.35); }
 
 .week-title-main {
+    font-size: 1.08rem;
     flex: 1;
-    font-size: 1.02rem;
     font-weight: 700;
     color: #f0f9ff;
     min-width: 200px;

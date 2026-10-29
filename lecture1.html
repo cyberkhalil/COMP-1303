@@ -417,18 +417,17 @@ socket(domain, type, protocol)  /* create a communication endpoint */</code></pr
         <!-- ============================================================ -->
         <!-- 1.5 LAB: VM SETUP                                            -->
         <!-- ============================================================ -->
-        <h2 id="lab-setup"><i class="fas fa-desktop"></i> 1.5 · Touch Lab — Setting Up Your Ubuntu Server VM</h2>
+        <h2 id="lab-setup"><i class="fas fa-desktop"></i> 1.5 · Touch Lab — Setting Up Your Ubuntu Desktop VM</h2>
 
         <p>
-            Throughout this course, you will work in a <strong>virtual machine</strong> (VM) running Ubuntu Server.
+            Throughout this course, you will work in a <strong>virtual machine</strong> (VM) running Ubuntu Desktop.
             Using a VM keeps your experiments isolated — if you break the system, you simply restore a snapshot or
             re-create the VM. It also lets you safely experiment with services like DNS and HTTP later in the course.
         </p>
-
         <h3>What you will do in this lab</h3>
         <ol>
             <li>Download and install <strong>VirtualBox</strong> (free, cross-platform) — or use VMware if you prefer.</li>
-            <li>Download the <strong>Ubuntu Server LTS ISO</strong> (the latest LTS release, e.g. 24.04).</li>
+            <li>Download the <strong>Ubuntu Desktop LTS ISO</strong> (the latest LTS release, e.g. 24.04).</li>
             <li>Create a new VM with at least:
                 <ul>
                     <li>2 CPUs</li>
@@ -437,15 +436,19 @@ socket(domain, type, protocol)  /* create a communication endpoint */</code></pr
                     <li>NAT + Host-Only network adapters (for later networking labs)</li>
                 </ul>
             </li>
-            <li>Boot the VM from the ISO and complete the Ubuntu Server installation:
+            <li>Boot the VM from the ISO and complete the Ubuntu Desktop installation:
                 <ul>
                     <li>Choose a language and keyboard</li>
                     <li>Set a hostname (e.g. <code>os-lab</code>)</li>
                     <li>Create a non-root user with a strong password</li>
-                    <li>Enable OpenSSH server — we will use it later</li>
                 </ul>
             </li>
-            <li>Reboot into your new system and log in for the first time.</li>
+            <li>
+                Reboot into your new system. You will see the Ubuntu Desktop graphical login screen.
+                Log in with the user you created, then open a terminal with
+                <kbd>Ctrl</kbd>+<kbd>Alt</kbd>+<kbd>T</kbd> — you will use the terminal
+                for almost all the remaining labs.
+            </li>
         </ol>
 
         <div class="success-note">
@@ -560,7 +563,7 @@ free -h          # show memory usage</code></pre>
                     exceptions are synchronous and software-driven.</li>
                 <li><strong>Kernel architectures:</strong> Monolithic (Linux, Unix) for speed; microkernel (Minix, QNX)
                     for isolation; hybrid (Windows NT, macOS) as a practical middle ground.</li>
-                <li><strong>Your lab environment:</strong> Ubuntu Server in VirtualBox is ready, and you have seen your
+                <li><strong>Your lab environment:</strong> Ubuntu Desktop in VirtualBox is ready, and you have seen your
                     first Linux commands.</li>
             </ul>
         </div>

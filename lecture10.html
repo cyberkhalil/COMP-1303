@@ -1364,7 +1364,7 @@ journalctl -u NetworkManager --since "1 hour ago" | grep -i dhcp | head -20</cod
 
         <div class="info-note">
             <i class="fas fa-lightbulb"></i>
-            <strong>If the log is not shown:</strong> on many Ubuntu Server installs, DHCP client activity is
+            <strong>If the log is not shown:</strong> on many Ubutnu Desktop installs, DHCP client activity is
             handled by <code>systemd-networkd</code> and its logs are quieter. Try
             <code>journalctl -b | grep -i dhcp</code> to see everything since boot. You may also see the
             DHCP lease info in <code>/run/systemd/netif/leases/</code> — one file per interface.
@@ -1375,7 +1375,7 @@ journalctl -u NetworkManager --since "1 hour ago" | grep -i dhcp | head -20</cod
         <pre><code>sudo ss -tlnp</code></pre>
 
         <p>
-            Note the services that are listening on your machine. On a fresh Ubuntu Server VM you will
+            Note the services that are listening on your machine. On a fresh Ubutnu Desktop VM you will
             typically see <code>sshd</code> on port 22 and possibly <code>systemd-resolved</code> on port 53.
             For each line, note the <code>Local Address</code>: <code>0.0.0.0</code> means "every interface";
             <code>127.0.0.1</code> means "only the loopback"; a specific address means "only that interface".

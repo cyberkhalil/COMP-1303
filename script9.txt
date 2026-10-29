@@ -12,7 +12,7 @@ Notes for the instructor:
 • "SPEAK:" marks the exact words to be said on camera.
 • Keep a steady, friendly pace — pause briefly between concepts.
 • This is the first week of Phase 2. Students are expected to have a
-  working Ubuntu Server VM from Week 1. If not, direct them back to the
+  working Ubutnu Desktop VM from Week 1. If not, direct them back to the
   Week 1 setup video.
 
 
